@@ -1,8 +1,8 @@
 package com.ultikits.plugins.chat.commands;
 
 import com.ultikits.plugins.chat.service.ChannelService;
-import com.ultikits.ultitools.abstracts.AbstractCommandExecutor;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
+import com.ultikits.ultitools.abstracts.command.BaseCommandExecutor;
 import com.ultikits.ultitools.annotations.ConditionalOnConfig;
 import com.ultikits.ultitools.annotations.command.CmdExecutor;
 import com.ultikits.ultitools.annotations.command.CmdMapping;
@@ -26,7 +26,7 @@ import java.util.Map;
 @CmdTarget(CmdTarget.CmdTargetType.BOTH)
 @CmdExecutor(permission = "ultichat.channel", description = "Channel commands", alias = {"ch", "channel"})
 @ConditionalOnConfig(value = "config/channels.yml", path = "channels.enabled")
-public class ChannelCommands extends AbstractCommandExecutor {
+public class ChannelCommands extends BaseCommandExecutor {
 
     private final UltiToolsPlugin plugin;
     private final ChannelService channelService;

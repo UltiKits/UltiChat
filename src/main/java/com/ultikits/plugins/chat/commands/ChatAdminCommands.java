@@ -1,8 +1,8 @@
 package com.ultikits.plugins.chat.commands;
 
 import com.ultikits.plugins.chat.service.AutoReplyService;
-import com.ultikits.ultitools.abstracts.AbstractCommandExecutor;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
+import com.ultikits.ultitools.abstracts.command.BaseCommandExecutor;
 import com.ultikits.ultitools.annotations.command.CmdExecutor;
 import com.ultikits.ultitools.annotations.command.CmdMapping;
 import com.ultikits.ultitools.annotations.command.CmdParam;
@@ -22,7 +22,7 @@ import java.util.Map;
  */
 @CmdTarget(CmdTarget.CmdTargetType.BOTH)
 @CmdExecutor(permission = "ultichat.admin", description = "UltiChat admin commands", alias = {"uchat"})
-public class ChatAdminCommands extends AbstractCommandExecutor {
+public class ChatAdminCommands extends BaseCommandExecutor {
 
     private final UltiToolsPlugin plugin;
     private final AutoReplyService autoReplyService;
