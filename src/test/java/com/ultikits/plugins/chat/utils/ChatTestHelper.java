@@ -8,8 +8,9 @@ import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
-import org.bukkit.plugin.PluginManager;
-import org.bukkit.scheduler.BukkitScheduler;
+import org.mockbukkit.mockbukkit.MockBukkit;
+import org.mockbukkit.mockbukkit.plugin.PluginManagerMock;
+import org.mockbukkit.mockbukkit.scheduler.BukkitSchedulerMock;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -47,20 +48,30 @@ public final class ChatTestHelper {
         lenient().when(mockPlugin.i18n(anyString())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(mockPlugin.getDataOperator(any())).thenReturn(mock(DataOperator.class));
 
-        mockServer = mock(Server.class);
-        lenient().when(mockServer.getLogger()).thenReturn(Logger.getLogger("MockServer"));
+        // Wrap a live MockBukkit server in a Mockito spy() rather than a bare
+        // mock(Server.class): production code (ChatListener.playMentionSound -> XSound)
+        // resolves org.bukkit.Registry, which needs a real, populated live server, not
+        // a Mockito default-answers stub. The existing when(server.getX())-style stubs
+        // below are rewritten as doReturn(...).when(spy) — when(spy.method()) would
+        // invoke the real ServerMock method first, which Mockito rejects for methods
+        // whose declared return type it cannot yet infer as a stub target.
+        mockServer = spy(MockBukkit.mock());
+        lenient().doReturn(Logger.getLogger("MockServer")).when(mockServer).getLogger();
 
-        BukkitScheduler scheduler = mock(BukkitScheduler.class);
-        lenient().when(mockServer.getScheduler()).thenReturn(scheduler);
+        // ServerMock declares covariant concrete return types for these two methods
+        // (BukkitSchedulerMock / PluginManagerMock, not the bare interfaces), so the
+        // spy's stub must mock the concrete class Mockito reports it should return.
+        BukkitSchedulerMock scheduler = mock(BukkitSchedulerMock.class);
+        lenient().doReturn(scheduler).when(mockServer).getScheduler();
 
-        PluginManager pluginManager = mock(PluginManager.class);
-        lenient().when(mockServer.getPluginManager()).thenReturn(pluginManager);
+        PluginManagerMock pluginManager = mock(PluginManagerMock.class);
+        lenient().doReturn(pluginManager).when(mockServer).getPluginManager();
         lenient().when(pluginManager.getPlugin(anyString())).thenReturn(null);
 
         lenient().doReturn(new ArrayList<>()).when(mockServer).getOnlinePlayers();
-        lenient().when(mockServer.getMaxPlayers()).thenReturn(100);
-        lenient().when(mockServer.getName()).thenReturn("MockServer");
-        lenient().when(mockServer.getPlayer(any(UUID.class))).thenReturn(null);
+        lenient().doReturn(100).when(mockServer).getMaxPlayers();
+        lenient().doReturn("MockServer").when(mockServer).getName();
+        lenient().doReturn(null).when(mockServer).getPlayer(any(UUID.class));
 
         setStaticField(Bukkit.class, "server", mockServer);
     }
@@ -68,6 +79,7 @@ public final class ChatTestHelper {
     public static void tearDown() throws Exception {
         mockPlugin = null;
         mockLogger = null;
+        MockBukkit.unmock();
     }
 
     public static UltiChat getMockPlugin() {
