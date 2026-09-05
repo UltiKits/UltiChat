@@ -1,5 +1,6 @@
 package com.ultikits.plugins.chat.listener;
 
+import com.cryptomorin.xseries.XSound;
 import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.service.AntiSpamService;
@@ -8,7 +9,6 @@ import com.ultikits.plugins.chat.service.EmojiService;
 import com.ultikits.ultitools.annotations.EventListener;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -171,12 +171,9 @@ public class ChatListener implements Listener {
         if (soundName == null || soundName.isEmpty()) {
             return;
         }
-        try {
-            Sound sound = Sound.valueOf(soundName);
-            player.playSound(player.getLocation(), sound, 1.0f, 1.0f);
-        } catch (IllegalArgumentException ignored) {
-            // Invalid sound name — silently ignore
-        }
+        // Invalid sound name — silently ignore (empty Optional short-circuits, nothing is played)
+        XSound.matchXSound(soundName).ifPresent(xSound ->
+                player.playSound(player.getLocation(), xSound.get(), 1.0f, 1.0f));
     }
 
     /**
