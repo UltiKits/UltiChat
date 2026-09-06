@@ -99,9 +99,12 @@ public class AutoReplyService {
     /**
      * Add a simple contains-mode rule to the config.
      * <p>
-     * Refuses when {@code name} already names an existing rule: merging two rules under one
-     * name has no defined semantics (which of keyword/response/mode/case-sensitivity should
-     * win per field is undecided), so an existing rule is never silently overwritten. Mirrors
+     * Refuses when {@code name} already names an existing, non-null rule: merging two rules
+     * under one name has no defined semantics (which of keyword/response/mode/case-sensitivity
+     * should win per field is undecided), so an existing rule is never silently overwritten.
+     * A name mapped to {@code null} (e.g. malformed YAML such as {@code broken:}) is treated as
+     * absent and repaired rather than refused, matching {@link #findMatch(String)}'s and
+     * {@link #setKeyword(String, String)}'s existing tolerance of null rule maps. Mirrors
      * {@link #removeRule(String)}'s own present/absent distinction, which the command layer
      * already reports through a not-found message.
      *
@@ -116,7 +119,7 @@ public class AutoReplyService {
             config.setRules(rules);
         }
 
-        if (rules.containsKey(name)) {
+        if (rules.get(name) != null) {
             return;
         }
 
