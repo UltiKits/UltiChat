@@ -8,8 +8,9 @@ import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
-import org.bukkit.plugin.PluginManager;
-import org.bukkit.scheduler.BukkitScheduler;
+import org.mockbukkit.mockbukkit.MockBukkit;
+import org.mockbukkit.mockbukkit.plugin.PluginManagerMock;
+import org.mockbukkit.mockbukkit.scheduler.BukkitSchedulerMock;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -47,20 +48,50 @@ public final class ChatTestHelper {
         lenient().when(mockPlugin.i18n(anyString())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(mockPlugin.getDataOperator(any())).thenReturn(mock(DataOperator.class));
 
-        mockServer = mock(Server.class);
-        lenient().when(mockServer.getLogger()).thenReturn(Logger.getLogger("MockServer"));
+        // What fixes the mention-sound tests is the pom.xml test dependency on
+        // org.mockbukkit.mockbukkit:mockbukkit-v1.21, not this bootstrap. That jar ships
+        // META-INF/services/io.papermc.paper.registry.RegistryAccess -> RegistryAccessMock,
+        // and Bukkit registry *constant* resolution — org.bukkit.Sound's static
+        // initialiser, which ChatListener.playMentionSound reaches through XSound — needs
+        // only that ServiceLoader provider on the classpath. Measured: with the jar
+        // present, XSound.matchXSound("ENTITY_EXPERIENCE_ORB_PICKUP").get().get() returns
+        // a non-null SoundMock under a bare mock(Server.class) and with no server
+        // installed at all; remove only that jar from the classpath and the original
+        // "NoClassDefFoundError: Could not initialize class org.bukkit.Registry" returns.
+        //
+        // The live server is kept for what a Mockito default-answers stub cannot supply.
+        // Registry constant resolution does not need one, but *item construction* and the
+        // Bukkit statics this module's production code calls do: both
+        // Bukkit.getConsoleSender() (AutoReplyListener) and Bukkit.createBossBar()
+        // (AnnouncementService) return null on a bare mock(Server.class) and a real
+        // ConsoleCommandSenderMock / BossBarMock here.
+        //
+        // tearDown()'s MockBukkit.unmock() is load-bearing on its own account: it
+        // restores Bukkit.server to null, which both clears the static singleton this
+        // helper previously left installed after every test and lets the next @BeforeEach
+        // call MockBukkit.mock() again — Bukkit.setServer() otherwise throws
+        // UnsupportedOperationException("Cannot redefine singleton Server").
+        //
+        // spy() rather than the raw ServerMock so existing verify(mockServer, ...) call
+        // sites keep working. The stubs below are therefore doReturn(...).when(spy)
+        // rather than when(spy.getX()), which would call through to the real ServerMock.
+        mockServer = spy(MockBukkit.mock());
+        lenient().doReturn(Logger.getLogger("MockServer")).when(mockServer).getLogger();
 
-        BukkitScheduler scheduler = mock(BukkitScheduler.class);
-        lenient().when(mockServer.getScheduler()).thenReturn(scheduler);
+        // ServerMock declares covariant concrete return types for these two methods
+        // (BukkitSchedulerMock / PluginManagerMock, not the bare interfaces), so the
+        // spy's stub must mock the concrete class Mockito reports it should return.
+        BukkitSchedulerMock scheduler = mock(BukkitSchedulerMock.class);
+        lenient().doReturn(scheduler).when(mockServer).getScheduler();
 
-        PluginManager pluginManager = mock(PluginManager.class);
-        lenient().when(mockServer.getPluginManager()).thenReturn(pluginManager);
+        PluginManagerMock pluginManager = mock(PluginManagerMock.class);
+        lenient().doReturn(pluginManager).when(mockServer).getPluginManager();
         lenient().when(pluginManager.getPlugin(anyString())).thenReturn(null);
 
         lenient().doReturn(new ArrayList<>()).when(mockServer).getOnlinePlayers();
-        lenient().when(mockServer.getMaxPlayers()).thenReturn(100);
-        lenient().when(mockServer.getName()).thenReturn("MockServer");
-        lenient().when(mockServer.getPlayer(any(UUID.class))).thenReturn(null);
+        lenient().doReturn(100).when(mockServer).getMaxPlayers();
+        lenient().doReturn("MockServer").when(mockServer).getName();
+        lenient().doReturn(null).when(mockServer).getPlayer(any(UUID.class));
 
         setStaticField(Bukkit.class, "server", mockServer);
     }
@@ -68,6 +99,7 @@ public final class ChatTestHelper {
     public static void tearDown() throws Exception {
         mockPlugin = null;
         mockLogger = null;
+        MockBukkit.unmock();
     }
 
     public static UltiChat getMockPlugin() {
