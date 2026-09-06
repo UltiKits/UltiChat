@@ -289,6 +289,25 @@ class ChatAdminCommandsTest {
             verify(mockAutoReplyService, never()).setKeyword(anyString(), anyString());
             assertSentMessageContaining(sender, "nonexistent");
         }
+
+        @Test
+        @DisplayName("Should send not-found, not a false success, for a null-valued rule entry")
+        void shouldSendNotFoundForANullValuedRuleEntry() {
+            // Codex review on PR #12 (commit 05901e6): malformed YAML such as `broken:`
+            // makes containsKey(name) true even though the value is null. This guard
+            // only checked key presence, so it would call the now-null-safe setKeyword
+            // no-op and still report success -- a false positive. Must check the value.
+            CommandSender sender = mock(CommandSender.class);
+
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("broken", null);
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            commands.onAutoReplySetKeyword(sender, "broken", "anything");
+
+            verify(mockAutoReplyService, never()).setKeyword(anyString(), anyString());
+            assertSentMessageContaining(sender, "broken");
+        }
     }
 
     // ==================== Help Tests ====================
