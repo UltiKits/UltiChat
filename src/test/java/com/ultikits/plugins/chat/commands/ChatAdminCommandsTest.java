@@ -175,6 +175,25 @@ class ChatAdminCommandsTest {
         }
 
         @Test
+        @DisplayName("Should repair a null-valued rule entry instead of reporting it already exists")
+        void shouldRepairANullValuedRuleEntry() {
+            // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
+            // leaves a name mapped to null. The command layer's own containsKey guard
+            // mirrors the service's, so it must apply the same non-null check or it
+            // blocks the repair before addRule is ever called.
+            CommandSender sender = mock(CommandSender.class);
+
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("broken", null);
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            commands.onAutoReplyAdd(sender, "broken", "Repaired response");
+
+            verify(mockAutoReplyService).addRule("broken", "broken", "Repaired response");
+            assertSentMessageContaining(sender, "broken");
+        }
+
+        @Test
         @DisplayName("Should include rule name in success message")
         void shouldIncludeNameInMessage() {
             CommandSender sender = mock(CommandSender.class);

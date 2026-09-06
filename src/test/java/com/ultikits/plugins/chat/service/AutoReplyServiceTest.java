@@ -459,6 +459,24 @@ class AutoReplyServiceTest {
         }
 
         @Test
+        @DisplayName("Adding a rule under a name that maps to null repairs it instead of refusing")
+        void addingARuleUnderANullValuedNameRepairsIt() {
+            // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
+            // leaves a name key mapped to null. findMatch already skips null rule maps
+            // and setKeyword already treats them as absent; addRule's containsKey guard
+            // did not, so it refused to repair an entry it could never have silently
+            // corrupted in the first place.
+            config.getRules().put("broken", null);
+
+            service.addRule("broken", "hi", "Repaired response");
+
+            Map<String, Object> rule = service.getRules().get("broken");
+            assertThat(rule).isNotNull();
+            assertThat(rule.get("keyword")).isEqualTo("hi");
+            assertThat(rule.get("response")).isEqualTo("Repaired response");
+        }
+
+        @Test
         @DisplayName("Adding a rule under a new name still succeeds")
         void addingARuleUnderANewNameStillSucceeds() {
             service.addRule("greeting", "hi", "Hello there!");
