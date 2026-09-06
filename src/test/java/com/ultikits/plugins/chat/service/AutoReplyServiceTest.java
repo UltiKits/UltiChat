@@ -531,6 +531,21 @@ class AutoReplyServiceTest {
 
             assertThat(service.getRules()).isEmpty();
         }
+
+        @Test
+        @DisplayName("Is a no-op, not a throw, when the named rule's value is null")
+        void isANoOpWhenTheNamedRulesValueIsNull() {
+            // Codex review on PR #12: a null-valued entry (e.g. malformed YAML `broken:`)
+            // makes containsKey(name) true but get(name) null, so calling put() on the
+            // retrieved value directly throws instead of behaving like the documented
+            // no-op/not-found case. findMatch already tolerates null rule maps by
+            // skipping them; setKeyword must do the same.
+            config.getRules().put("broken", null);
+
+            service.setKeyword("broken", "anything");
+
+            assertThat(service.getRules().get("broken")).isNull();
+        }
     }
 
     // ============================
