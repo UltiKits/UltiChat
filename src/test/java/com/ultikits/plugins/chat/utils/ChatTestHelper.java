@@ -48,13 +48,33 @@ public final class ChatTestHelper {
         lenient().when(mockPlugin.i18n(anyString())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(mockPlugin.getDataOperator(any())).thenReturn(mock(DataOperator.class));
 
-        // Wrap a live MockBukkit server in a Mockito spy() rather than a bare
-        // mock(Server.class): production code (ChatListener.playMentionSound -> XSound)
-        // resolves org.bukkit.Registry, which needs a real, populated live server, not
-        // a Mockito default-answers stub. The existing when(server.getX())-style stubs
-        // below are rewritten as doReturn(...).when(spy) — when(spy.method()) would
-        // invoke the real ServerMock method first, which Mockito rejects for methods
-        // whose declared return type it cannot yet infer as a stub target.
+        // What fixes the mention-sound tests is the pom.xml test dependency on
+        // org.mockbukkit.mockbukkit:mockbukkit-v1.21, not this bootstrap. That jar ships
+        // META-INF/services/io.papermc.paper.registry.RegistryAccess -> RegistryAccessMock,
+        // and Bukkit registry *constant* resolution — org.bukkit.Sound's static
+        // initialiser, which ChatListener.playMentionSound reaches through XSound — needs
+        // only that ServiceLoader provider on the classpath. Measured: with the jar
+        // present, XSound.matchXSound("ENTITY_EXPERIENCE_ORB_PICKUP").get().get() returns
+        // a non-null SoundMock under a bare mock(Server.class) and with no server
+        // installed at all; remove only that jar from the classpath and the original
+        // "NoClassDefFoundError: Could not initialize class org.bukkit.Registry" returns.
+        //
+        // The live server is kept for what a Mockito default-answers stub cannot supply.
+        // Registry constant resolution does not need one, but *item construction* and the
+        // Bukkit statics this module's production code calls do: both
+        // Bukkit.getConsoleSender() (AutoReplyListener) and Bukkit.createBossBar()
+        // (AnnouncementService) return null on a bare mock(Server.class) and a real
+        // ConsoleCommandSenderMock / BossBarMock here.
+        //
+        // tearDown()'s MockBukkit.unmock() is load-bearing on its own account: it
+        // restores Bukkit.server to null, which both clears the static singleton this
+        // helper previously left installed after every test and lets the next @BeforeEach
+        // call MockBukkit.mock() again — Bukkit.setServer() otherwise throws
+        // UnsupportedOperationException("Cannot redefine singleton Server").
+        //
+        // spy() rather than the raw ServerMock so existing verify(mockServer, ...) call
+        // sites keep working. The stubs below are therefore doReturn(...).when(spy)
+        // rather than when(spy.getX()), which would call through to the real ServerMock.
         mockServer = spy(MockBukkit.mock());
         lenient().doReturn(Logger.getLogger("MockServer")).when(mockServer).getLogger();
 
