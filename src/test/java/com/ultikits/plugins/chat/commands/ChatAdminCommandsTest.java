@@ -33,7 +33,7 @@ class ChatAdminCommandsTest {
         when(mockPlugin.i18n("autoreply_added")).thenReturn("Rule '{0}' added.");
         when(mockPlugin.i18n("autoreply_removed")).thenReturn("Rule '{0}' removed.");
         when(mockPlugin.i18n("autoreply_not_found")).thenReturn("Rule '{0}' not found.");
-        when(mockPlugin.i18n("autoreply_list_entry")).thenReturn("{0}: {1} [{2}]");
+        when(mockPlugin.i18n("autoreply_list_entry")).thenReturn("{0}: {1} [{2}] -> {3}");
         when(mockPlugin.i18n("autoreply_keyword_set")).thenReturn("Rule '{0}' keyword set to '{1}'.");
 
         commands = new ChatAdminCommands(mockPlugin, mockAutoReplyService);
@@ -132,6 +132,28 @@ class ChatAdminCommandsTest {
             commands.onAutoReplyList(sender);
 
             assertSentMessageContaining(sender, "autoreply_list_header");
+        }
+
+        @Test
+        @DisplayName("Should include each rule's response in the listing")
+        void shouldIncludeResponseInListing() {
+            // CR-01 problem 3: `autoreply list` used to render only name -> keyword
+            // [mode] and never the response, which also made silent-overwrite
+            // corruption harder to notice since the field that visibly changed was
+            // the keyword rather than the reply.
+            CommandSender sender = mock(CommandSender.class);
+
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            Map<String, Object> rule = new HashMap<>();
+            rule.put("keyword", "server IP");
+            rule.put("mode", "contains");
+            rule.put("response", "Server address: play.example.com");
+            rules.put("server-ip", rule);
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            commands.onAutoReplyList(sender);
+
+            assertSentMessageContaining(sender, "Server address: play.example.com");
         }
     }
 
