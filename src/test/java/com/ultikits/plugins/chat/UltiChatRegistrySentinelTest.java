@@ -7,10 +7,13 @@ import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockbukkit.mockbukkit.ServerMock;
 
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
@@ -33,6 +36,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * {@code ChatTestHelper#setUp()} is ever edited to stop wrapping a live {@code MockBukkit.mock()}
  * server (for example, replacing {@code spy(MockBukkit.mock())} with a bare
  * {@code mock(Server.class)}), every test below must go red.
+ * <p>
+ * That last claim was measured, and holds only because {@link #liveServerIsBootstrapped()} asserts
+ * the installed server's <em>identity</em>. A plain {@code assertNotNull(Bukkit.getServer())} is
+ * satisfied by a bare {@code mock(Server.class)} too — it would have left this sentinel three
+ * quarters sensitive, silently green on the one assertion that names the thing being guarded.
  */
 class UltiChatRegistrySentinelTest {
 
@@ -48,7 +56,14 @@ class UltiChatRegistrySentinelTest {
 
     @Test
     void liveServerIsBootstrapped() {
-        assertNotNull(Bukkit.getServer(), "live server bootstrap must be present");
+        // assertNotNull(Bukkit.getServer()) would NOT catch the regression this class
+        // guards: a bare mock(Server.class) is also non-null, so that assertion stays
+        // green in exactly the state this sentinel exists to detect. Assert the installed
+        // server's identity instead. Mockito's spy() of a ServerMock is still a
+        // ServerMock, so wrapping in ChatTestHelper.setUp() does not break this.
+        assertInstanceOf(ServerMock.class, Bukkit.getServer(),
+                "live server bootstrap must be present: Bukkit.getServer() must be a MockBukkit "
+                        + "ServerMock, not a bare Mockito stub");
     }
 
     @Test
@@ -64,7 +79,19 @@ class UltiChatRegistrySentinelTest {
 
     @Test
     void itemStackConstructionResolvesRegistry() {
-        ItemStack stack = new ItemStack(Material.DIAMOND);
+        // Item construction — unlike registry constant resolution — does need a live
+        // server: new ItemStack(Material) goes through Material.asItemType() into a
+        // registry lookup. Without one, MockBukkit's RegistryMock catches the resulting
+        // ExceptionInInitializerError and rethrows it as IncompatiblePaperVersionException,
+        // whose message reads "Version Mismatch!". The message is misleading and the
+        // assertion message below exists so nobody acts on it.
+        ItemStack stack = assertDoesNotThrow(() -> new ItemStack(Material.DIAMOND),
+                "item construction must resolve the registry on a live server. If this failed with "
+                        + "MockBukkit's IncompatiblePaperVersionException (\"Version Mismatch!\"), do NOT "
+                        + "bump paper.version — it already matches the version that message names. "
+                        + "MockBukkit rethrows ANY ExceptionInInitializerError raised while loading its "
+                        + "registry as that exception, and here it means ChatTestHelper.setUp() stopped "
+                        + "bootstrapping a live server, so Bukkit statics resolve to null.");
         assertNotNull(stack);
         assertEquals(Material.DIAMOND, stack.getType());
     }
