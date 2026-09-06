@@ -5,7 +5,7 @@
   "autoreply_exists": "&c规则 ''{0}'' 已存在。",
   "autoreply_keyword_set": "&a规则 ''{0}'' 的关键词已设置为 ''{1}''。",
   "autoreply_list_header": "&6===== 自动回复规则 =====",
-  "autoreply_list_entry": "&7- &f{0} &7-> &f{1} &7[{2}]",
+  "autoreply_list_entry": "&7- &f{0} &7-> &f{1} &7[{2}] &7=> &f{3}",
   "autoreply_list_empty": "&7没有配置自动回复规则。",
   "channel_switched": "&a已切换到频道: {0}",
   "channel_no_permission": "&c你没有频道 {0} 的权限。",

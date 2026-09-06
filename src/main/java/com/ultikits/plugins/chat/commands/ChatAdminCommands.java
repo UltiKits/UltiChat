@@ -62,13 +62,16 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             Map<String, Object> rule = entry.getValue();
             Object keyword = rule.get("keyword");
             Object mode = rule.get("mode");
+            Object response = rule.get("response");
             String keywordStr = keyword != null ? keyword.toString() : "";
             String modeStr = mode != null ? mode.toString() : "contains";
+            String responseStr = response != null ? response.toString() : "";
 
             String line = plugin.i18n("autoreply_list_entry");
             line = line.replace("{0}", name);
             line = line.replace("{1}", keywordStr);
             line = line.replace("{2}", modeStr);
+            line = line.replace("{3}", responseStr);
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', line));
         }
     }
