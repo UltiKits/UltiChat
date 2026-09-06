@@ -137,10 +137,14 @@ public class AutoReplyService {
      */
     public void setKeyword(String name, String keyword) {
         Map<String, Map<String, Object>> rules = config.getRules();
-        if (rules == null || !rules.containsKey(name)) {
+        if (rules == null) {
             return;
         }
-        rules.get(name).put("keyword", keyword);
+        Map<String, Object> rule = rules.get(name);
+        if (rule == null) {
+            return;
+        }
+        rule.put("keyword", keyword);
     }
 
     /**
