@@ -129,6 +129,18 @@ public class AutoReplyService {
     }
 
     /**
+     * Set the keyword of an existing rule, leaving its response, mode, and
+     * case-sensitivity untouched. No-ops if {@code name} does not name an existing rule.
+     * <p>
+     * TDD RED phase: body intentionally incomplete pending the next commit.
+     *
+     * @param name    the rule name (key)
+     * @param keyword the new keyword to match
+     */
+    public void setKeyword(String name, String keyword) {
+    }
+
+    /**
      * Remove a rule by name.
      *
      * @param name the rule name to remove

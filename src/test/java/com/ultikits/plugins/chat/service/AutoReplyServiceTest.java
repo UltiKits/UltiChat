@@ -464,6 +464,37 @@ class AutoReplyServiceTest {
     }
 
     // ============================
+    // Setting a rule's keyword distinct from its name
+    // ============================
+
+    @Nested
+    @DisplayName("Set Keyword")
+    class SetKeywordTests {
+
+        @Test
+        @DisplayName("Updates only the keyword of an existing rule, leaving response, mode, and case-sensitivity untouched")
+        void updatesOnlyTheKeywordOfAnExistingRule() {
+            addRule("server-ip", "server-ip", "Server address: play.example.com", "exact", true);
+
+            service.setKeyword("server-ip", "server IP");
+
+            Map<String, Object> rule = service.getRules().get("server-ip");
+            assertThat(rule.get("keyword")).isEqualTo("server IP");
+            assertThat(rule.get("response")).isEqualTo("Server address: play.example.com");
+            assertThat(rule.get("mode")).isEqualTo("exact");
+            assertThat(rule.get("case-sensitive")).isEqualTo(true);
+        }
+
+        @Test
+        @DisplayName("Is a no-op when the named rule does not exist")
+        void isANoOpWhenTheNamedRuleDoesNotExist() {
+            service.setKeyword("missing", "anything");
+
+            assertThat(service.getRules()).isEmpty();
+        }
+    }
+
+    // ============================
     // Null safety
     // ============================
 

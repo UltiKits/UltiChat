@@ -94,6 +94,15 @@ public class ChatAdminCommands extends BaseCommandExecutor {
     }
 
     /**
+     * Set an existing auto-reply rule's keyword to a value distinct from its name.
+     * 为已存在的自动回复规则设置与名称不同的关键词。
+     * <p>
+     * TDD RED phase: body intentionally incomplete pending the next commit.
+     */
+    public void onAutoReplySetKeyword(CommandSender sender, String name, String keyword) {
+    }
+
+    /**
      * Remove an auto-reply rule.
      * 移除自动回复规则。
      */

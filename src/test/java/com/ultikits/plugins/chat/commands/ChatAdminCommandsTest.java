@@ -34,6 +34,7 @@ class ChatAdminCommandsTest {
         when(mockPlugin.i18n("autoreply_removed")).thenReturn("Rule '{0}' removed.");
         when(mockPlugin.i18n("autoreply_not_found")).thenReturn("Rule '{0}' not found.");
         when(mockPlugin.i18n("autoreply_list_entry")).thenReturn("{0}: {1} [{2}]");
+        when(mockPlugin.i18n("autoreply_keyword_set")).thenReturn("Rule '{0}' keyword set to '{1}'.");
 
         commands = new ChatAdminCommands(mockPlugin, mockAutoReplyService);
     }
@@ -206,6 +207,46 @@ class ChatAdminCommandsTest {
             commands.onAutoReplyRemove(sender, "missing");
 
             verify(mockAutoReplyService, never()).removeRule(anyString());
+        }
+    }
+
+    // ==================== AutoReply Set Keyword Tests ====================
+
+    @Nested
+    @DisplayName("AutoReply Set Keyword Command")
+    class AutoReplySetKeywordTests {
+
+        @Test
+        @DisplayName("Should set the keyword on an existing rule and send confirmation")
+        void shouldSetKeywordOnExistingRule() {
+            // CR-01 problem 1: `autoreply add` still forces keyword = name with no
+            // parameter to say otherwise. This closes that gap the smallest way that
+            // avoids an ambiguous overload against the existing 2-arg `add` format --
+            // a distinct `setkeyword` verb, unambiguous under the framework's scored
+            // format matching since its second literal token ("setkeyword") never
+            // matches "add"'s.
+            CommandSender sender = mock(CommandSender.class);
+
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("server-ip", new HashMap<String, Object>());
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            commands.onAutoReplySetKeyword(sender, "server-ip", "server IP");
+
+            verify(mockAutoReplyService).setKeyword("server-ip", "server IP");
+            assertSentMessageContaining(sender, "server-ip");
+        }
+
+        @Test
+        @DisplayName("Should send not-found message and not call setKeyword for a missing rule")
+        void shouldSendNotFoundForMissingRule() {
+            CommandSender sender = mock(CommandSender.class);
+            when(mockAutoReplyService.getRules()).thenReturn(Collections.<String, Map<String, Object>>emptyMap());
+
+            commands.onAutoReplySetKeyword(sender, "nonexistent", "anything");
+
+            verify(mockAutoReplyService, never()).setKeyword(anyString(), anyString());
+            assertSentMessageContaining(sender, "nonexistent");
         }
     }
 
