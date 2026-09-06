@@ -420,6 +420,50 @@ class AutoReplyServiceTest {
     }
 
     // ============================
+    // Duplicate rule-name guard
+    // ============================
+
+    @Nested
+    @DisplayName("Duplicate Name Guard")
+    class DuplicateNameGuardTests {
+
+        @Test
+        @DisplayName("Adding a rule under an existing name is refused")
+        void addingARuleUnderAnExistingNameIsRefused() {
+            service.addRule("greeting", "hi", "Original response");
+
+            service.addRule("greeting", "hello", "Replacement response");
+
+            Map<String, Map<String, Object>> rules = service.getRules();
+            assertThat(rules.get("greeting").get("response")).isEqualTo("Original response");
+            assertThat(rules.get("greeting").get("keyword")).isEqualTo("hi");
+        }
+
+        @Test
+        @DisplayName("Adding a rule under a new name still succeeds")
+        void addingARuleUnderANewNameStillSucceeds() {
+            service.addRule("greeting", "hi", "Hello there!");
+
+            Map<String, Map<String, Object>> rules = service.getRules();
+            assertThat(rules.get("greeting").get("keyword")).isEqualTo("hi");
+            assertThat(rules.get("greeting").get("response")).isEqualTo("Hello there!");
+        }
+
+        @Test
+        @DisplayName("A refused add does not reorder the existing rules")
+        void aRefusedAddDoesNotReorderTheExistingRules() {
+            service.addRule("first", "hi", "First response");
+            service.addRule("second", "hello", "Second response");
+
+            service.addRule("first", "hi", "Attempted replacement");
+
+            List<String> keysInOrder = new ArrayList<>(service.getRules().keySet());
+            assertThat(keysInOrder).containsExactly("first", "second");
+            assertThat(service.getRules().get("first").get("response")).isEqualTo("First response");
+        }
+    }
+
+    // ============================
     // Null safety
     // ============================
 
