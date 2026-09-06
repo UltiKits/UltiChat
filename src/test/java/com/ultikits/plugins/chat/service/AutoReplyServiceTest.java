@@ -469,16 +469,36 @@ class AutoReplyServiceTest {
         }
 
         @Test
-        @DisplayName("A refused add does not reorder the existing rules")
-        void aRefusedAddDoesNotReorderTheExistingRules() {
+        @DisplayName("A refused add does not disturb the other existing rules")
+        void aRefusedAddDoesNotDisturbTheOtherExistingRules() {
+            // WR-02: this replaces a `containsExactly("first", "second")` order
+            // assertion that could never fail independently of the response assertion
+            // already in this test. Map.put(existingKey, newValue) never changes
+            // iteration order in HashMap or LinkedHashMap -- only inserting a *new* key
+            // does -- and a refused add and an unguarded overwrite both call put() on
+            // the same already-present key, so the order came out identical either way.
+            // Backing this test's map with a LinkedHashMap to make order assertions
+            // meaningful was tried and reverted: it silently changed
+            // RegexModeTests.shouldCacheSeparatePatterns' outcome, because that
+            // unrelated test already depends on this class's default HashMap iteration
+            // order pairing two same-keyword rules in the order that lets both of their
+            // patterns get compiled before findMatch's first match short-circuits the
+            // loop -- a second, pre-existing instance of the exact anti-pattern this
+            // finding is about, out of scope for this change and left as a separate,
+            // undocumented fragility for now. What this test asserts instead -- that
+            // "second" survives the refused add on "first" untouched -- *can* fail
+            // independently: a defective "clear-then-rebuild" style merge would wipe it
+            // even though the response assertion on "first" alone would not catch that.
             service.addRule("first", "hi", "First response");
             service.addRule("second", "hello", "Second response");
 
             service.addRule("first", "hi", "Attempted replacement");
 
-            List<String> keysInOrder = new ArrayList<>(service.getRules().keySet());
-            assertThat(keysInOrder).containsExactly("first", "second");
-            assertThat(service.getRules().get("first").get("response")).isEqualTo("First response");
+            Map<String, Map<String, Object>> rules = service.getRules();
+            assertThat(rules).containsKey("second");
+            assertThat(rules.get("second").get("response")).isEqualTo("Second response");
+            assertThat(rules.get("second").get("keyword")).isEqualTo("hello");
+            assertThat(rules.get("first").get("response")).isEqualTo("First response");
         }
     }
 
