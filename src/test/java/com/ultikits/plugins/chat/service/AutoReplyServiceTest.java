@@ -440,6 +440,25 @@ class AutoReplyServiceTest {
         }
 
         @Test
+        @DisplayName("Adding a rule under an existing name also preserves its mode and case-sensitivity")
+        void addingARuleUnderAnExistingNamePreservesModeAndCaseSensitivity() {
+            // WR-01: addRule(name, keyword, response) itself always hardcodes
+            // mode="contains"/case-sensitive=false, so a rule built purely through the
+            // service's own 3-arg addRule never puts those two fields in a state where
+            // overwriting them would be observable. Seed the rule directly with
+            // non-default values via the test's 5-arg helper instead.
+            addRule("greeting", "hi", "Original response", "exact", true);
+
+            service.addRule("greeting", "hello", "Replacement response");
+
+            Map<String, Map<String, Object>> rules = service.getRules();
+            assertThat(rules.get("greeting").get("response")).isEqualTo("Original response");
+            assertThat(rules.get("greeting").get("keyword")).isEqualTo("hi");
+            assertThat(rules.get("greeting").get("mode")).isEqualTo("exact");
+            assertThat(rules.get("greeting").get("case-sensitive")).isEqualTo(true);
+        }
+
+        @Test
         @DisplayName("Adding a rule under a new name still succeeds")
         void addingARuleUnderANewNameStillSucceeds() {
             service.addRule("greeting", "hi", "Hello there!");
