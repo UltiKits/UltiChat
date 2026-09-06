@@ -81,6 +81,13 @@ public class ChatAdminCommands extends BaseCommandExecutor {
     public void onAutoReplyAdd(@CmdSender CommandSender sender,
                                @CmdParam("name") String name,
                                @CmdParam("response") String response) {
+        Map<String, Map<String, Object>> rules = autoReplyService.getRules();
+        if (rules.containsKey(name)) {
+            String msg = plugin.i18n("autoreply_exists").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
+        }
+
         autoReplyService.addRule(name, name, response);
         String msg = plugin.i18n("autoreply_added").replace("{0}", name);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));

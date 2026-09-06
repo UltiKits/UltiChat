@@ -98,6 +98,12 @@ public class AutoReplyService {
 
     /**
      * Add a simple contains-mode rule to the config.
+     * <p>
+     * Refuses when {@code name} already names an existing rule: merging two rules under one
+     * name has no defined semantics (which of keyword/response/mode/case-sensitivity should
+     * win per field is undecided), so an existing rule is never silently overwritten. Mirrors
+     * {@link #removeRule(String)}'s own present/absent distinction, which the command layer
+     * already reports through a not-found message.
      *
      * @param name     the rule name (key)
      * @param keyword  the keyword to match
@@ -108,6 +114,10 @@ public class AutoReplyService {
         if (rules == null) {
             rules = new HashMap<>();
             config.setRules(rules);
+        }
+
+        if (rules.containsKey(name)) {
+            return;
         }
 
         Map<String, Object> rule = new HashMap<>();

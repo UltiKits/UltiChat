@@ -2,6 +2,7 @@
   "autoreply_added": "&a自动回复规则 ''{0}'' 已添加。",
   "autoreply_removed": "&a自动回复规则 ''{0}'' 已移除。",
   "autoreply_not_found": "&c未找到规则 ''{0}''。",
+  "autoreply_exists": "&c规则 ''{0}'' 已存在。",
   "autoreply_list_header": "&6===== 自动回复规则 =====",
   "autoreply_list_entry": "&7- &f{0} &7-> &f{1} &7[{2}]",
   "autoreply_list_empty": "&7没有配置自动回复规则。",
