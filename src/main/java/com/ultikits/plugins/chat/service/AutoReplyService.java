@@ -131,13 +131,16 @@ public class AutoReplyService {
     /**
      * Set the keyword of an existing rule, leaving its response, mode, and
      * case-sensitivity untouched. No-ops if {@code name} does not name an existing rule.
-     * <p>
-     * TDD RED phase: body intentionally incomplete pending the next commit.
      *
      * @param name    the rule name (key)
      * @param keyword the new keyword to match
      */
     public void setKeyword(String name, String keyword) {
+        Map<String, Map<String, Object>> rules = config.getRules();
+        if (rules == null || !rules.containsKey(name)) {
+            return;
+        }
+        rules.get(name).put("keyword", keyword);
     }
 
     /**
