@@ -98,6 +98,15 @@ public class AutoReplyService {
 
     /**
      * Add a simple contains-mode rule to the config.
+     * <p>
+     * Refuses when {@code name} already names an existing, non-null rule: merging two rules
+     * under one name has no defined semantics (which of keyword/response/mode/case-sensitivity
+     * should win per field is undecided), so an existing rule is never silently overwritten.
+     * A name mapped to {@code null} (e.g. malformed YAML such as {@code broken:}) is treated as
+     * absent and repaired rather than refused, matching {@link #findMatch(String)}'s and
+     * {@link #setKeyword(String, String)}'s existing tolerance of null rule maps. Mirrors
+     * {@link #removeRule(String)}'s own present/absent distinction, which the command layer
+     * already reports through a not-found message.
      *
      * @param name     the rule name (key)
      * @param keyword  the keyword to match
@@ -110,12 +119,35 @@ public class AutoReplyService {
             config.setRules(rules);
         }
 
+        if (rules.get(name) != null) {
+            return;
+        }
+
         Map<String, Object> rule = new HashMap<>();
         rule.put("keyword", keyword);
         rule.put("response", response);
         rule.put("mode", "contains");
         rule.put("case-sensitive", false);
         rules.put(name, rule);
+    }
+
+    /**
+     * Set the keyword of an existing rule, leaving its response, mode, and
+     * case-sensitivity untouched. No-ops if {@code name} does not name an existing rule.
+     *
+     * @param name    the rule name (key)
+     * @param keyword the new keyword to match
+     */
+    public void setKeyword(String name, String keyword) {
+        Map<String, Map<String, Object>> rules = config.getRules();
+        if (rules == null) {
+            return;
+        }
+        Map<String, Object> rule = rules.get(name);
+        if (rule == null) {
+            return;
+        }
+        rule.put("keyword", keyword);
     }
 
     /**

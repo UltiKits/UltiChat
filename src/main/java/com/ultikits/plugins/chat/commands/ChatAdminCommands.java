@@ -62,13 +62,16 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             Map<String, Object> rule = entry.getValue();
             Object keyword = rule.get("keyword");
             Object mode = rule.get("mode");
+            Object response = rule.get("response");
             String keywordStr = keyword != null ? keyword.toString() : "";
             String modeStr = mode != null ? mode.toString() : "contains";
+            String responseStr = response != null ? response.toString() : "";
 
             String line = plugin.i18n("autoreply_list_entry");
             line = line.replace("{0}", name);
             line = line.replace("{1}", keywordStr);
             line = line.replace("{2}", modeStr);
+            line = line.replace("{3}", responseStr);
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', line));
         }
     }
@@ -81,8 +84,42 @@ public class ChatAdminCommands extends BaseCommandExecutor {
     public void onAutoReplyAdd(@CmdSender CommandSender sender,
                                @CmdParam("name") String name,
                                @CmdParam("response") String response) {
+        Map<String, Map<String, Object>> rules = autoReplyService.getRules();
+        if (rules.get(name) != null) {
+            String msg = plugin.i18n("autoreply_exists").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
+        }
+
         autoReplyService.addRule(name, name, response);
         String msg = plugin.i18n("autoreply_added").replace("{0}", name);
+        sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+    }
+
+    /**
+     * Set an existing auto-reply rule's keyword to a value distinct from its name.
+     * 为已存在的自动回复规则设置与名称不同的关键词。
+     * <p>
+     * A separate verb rather than a third {@code add} parameter: the existing
+     * {@code autoreply add <name> <response>} format cannot grow a keyword parameter
+     * without becoming ambiguous against itself under the framework's scored format
+     * matching, since a shorter actual arg list partially matches a longer format
+     * (see {@code BaseCommandExecutor.calculateMatchScore}). A distinct literal
+     * ("setkeyword") at the same position "add" occupies is unambiguous instead.
+     */
+    @CmdMapping(format = "autoreply setkeyword <name> <keyword>")
+    public void onAutoReplySetKeyword(@CmdSender CommandSender sender,
+                                      @CmdParam("name") String name,
+                                      @CmdParam("keyword") String keyword) {
+        Map<String, Map<String, Object>> rules = autoReplyService.getRules();
+        if (rules.get(name) == null) {
+            String msg = plugin.i18n("autoreply_not_found").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
+        }
+
+        autoReplyService.setKeyword(name, keyword);
+        String msg = plugin.i18n("autoreply_keyword_set").replace("{0}", name).replace("{1}", keyword);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
     }
 
@@ -111,6 +148,7 @@ public class ChatAdminCommands extends BaseCommandExecutor {
         sender.sendMessage(ChatColor.AQUA + "/uchat reload" + ChatColor.WHITE + " - Reload configs");
         sender.sendMessage(ChatColor.AQUA + "/uchat autoreply list" + ChatColor.WHITE + " - List auto-reply rules");
         sender.sendMessage(ChatColor.AQUA + "/uchat autoreply add <name> <response>" + ChatColor.WHITE + " - Add rule");
+        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply setkeyword <name> <keyword>" + ChatColor.WHITE + " - Set a rule's keyword");
         sender.sendMessage(ChatColor.AQUA + "/uchat autoreply remove <name>" + ChatColor.WHITE + " - Remove rule");
     }
 }

@@ -420,6 +420,153 @@ class AutoReplyServiceTest {
     }
 
     // ============================
+    // Duplicate rule-name guard
+    // ============================
+
+    @Nested
+    @DisplayName("Duplicate Name Guard")
+    class DuplicateNameGuardTests {
+
+        @Test
+        @DisplayName("Adding a rule under an existing name is refused")
+        void addingARuleUnderAnExistingNameIsRefused() {
+            service.addRule("greeting", "hi", "Original response");
+
+            service.addRule("greeting", "hello", "Replacement response");
+
+            Map<String, Map<String, Object>> rules = service.getRules();
+            assertThat(rules.get("greeting").get("response")).isEqualTo("Original response");
+            assertThat(rules.get("greeting").get("keyword")).isEqualTo("hi");
+        }
+
+        @Test
+        @DisplayName("Adding a rule under an existing name also preserves its mode and case-sensitivity")
+        void addingARuleUnderAnExistingNamePreservesModeAndCaseSensitivity() {
+            // WR-01: addRule(name, keyword, response) itself always hardcodes
+            // mode="contains"/case-sensitive=false, so a rule built purely through the
+            // service's own 3-arg addRule never puts those two fields in a state where
+            // overwriting them would be observable. Seed the rule directly with
+            // non-default values via the test's 5-arg helper instead.
+            addRule("greeting", "hi", "Original response", "exact", true);
+
+            service.addRule("greeting", "hello", "Replacement response");
+
+            Map<String, Map<String, Object>> rules = service.getRules();
+            assertThat(rules.get("greeting").get("response")).isEqualTo("Original response");
+            assertThat(rules.get("greeting").get("keyword")).isEqualTo("hi");
+            assertThat(rules.get("greeting").get("mode")).isEqualTo("exact");
+            assertThat(rules.get("greeting").get("case-sensitive")).isEqualTo(true);
+        }
+
+        @Test
+        @DisplayName("Adding a rule under a name that maps to null repairs it instead of refusing")
+        void addingARuleUnderANullValuedNameRepairsIt() {
+            // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
+            // leaves a name key mapped to null. findMatch already skips null rule maps
+            // and setKeyword already treats them as absent; addRule's containsKey guard
+            // did not, so it refused to repair an entry it could never have silently
+            // corrupted in the first place.
+            config.getRules().put("broken", null);
+
+            service.addRule("broken", "hi", "Repaired response");
+
+            Map<String, Object> rule = service.getRules().get("broken");
+            assertThat(rule).isNotNull();
+            assertThat(rule.get("keyword")).isEqualTo("hi");
+            assertThat(rule.get("response")).isEqualTo("Repaired response");
+        }
+
+        @Test
+        @DisplayName("Adding a rule under a new name still succeeds")
+        void addingARuleUnderANewNameStillSucceeds() {
+            service.addRule("greeting", "hi", "Hello there!");
+
+            Map<String, Map<String, Object>> rules = service.getRules();
+            assertThat(rules.get("greeting").get("keyword")).isEqualTo("hi");
+            assertThat(rules.get("greeting").get("response")).isEqualTo("Hello there!");
+        }
+
+        @Test
+        @DisplayName("A refused add does not disturb the other existing rules")
+        void aRefusedAddDoesNotDisturbTheOtherExistingRules() {
+            // WR-02: this replaces a `containsExactly("first", "second")` order
+            // assertion that could never fail independently of the response assertion
+            // already in this test. Map.put(existingKey, newValue) never changes
+            // iteration order in HashMap or LinkedHashMap -- only inserting a *new* key
+            // does -- and a refused add and an unguarded overwrite both call put() on
+            // the same already-present key, so the order came out identical either way.
+            // Backing this test's map with a LinkedHashMap to make order assertions
+            // meaningful was tried and reverted: it silently changed
+            // RegexModeTests.shouldCacheSeparatePatterns' outcome, because that
+            // unrelated test already depends on this class's default HashMap iteration
+            // order pairing two same-keyword rules in the order that lets both of their
+            // patterns get compiled before findMatch's first match short-circuits the
+            // loop -- a second, pre-existing instance of the exact anti-pattern this
+            // finding is about, out of scope for this change and left as a separate,
+            // undocumented fragility for now. What this test asserts instead -- that
+            // "second" survives the refused add on "first" untouched -- *can* fail
+            // independently: a defective "clear-then-rebuild" style merge would wipe it
+            // even though the response assertion on "first" alone would not catch that.
+            service.addRule("first", "hi", "First response");
+            service.addRule("second", "hello", "Second response");
+
+            service.addRule("first", "hi", "Attempted replacement");
+
+            Map<String, Map<String, Object>> rules = service.getRules();
+            assertThat(rules).containsKey("second");
+            assertThat(rules.get("second").get("response")).isEqualTo("Second response");
+            assertThat(rules.get("second").get("keyword")).isEqualTo("hello");
+            assertThat(rules.get("first").get("response")).isEqualTo("First response");
+        }
+    }
+
+    // ============================
+    // Setting a rule's keyword distinct from its name
+    // ============================
+
+    @Nested
+    @DisplayName("Set Keyword")
+    class SetKeywordTests {
+
+        @Test
+        @DisplayName("Updates only the keyword of an existing rule, leaving response, mode, and case-sensitivity untouched")
+        void updatesOnlyTheKeywordOfAnExistingRule() {
+            addRule("server-ip", "server-ip", "Server address: play.example.com", "exact", true);
+
+            service.setKeyword("server-ip", "server IP");
+
+            Map<String, Object> rule = service.getRules().get("server-ip");
+            assertThat(rule.get("keyword")).isEqualTo("server IP");
+            assertThat(rule.get("response")).isEqualTo("Server address: play.example.com");
+            assertThat(rule.get("mode")).isEqualTo("exact");
+            assertThat(rule.get("case-sensitive")).isEqualTo(true);
+        }
+
+        @Test
+        @DisplayName("Is a no-op when the named rule does not exist")
+        void isANoOpWhenTheNamedRuleDoesNotExist() {
+            service.setKeyword("missing", "anything");
+
+            assertThat(service.getRules()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Is a no-op, not a throw, when the named rule's value is null")
+        void isANoOpWhenTheNamedRulesValueIsNull() {
+            // Codex review on PR #12: a null-valued entry (e.g. malformed YAML `broken:`)
+            // makes containsKey(name) true but get(name) null, so calling put() on the
+            // retrieved value directly throws instead of behaving like the documented
+            // no-op/not-found case. findMatch already tolerates null rule maps by
+            // skipping them; setKeyword must do the same.
+            config.getRules().put("broken", null);
+
+            service.setKeyword("broken", "anything");
+
+            assertThat(service.getRules().get("broken")).isNull();
+        }
+    }
+
+    // ============================
     // Null safety
     // ============================
 
