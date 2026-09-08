@@ -180,7 +180,7 @@ exercises each toggle independently.
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
-| ultichat.chat.pipeline | Process an outgoing chat message through anti-spam, emoji substitution, channel-scoped recipient filtering, chat formatting, and `@mention` highlighting, in that fixed order (see section note above) | event | send any chat message as a player | n/a | n/a | player | brief | ChatListener#onChat |
+| ultichat.chat.pipeline | Process an outgoing chat message through anti-spam, emoji substitution, channel-scoped recipient filtering, chat formatting, and `@mention` highlighting, in that fixed order (see section note above). A sender holding `ultichat.spam.bypass` skips the anti-spam slice entirely — `ChatListener#handleAntiSpam` returns before `AntiSpamService#checkSpam` or `#recordMessage` run at all, so cooldown, duplicate-detection, and caps-limit enforcement are all bypassed together, not individually | event | send any chat message as a player | n/a | n/a | player | brief | ChatListener#onChat |
 
 ## Join/Quit Messages
 

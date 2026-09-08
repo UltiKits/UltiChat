@@ -14,13 +14,17 @@ List every issue this pull request closes, one per line, using a closing keyword
 Write `None` if it closes nothing, so that an empty section reads as a decision rather than
 an oversight.
 
-Why this section exists: feature pull requests here target `alpha`, not the default branch
-`main`. GitHub acts on closing keywords only for pull requests merged into the default branch,
-so `Closes #1234` on its own has never closed anything in this repository. After the merge,
-`.github/workflows/phase-closeout.yml` reads this section and performs the closure.
+Why this section exists: `master` is this repository's own default branch (unlike the
+framework, which merges feature work into `alpha` first), so a `Closes #1234` written outside
+this comment DOES act automatically on merge here -- GitHub only honours closing keywords on a
+merge into the default branch, and a pull request into `master` already is one. There is no
+`phase-closeout.yml` or equivalent workflow in this repository (`.github/workflows/` holds only
+`maven-ci.yml` and `publish.yml`) -- this section's declarations are what closes the issue, not a
+follow-up automation step. State `None` explicitly rather than leaving the section blank, so a
+reviewer can tell "closes nothing" apart from "forgot to fill this in".
 
-The workflow ignores anything inside an HTML comment, a code fence, or backticks - which is why
-the example above closes nothing. Put real declarations outside this comment.
+Anything inside an HTML comment, a code fence, or backticks does not count as a real declaration
+-- which is why the example above closes nothing. Put real declarations outside this comment.
 -->
 
 ## Verification
