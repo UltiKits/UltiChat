@@ -17,6 +17,16 @@ for real-machine verification, not user-facing documentation.
 - **Layer**, copied verbatim from Laojun's own `ultitools-real-client-uat` skill so no
   translation step exists at dispatch time: `protocol`, `java-client`, `os-input`, `pixel`,
   `server`, `human`.
+- **Human-authenticated-session rows (D-27b):** a row whose Steps can only be exercised through
+  the maintainer's own authenticated UltiCloud panel session — because the real inbound WebSocket
+  route requires a valid cloud token issued solely by a personal magic-link login, not by any
+  credential or route the executing agent could construct itself — carries the fixed
+  Preconditions phrase `maintainer-authenticated UltiCloud panel session (personal credentials)`
+  (appended to, not replacing, the row's own preconditions) and Layer `human`. Such a row ends at
+  `human-uat-pending` by design — the second legitimate exit named in the header blockquote — not
+  as a workflow failure discovered mid-dispatch. UltiChat has no panel-capability rows of its own,
+  so no row below is currently affected; the convention is stated here for template consistency
+  with the framework's checklist.
 - **Expected** must name an observable truth — an exact chat line, a log line, a database row,
   an inventory slot — and never the words "it works".
 - **Covers** back-references a Phase 9 GUI-excluded class name; left blank when no such class
@@ -24,13 +34,22 @@ for real-machine verification, not user-facing documentation.
   by reading `.planning/phases/09-module-ecosystem-readiness-and-test-coverage/gui-exclusions/` —
   no `UltiChat.md` file exists there, and no file in that directory names UltiChat), so every row
   below leaves `Covers` blank.
-- A row whose Preconditions name a prior row must appear after that row in file order.
+- A row whose Preconditions name a prior row must appear after that row in file order — asserted
+  mechanically: for every row, every checklist ID cited in its Preconditions cell must have a
+  strictly smaller line number in this file than the row citing it (sweep class 8, D-27a).
 - **Config-per-file rule (D-06):** one checklist row per `@ConfigEntity`-annotated class or per
   shipped yml file, never one row per key. This is the one deliberate exception to the "ID cites
   its `FEATURES.md` ID verbatim" rule above: a config-per-file row (ID suffixed `-yml`, e.g.
   `ultichat.config.chat-yml`) aggregates every per-key `ultichat.config.<file-stem>.*` row for
   that file rather than citing a single one of them — there is no single per-key ID to cite when
-  the row's job is exercising the whole file at once.
+  the row's job is exercising the whole file at once. A build-time (Maven-filtered) property —
+  one resolved by Maven resource filtering at package time, such as `env.yml`'s `api-url` — is
+  exercised by the build that produced the handed-over jar, not by editing the shipped file after
+  the fact; such a row must state which build property it proves, and its Preconditions must
+  state that the file it reads comes from a fresh, unmodified extraction of that build's jar at
+  the property's shipped default, not a hand-edited copy. `env.yml` ships with the framework, not
+  with UltiChat; UltiChat ships no Maven-filtered config file of its own, so no row below is
+  currently affected.
 - This repository's shipped default is `language: "zh"` in `config.yml`. Every row below whose
   Expected quotes a literal in-game or console line therefore carries the precondition
   `language: en` set in `plugins/UltiTools/config.yml`, so the observed line matches this
@@ -59,7 +78,7 @@ for real-machine verification, not user-facing documentation.
 | ultichat.autoreply.add | `language: en` in config.yml; a rule name `greeting` does not currently exist | Run `/uchat autoreply add greeting hello` | Chat/console line reads `Auto-reply rule ''greeting'' added.` (green, `autoreply_added` — note the doubled single-quote is literal, not an escape); `/uchat autoreply list` immediately afterward shows a `greeting` row with keyword `greeting`, mode `contains`, response `hello` | server | |
 | ultichat.autoreply.add.neg-duplicate | `language: en` in config.yml; a rule named `greeting` already exists (run `ultichat.autoreply.add` first) | Run `/uchat autoreply add greeting bye` | Chat/console line reads `Rule ''greeting'' already exists.` (red, `autoreply_exists`); `/uchat autoreply list` immediately afterward still shows `greeting`'s ORIGINAL keyword/response (`hello`) unchanged — `AutoReplyService#addRule` refuses rather than silently overwriting | server | |
 | ultichat.autoreply.list | `language: en` in config.yml; the default two shipped rules (`server-ip`, `rules-info`) present, unmodified | Run `/uchat autoreply list` | Chat/console starts with `===== Auto-Reply Rules =====` (gold, `autoreply_list_header`), then one line per rule matching `autoreply_list_entry`'s template — for `server-ip`: `- server-ip -> server IP [contains] => Server address: play.example.com` (colorized per the template, not a paraphrase) | server | |
-| ultichat.autoreply.list.neg-empty | `language: en` in config.yml; every rule removed (run `ultichat.autoreply.remove` against each shipped rule first) | Run `/uchat autoreply list` | Chat/console shows `===== Auto-Reply Rules =====` (gold) followed immediately by `No auto-reply rules configured.` (gray, `autoreply_list_empty`) — no rule entry lines | server | |
+| ultichat.autoreply.list.neg-empty | `language: en` in config.yml; every currently configured rule removed — run `/uchat autoreply list` first to see what actually exists (the two shipped defaults `server-ip`/`rules-info`, PLUS `greeting` if an earlier row in this dispatch batch already added it), then run `/uchat autoreply remove <name>` against every rule that list shows, directly, without depending on any other checklist row's own execution order for correctness | Run `/uchat autoreply list` | Chat/console shows `===== Auto-Reply Rules =====` (gold) followed immediately by `No auto-reply rules configured.` (gray, `autoreply_list_empty`) — no rule entry lines | server | |
 | ultichat.autoreply.persistence | `language: en` in config.yml; a rule `greeting` added via `/uchat autoreply add greeting hello` (run `ultichat.autoreply.add` first) | Stop the server completely (not `/uchat reload`, not `/ul reload`) — a full clean shutdown — then start it again, then run `/uchat autoreply list` | The `greeting` rule is still present with its original keyword/response — `UltiTools#onDisable` -> `ConfigManager#saveAll()` persisted the in-memory rule set to `config/autoreply.yml` before shutdown | server | |
 | ultichat.autoreply.persistence.neg-reload-loses-change | `language: en` in config.yml; a rule `midreload` added via `/uchat autoreply add midreload test` (run `ultichat.autoreply.add` first), with NO intervening clean server stop | Run `/uchat reload` (not a restart), then run `/uchat autoreply list` | The `midreload` rule is GONE — `AutoReplyService#addRule` never called `AbstractConfigEntity#save()`, and `/uchat reload` -> `ConfigManager#reloadConfigs` re-`init()`s `AutoReplyConfig` from disk, discarding the un-persisted in-memory addition. A known product defect, `UltiKits/UltiChat#17` | server | |
 | ultichat.autoreply.remove | `language: en` in config.yml; a rule `greeting` exists (run `ultichat.autoreply.add` first) | Run `/uchat autoreply remove greeting` | Chat/console line reads `Auto-reply rule ''greeting'' removed.` (green, `autoreply_removed`); `/uchat autoreply list` immediately afterward no longer lists `greeting` | server | |
