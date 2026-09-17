@@ -27,15 +27,20 @@ class UltiChatTest {
          * template methods that always run the framework's own steps (on unload: the module's
          * {@code onUnregister()} hook, then command and listener unregistration). This module's
          * former {@code unregisterSelf()} override was empty and never called {@code super}, so
-         * its commands were never unregistered (UltiKits/UltiChat#23). It is deleted outright;
-         * this test pins that neither template method is declared again.
+         * {@code /upm uninstall} skipped command and listener unregistration (UltiKits/UltiChat#23). It is deleted outright;
+         * this test pins that neither template method is declared again (zero-argument
+         * declarations only).
          */
         @Test
         @DisplayName("UltiChat declares neither framework template method")
         void declaresNeitherTemplateMethod() {
             List<String> declared = new ArrayList<>();
             for (Method method : UltiChat.class.getDeclaredMethods()) {
-                declared.add(method.getName());
+                // Only a zero-argument declaration overrides a template method; an unrelated
+                // overload such as unregisterSelf(String) is allowed.
+                if (method.getParameterCount() == 0) {
+                    declared.add(method.getName());
+                }
             }
 
             assertThat(declared).doesNotContain("unregisterSelf", "reloadSelf");
