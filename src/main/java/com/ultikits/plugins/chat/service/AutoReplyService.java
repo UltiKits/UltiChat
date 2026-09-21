@@ -4,6 +4,7 @@ import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.Service;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -108,13 +109,23 @@ public class AutoReplyService {
      * {@link #removeRule(String)}'s own present/absent distinction, which the command layer
      * already reports through a not-found message.
      *
+     * <p>
+     * The change reaches {@code config/autoreply.yml} before this method returns, so it survives
+     * {@code /uchat reload} and {@code /ul reload}, both of which re-read the entity straight from
+     * disk (UltiKits/UltiChat#17). If the write fails, the in-memory state is restored to exactly
+     * what it was and the failure is rethrown -- no half-applied rule is left behind, and a caller
+     * cannot report success for a change that is not on disk. A call that changes nothing writes
+     * nothing.
+     *
      * @param name     the rule name (key)
      * @param keyword  the keyword to match
      * @param response the response text
+     * @throws IOException if the configuration could not be written; the rule set is left unchanged
      */
-    public void addRule(String name, String keyword, String response) {
+    public void addRule(String name, String keyword, String response) throws IOException {
         Map<String, Map<String, Object>> rules = config.getRules();
-        if (rules == null) {
+        boolean rulesWereAbsent = rules == null;
+        if (rulesWereAbsent) {
             rules = new HashMap<>();
             config.setRules(rules);
         }
@@ -123,22 +134,44 @@ public class AutoReplyService {
             return;
         }
 
+        Map<String, Map<String, Object>> rulesBefore = new LinkedHashMap<>(rules);
+
         Map<String, Object> rule = new HashMap<>();
         rule.put("keyword", keyword);
         rule.put("response", response);
         rule.put("mode", "contains");
         rule.put("case-sensitive", false);
         rules.put(name, rule);
+
+        try {
+            config.save();
+        } catch (IOException e) {
+            if (rulesWereAbsent) {
+                config.setRules(null);
+            } else {
+                restore(rules, rulesBefore);
+            }
+            throw e;
+        }
     }
 
     /**
      * Set the keyword of an existing rule, leaving its response, mode, and
      * case-sensitivity untouched. No-ops if {@code name} does not name an existing rule.
      *
+     * <p>
+     * The change reaches {@code config/autoreply.yml} before this method returns, so it survives
+     * {@code /uchat reload} and {@code /ul reload}, both of which re-read the entity straight from
+     * disk (UltiKits/UltiChat#17). If the write fails, the in-memory state is restored to exactly
+     * what it was and the failure is rethrown -- no half-applied rule is left behind, and a caller
+     * cannot report success for a change that is not on disk. A call that changes nothing writes
+     * nothing.
+     *
      * @param name    the rule name (key)
      * @param keyword the new keyword to match
+     * @throws IOException if the configuration could not be written; the rule is left unchanged
      */
-    public void setKeyword(String name, String keyword) {
+    public void setKeyword(String name, String keyword) throws IOException {
         Map<String, Map<String, Object>> rules = config.getRules();
         if (rules == null) {
             return;
@@ -147,21 +180,84 @@ public class AutoReplyService {
         if (rule == null) {
             return;
         }
+
+        boolean hadKeyword = rule.containsKey("keyword");
+        Object keywordBefore = rule.get("keyword");
+
         rule.put("keyword", keyword);
+
+        try {
+            config.save();
+        } catch (IOException e) {
+            if (hadKeyword) {
+                rule.put("keyword", keywordBefore);
+            } else {
+                rule.remove("keyword");
+            }
+            throw e;
+        }
     }
 
     /**
-     * Remove a rule by name.
+     * Remove a rule by name. No-ops if {@code name} does not name an existing rule.
+     * <p>
+     * The change reaches {@code config/autoreply.yml} before this method returns, so it survives
+     * {@code /uchat reload} and {@code /ul reload}, both of which re-read the entity straight from
+     * disk (UltiKits/UltiChat#17). If the write fails, the in-memory state is restored to exactly
+     * what it was and the failure is rethrown -- no half-applied rule is left behind, and a caller
+     * cannot report success for a change that is not on disk. A call that changes nothing writes
+     * nothing.
      *
      * @param name the rule name to remove
+     * @throws IOException if the configuration could not be written; the rule set is left unchanged
      */
-    public void removeRule(String name) {
+    public void removeRule(String name) throws IOException {
         Map<String, Map<String, Object>> rules = config.getRules();
-        if (rules != null) {
-            rules.remove(name);
-            // Also remove cached pattern if any
-            patternCache.remove(name);
+        if (rules == null || !rules.containsKey(name)) {
+            // Returning here also skips the pattern-cache eviction below, which is observably the
+            // same as running it: the cache is keyed by a mode-prefixed keyword ("i:" or "s:" plus
+            // the pattern, see matchesRegex), never by a rule name, so evicting a rule name was
+            // already a no-op -- and an eviction is in any case only a recompile, never a
+            // behaviour change.
+            return;
         }
+
+        Map<String, Map<String, Object>> rulesBefore = new LinkedHashMap<>(rules);
+
+        rules.remove(name);
+        // Also remove cached pattern if any
+        Pattern removedPattern = patternCache.remove(name);
+
+        try {
+            config.save();
+        } catch (IOException e) {
+            restore(rules, rulesBefore);
+            if (removedPattern != null) {
+                patternCache.put(name, removedPattern);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Puts {@code snapshot}'s entries back into the live rules map, in {@code snapshot}'s own
+     * iteration order, replacing whatever is there now.
+     * <p>
+     * The live map object is emptied and refilled rather than replaced, so every reference already
+     * handed out by {@link #getRules()} still sees the restored set, and the snapshot holds the
+     * original rule map instances rather than copies of them, so a restored rule is the same object
+     * it was before. Once the entity has been read from its file the rule map is a
+     * {@code LinkedHashMap} (that is what {@code DefaultConfigParser} builds), so this restores the
+     * rule order the file preserves and not merely the rule set; before any such read it is the
+     * field's own {@code HashMap} default, which has no order to restore.
+     *
+     * @param live     the live rules map to restore into
+     * @param snapshot the entries to restore, in the order they are to be restored
+     */
+    private static void restore(Map<String, Map<String, Object>> live,
+                                Map<String, Map<String, Object>> snapshot) {
+        live.clear();
+        live.putAll(snapshot);
     }
 
     /**

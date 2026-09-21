@@ -9,6 +9,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Auto-reply rules changed with `/uchat autoreply add`, `/uchat autoreply setkeyword` and
+  `/uchat autoreply remove` are now written to `config/autoreply.yml` as the command runs, so they
+  survive `/uchat reload` and `/ul reload`; previously only a clean server stop saved them, and
+  either reload silently discarded every rule change made since that stop. If the file cannot be
+  written, the rule set is left exactly as it was and the sender is told the rule could not be
+  saved instead of being told it was added, changed or removed (UltiKits/UltiChat#17).
+- 使用 `/uchat autoreply add`、`/uchat autoreply setkeyword` 与 `/uchat autoreply remove`
+  更改的自动回复规则，现在会在命令执行时立即写入 `config/autoreply.yml`，
+  因此能在 `/uchat reload` 与 `/ul reload` 后保留；此前只有干净地停止服务器才会保存，
+  任一 reload 都会静默丢弃自上次停止以来的所有规则更改。若文件无法写入，
+  规则集会保持原样，且发送者会收到保存失败的提示，而不是被告知已添加、已更改或已移除
+  （UltiKits/UltiChat#17）。
 - Uninstalling this module (`/upm uninstall UltiTools-Chat`) now really removes its commands
   (`/uchat`, and `/ch`/`/channel` when channels are enabled) and stops its chat, join/quit, channel and
   auto-reply listeners from firing; this module has no unload work of its own. Previously this

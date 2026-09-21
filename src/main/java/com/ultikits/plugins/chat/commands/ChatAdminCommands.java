@@ -11,6 +11,7 @@ import com.ultikits.ultitools.annotations.command.CmdTarget;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 
+import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -91,7 +92,12 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             return;
         }
 
-        autoReplyService.addRule(name, name, response);
+        try {
+            autoReplyService.addRule(name, name, response);
+        } catch (IOException e) {
+            reportSaveFailure(sender, name, e);
+            return;
+        }
         String msg = plugin.i18n("autoreply_added").replace("{0}", name);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
     }
@@ -118,7 +124,12 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             return;
         }
 
-        autoReplyService.setKeyword(name, keyword);
+        try {
+            autoReplyService.setKeyword(name, keyword);
+        } catch (IOException e) {
+            reportSaveFailure(sender, name, e);
+            return;
+        }
         String msg = plugin.i18n("autoreply_keyword_set").replace("{0}", name).replace("{1}", keyword);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
     }
@@ -137,8 +148,33 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             return;
         }
 
-        autoReplyService.removeRule(name);
+        try {
+            autoReplyService.removeRule(name);
+        } catch (IOException e) {
+            reportSaveFailure(sender, name, e);
+            return;
+        }
         String msg = plugin.i18n("autoreply_removed").replace("{0}", name);
+        sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+    }
+
+    /**
+     * Tell the sender the rule change was not saved, and put the reason in the server log.
+     * 向发送者报告规则更改未保存，并将原因记录到服务器日志。
+     * <p>
+     * {@link AutoReplyService} has already rolled the change back, so the rule set is exactly what
+     * it was before the command ran. The sender is told that and nothing else: the underlying
+     * {@link IOException} names a path on the server's own filesystem, which belongs in the log
+     * rather than in a chat line (UltiKits/UltiChat#17).
+     *
+     * @param sender the sender to report to
+     * @param name   the rule name the command was changing
+     * @param cause  the write failure
+     */
+    private void reportSaveFailure(CommandSender sender, String name, IOException cause) {
+        plugin.getLogger().error("Could not save config/autoreply.yml after changing auto-reply rule '"
+                + name + "'; the change has been rolled back: " + cause);
+        String msg = plugin.i18n("autoreply_save_failed").replace("{0}", name);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
     }
 
