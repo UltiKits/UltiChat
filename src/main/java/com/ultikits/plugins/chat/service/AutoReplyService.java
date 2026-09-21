@@ -30,15 +30,25 @@ public class AutoReplyService {
     private final Map<String, Pattern> patternCache = new ConcurrentHashMap<>();
 
     /**
-     * Guards every structural read and write of the live rule map.
+     * Guards {@link #findMatch(String)}'s iteration and every mutation and rollback in this class.
+     * <p>
+     * Not every reader of the rule map: {@link #getRules()} hands the live map out unguarded and
+     * {@code ChatAdminCommands#onAutoReplyList} iterates it (main thread only, and only reads);
+     * {@code AbstractConfigEntity#save()} serialises the same map with this lock deliberately not
+     * held (see below); and {@code AbstractConfigEntity#updateProperties} replaces the {@code rules}
+     * field reflectively from the WebSocket thread, which no lock this class owns can guard -- if a
+     * panel configuration write lands between a mutation here and its save, the save serialises the
+     * panel's map and the command still reports success. That last one is narrow and is not
+     * addressed here; it is a framework-side ownership question, not a module-side locking one.
      * <p>
      * {@link #findMatch(String)} iterates that map on a chat thread -- {@code AutoReplyListener}
      * handles {@code AsyncPlayerChatEvent} -- while a {@code /uchat autoreply} command mutates it on
      * the main thread. A rollback is the case that makes this matter: it empties the map and refills
      * it, so an unguarded reader would see an empty rule set, or a
      * {@link java.util.ConcurrentModificationException} thrown out of a {@code MONITOR} listener.
-     * Holding one monitor across each mutation and across the whole of {@code findMatch} removes
-     * that window, and the single-entry races that were already possible with it.
+     * Holding one monitor across each mutation and rollback and across the whole of
+     * {@code findMatch} removes that window, and the single-entry races between those same two
+     * paths that were already possible with it.
      * <p>
      * Deliberately NOT held across {@code AbstractConfigEntity#save()}: the write is file I/O, and a
      * chat thread has no reason to wait for a disk write. A reader may therefore observe a mutation
@@ -286,12 +296,23 @@ public class AutoReplyService {
      * @throws IOException the write failure, rethrown after the rollback
      */
     private void saveOrRestore(Rollback rollback) throws IOException {
-        // Read before save(), as ConfigManager#saveAll does: a successful save refreshes the
-        // entity's own record of the file, so afterwards the answer is always "no".
-        boolean overwritesOperatorEdit = config.isFileModifiedSinceSnapshot();
+        final boolean overwritesOperatorEdit;
         try {
-            config.save();
+            // Read before the write, and both under the entity's own monitor, exactly as
+            // ConfigManager#saveAll does. The ordering alone is not enough: a panel configuration
+            // write reaches AbstractConfigEntity#updateProperties on the WebSocket thread and writes
+            // the file under this same monitor, so between an unguarded read and the save it could
+            // land, be overwritten, and leave the read reporting "nothing was changed" -- losing the
+            // one warning this exists to produce. save() takes this monitor itself; holding it
+            // across both makes the pair atomic against that thread.
+            synchronized (config) {
+                overwritesOperatorEdit = config.isFileModifiedSinceSnapshot();
+                config.save();
+            }
         } catch (IOException e) {
+            // Outside the monitor above on purpose: the rollback needs rulesLock and nothing else,
+            // so this class never holds the entity monitor and rulesLock at the same time and there
+            // is no lock order to get wrong.
             synchronized (rulesLock) {
                 rollback.run();
             }
