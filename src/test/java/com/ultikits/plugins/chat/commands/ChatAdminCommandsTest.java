@@ -325,10 +325,13 @@ class ChatAdminCommandsTest {
     @DisplayName("Save Failure Reporting (UltiKits/UltiChat#17)")
     class SaveFailureTests {
 
+        private PluginLogger logger;
+
         @BeforeEach
         void stubFailureMessageAndLogger() {
+            logger = mock(PluginLogger.class);
             when(mockPlugin.i18n("autoreply_save_failed")).thenReturn("Rule '{0}' was NOT saved.");
-            when(mockPlugin.getLogger()).thenReturn(mock(PluginLogger.class));
+            when(mockPlugin.getLogger()).thenReturn(logger);
         }
 
         @Test
@@ -342,6 +345,11 @@ class ChatAdminCommandsTest {
 
             assertSentMessageContaining(sender, "was NOT saved");
             assertNoSentMessageContaining(sender, "added");
+            // The cause is logged WITH its throwable, so the stack trace survives and
+            // SystemLogHandler can collect the report -- a message-only SEVERE record cannot.
+            ArgumentCaptor<String> logged = ArgumentCaptor.forClass(String.class);
+            verify(logger).error(any(IOException.class), logged.capture());
+            assertThat(logged.getValue()).contains("Could not save config/autoreply.yml");
         }
 
         @Test
@@ -386,6 +394,9 @@ class ChatAdminCommandsTest {
             verify(mockAutoReplyService).addRule("greet", "greet", "Hello there!");
             assertSentMessageContaining(sender, "added");
             assertNoSentMessageContaining(sender, "was NOT saved");
+            // Control for the verify(logger) assertions above: a succeeding save logs nothing,
+            // so those are not passing because this logger can never receive anything.
+            verify(logger, never()).error(any(IOException.class), anyString());
         }
     }
 

@@ -4,25 +4,35 @@ import com.ultikits.plugins.chat.UltiChat;
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
+import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -37,9 +47,12 @@ import static org.mockito.Mockito.verify;
  * <p>
  * The reload instrument is a second {@link AutoReplyConfig} instance {@code init()}-ed against the
  * same folder, which is what {@code ConfigManager#reloadConfigs} does to the live instance. Every
- * "the rule is not there" assertion below is paired with a positive control asserting that the same
- * read does see the two shipped default rules, so an absent key can never be the reader failing to
- * read the file rather than the rule failing to be written.
+ * {@code readFromDisk()} assertion that a rule is absent is paired, in the same test, with a
+ * positive control asserting that the same read does see the two shipped default rules, so an
+ * absent key can never be the reader failing to read the file rather than the rule failing to be
+ * written. The in-memory assertions carry their own controls instead: each rollback test re-runs the
+ * same call with the save succeeding, so a restored state cannot be mistaken for a call that never
+ * did anything.
  *
  * @author wisdomme
  * @version 1.0.0
@@ -142,7 +155,9 @@ class AutoReplyPersistenceTest {
 
         verify(failing).save();
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
-        assertThat(readFromDisk()).doesNotContainKey("greeting");
+        Map<String, Map<String, Object>> onDisk = readFromDisk();
+        assertThat(onDisk).containsKeys("server-ip", "rules-info");
+        assertThat(onDisk).doesNotContainKey("greeting");
 
         doNothing().when(failing).save();
         service.addRule("greeting", "hi", "Hello there!");
@@ -224,11 +239,113 @@ class AutoReplyPersistenceTest {
         service.addRule("server-ip", "anything", "Refused, the name is taken");
         service.setKeyword("no-such-rule", "anything");
         service.removeRule("no-such-rule");
+        // The rule exists and the keyword is the one it already has: still no change, still no write.
+        assertThat(quiet.getRules().get("server-ip").get("keyword")).isEqualTo("server IP");
+        service.setKeyword("server-ip", "server IP");
 
         verify(quiet, never()).save();
 
         service.addRule("greeting", "hi", "Hello there!");
         verify(quiet).save();
+    }
+
+    // ============================
+    // An overwrite of an operator's hand edit is not silent
+    // ============================
+
+    @Test
+    @DisplayName("Saving over a file that was edited on disk logs a warning naming the file")
+    void savingOverAnOperatorEditIsNotSilent() throws Exception {
+        PluginLogger logger = mock(PluginLogger.class);
+        doReturn(logger).when(plugin).getLogger();
+        editTheFileBehindTheFrameworksBack();
+
+        service.addRule("greeting", "hi", "Hello there!");
+
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(logger).warn(captor.capture());
+        assertThat(captor.getValue())
+                .contains("autoreply.yml")
+                .contains("changed or removed on disk");
+        // The overwrite itself is still the contract, as it is for the framework's shutdown save.
+        assertThat(readFromDisk()).containsKey("greeting");
+    }
+
+    @Test
+    @DisplayName("Saving over an untouched file logs nothing -- and the same logger does see a warning once the file is touched")
+    void savingOverAnUntouchedFileIsQuiet() throws Exception {
+        PluginLogger logger = mock(PluginLogger.class);
+        doReturn(logger).when(plugin).getLogger();
+
+        service.addRule("greeting", "hi", "Hello there!");
+
+        verify(logger, never()).warn(anyString());
+
+        // Control: the verification above could pass because nothing can ever reach this logger.
+        // Edit the file and save again; the same mock must now see exactly one warning.
+        editTheFileBehindTheFrameworksBack();
+        service.addRule("second", "yo", "Hello again!");
+        verify(logger).warn(anyString());
+    }
+
+    // ============================
+    // The rule map is not read while it is being rebuilt
+    // ============================
+
+    @Test
+    @DisplayName("findMatch and a rollback hold the same monitor, so no chat thread sees a half-restored rule set")
+    void findMatchAndRollbackShareOneMonitor() throws Exception {
+        AutoReplyConfig failing = failingConfig();
+        Object rulesLock = ChatTestHelper.getField(service, "rulesLock");
+        assertThat(rulesLock).isNotNull();
+
+        assertBlockedWhileLockHeld(rulesLock, () -> service.findMatch("what is the server IP?"));
+        assertBlockedWhileLockHeld(rulesLock, () -> service.removeRule("server-ip"));
+
+        // The rollback still happened once the lock was free, so the blocking above did not
+        // silently swallow the call.
+        assertThat(failing.getRules()).containsKey("server-ip");
+    }
+
+    @Test
+    @DisplayName("The rollback itself waits for the monitor, not just the forward mutation")
+    void theRollbackWaitsForTheMonitor() throws Exception {
+        CountDownLatch insideSave = new CountDownLatch(1);
+        CountDownLatch releaseSave = new CountDownLatch(1);
+        AutoReplyConfig failing = spy(live);
+        doAnswer(invocation -> {
+            insideSave.countDown();
+            assertThat(releaseSave.await(5, TimeUnit.SECONDS)).isTrue();
+            throw new IOException("simulated write failure");
+        }).when(failing).save();
+        ChatTestHelper.setField(service, "config", failing);
+
+        Object rulesLock = ChatTestHelper.getField(service, "rulesLock");
+        AtomicBoolean finished = new AtomicBoolean(false);
+        Thread command = new Thread(() -> {
+            try {
+                service.removeRule("server-ip");
+            } catch (Exception expected) {
+                // The failing save rethrows after the rollback; reaching here means the rollback ran.
+            }
+            finished.set(true);
+        }, "ultichat-rollback-probe");
+        command.start();
+
+        // Wait until the forward mutation is done and the command thread is parked inside save(),
+        // so the monitor is free and the only acquisition left is the rollback's.
+        assertThat(insideSave.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(failing.getRules()).doesNotContainKey("server-ip");
+
+        synchronized (rulesLock) {
+            releaseSave.countDown();
+            Thread.sleep(300);
+            assertThat(finished.get()).isFalse();
+        }
+
+        command.join(TimeUnit.SECONDS.toMillis(5));
+        assertThat(finished.get()).isTrue();
+        assertThat(failing.getRules()).containsKey("server-ip");
     }
 
     // ============================
@@ -258,6 +375,52 @@ class AutoReplyPersistenceTest {
 
     private File configFile() {
         return moduleFolder.resolve("config").resolve("autoreply.yml").toFile();
+    }
+
+    /**
+     * Appends a comment line straight to the file, the way an admin editing it over SSH would --
+     * behind the framework's back, so its snapshot no longer matches what is on disk.
+     */
+    private void editTheFileBehindTheFrameworksBack() throws Exception {
+        Files.write(configFile().toPath(),
+                "\n# edited on disk while the server was running\n".getBytes(StandardCharsets.UTF_8),
+                StandardOpenOption.APPEND);
+    }
+
+    /**
+     * Runs {@code body} on another thread while this thread holds {@code lock}, and asserts it does
+     * not get past the lock -- then releases the lock and asserts it completes. The "did not
+     * complete" half cannot be flaky: the lock is held for the whole of that wait, so a correct
+     * implementation cannot finish, and an implementation that does not take the lock finishes
+     * immediately.
+     */
+    private void assertBlockedWhileLockHeld(Object lock, ThrowingRunnable body) throws Exception {
+        AtomicBoolean finished = new AtomicBoolean(false);
+        CountDownLatch started = new CountDownLatch(1);
+        Thread reader = new Thread(() -> {
+            started.countDown();
+            try {
+                body.run();
+                finished.set(true);
+            } catch (Exception expected) {
+                // A failing save rethrows; reaching the throw still means the lock was acquired.
+                finished.set(true);
+            }
+        }, "ultichat-lock-probe");
+
+        synchronized (lock) {
+            reader.start();
+            assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+            Thread.sleep(300);
+            assertThat(finished.get()).isFalse();
+        }
+
+        reader.join(TimeUnit.SECONDS.toMillis(5));
+        assertThat(finished.get()).isTrue();
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     @SuppressWarnings("PMD.AvoidAccessibilityAlteration") // points the module's config folder at a temp directory
