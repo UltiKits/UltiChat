@@ -349,6 +349,35 @@ class AutoReplyPersistenceTest {
     }
 
     // ============================
+    // The read and the write are one step, as the framework's own shutdown save makes them
+    // ============================
+
+    @Test
+    @DisplayName("The entity's monitor is already held when save() is entered, so the operator-edit read and the write cannot be split")
+    void theOperatorEditReadAndTheSaveShareTheEntityMonitor() throws Exception {
+        AutoReplyConfig probe = spy(live);
+        AtomicBoolean heldWhenSaveWasEntered = new AtomicBoolean(false);
+        doAnswer(invocation -> {
+            heldWhenSaveWasEntered.set(Thread.holdsLock(probe));
+            return invocation.callRealMethod();
+        }).when(probe).save();
+        ChatTestHelper.setField(service, "config", probe);
+
+        service.addRule("greeting", "hi", "Hello there!");
+
+        // save() takes this monitor itself, so a probe INSIDE the real method would read true
+        // either way. This probe sits at the boundary, before the real method runs, which is the
+        // only place the two revisions differ: without the synchronized (config) around the
+        // fingerprint read and the write, saveOrRestore's own frame holds nothing here.
+        assertThat(heldWhenSaveWasEntered.get()).isTrue();
+
+        // Controls: the probe ran, and the real save ran behind it -- so the assertion above is
+        // not passing because save() was never reached.
+        verify(probe).save();
+        assertThat(readFromDisk()).containsKey("greeting");
+    }
+
+    // ============================
     // Helpers
     // ============================
 
