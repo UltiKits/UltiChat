@@ -14,10 +14,6 @@ public class UltiChat extends UltiToolsPlugin {
     }
 
     @Override
-    public void unregisterSelf() {
-    }
-
-    @Override
     public List<String> supported() {
         return Arrays.asList("zh", "en");
     }
