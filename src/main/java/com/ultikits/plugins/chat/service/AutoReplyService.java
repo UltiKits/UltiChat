@@ -1,9 +1,11 @@
 package com.ultikits.plugins.chat.service;
 
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
+import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.Service;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,6 +30,24 @@ public class AutoReplyService {
     private final Map<String, Pattern> patternCache = new ConcurrentHashMap<>();
 
     /**
+     * Guards every structural read and write of the live rule map.
+     * <p>
+     * {@link #findMatch(String)} iterates that map on a chat thread -- {@code AutoReplyListener}
+     * handles {@code AsyncPlayerChatEvent} -- while a {@code /uchat autoreply} command mutates it on
+     * the main thread. A rollback is the case that makes this matter: it empties the map and refills
+     * it, so an unguarded reader would see an empty rule set, or a
+     * {@link java.util.ConcurrentModificationException} thrown out of a {@code MONITOR} listener.
+     * Holding one monitor across each mutation and across the whole of {@code findMatch} removes
+     * that window, and the single-entry races that were already possible with it.
+     * <p>
+     * Deliberately NOT held across {@code AbstractConfigEntity#save()}: the write is file I/O, and a
+     * chat thread has no reason to wait for a disk write. A reader may therefore observe a mutation
+     * that a failed save is about to roll back -- which is inherent, since the mutation has to be in
+     * memory for the save to serialise it -- but never a half-rebuilt map.
+     */
+    private final Object rulesLock = new Object();
+
+    /**
      * Find the first rule that matches the given message.
      *
      * @param message the chat message to match
@@ -38,32 +58,34 @@ public class AutoReplyService {
             return null;
         }
 
-        Map<String, Map<String, Object>> rules = config.getRules();
-        if (rules == null || rules.isEmpty()) {
+        synchronized (rulesLock) {
+            Map<String, Map<String, Object>> rules = config.getRules();
+            if (rules == null || rules.isEmpty()) {
+                return null;
+            }
+
+            for (Map.Entry<String, Map<String, Object>> entry : rules.entrySet()) {
+                Map<String, Object> rule = entry.getValue();
+                if (rule == null) {
+                    continue;
+                }
+
+                Object keywordObj = rule.get("keyword");
+                if (keywordObj == null) {
+                    continue;
+                }
+                String keyword = keywordObj.toString();
+
+                String mode = getMode(rule);
+                boolean caseSensitive = isCaseSensitive(rule);
+
+                if (matches(message, keyword, mode, caseSensitive)) {
+                    return entry;
+                }
+            }
+
             return null;
         }
-
-        for (Map.Entry<String, Map<String, Object>> entry : rules.entrySet()) {
-            Map<String, Object> rule = entry.getValue();
-            if (rule == null) {
-                continue;
-            }
-
-            Object keywordObj = rule.get("keyword");
-            if (keywordObj == null) {
-                continue;
-            }
-            String keyword = keywordObj.toString();
-
-            String mode = getMode(rule);
-            boolean caseSensitive = isCaseSensitive(rule);
-
-            if (matches(message, keyword, mode, caseSensitive)) {
-                return entry;
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -123,36 +145,43 @@ public class AutoReplyService {
      * @throws IOException if the configuration could not be written; the rule set is left unchanged
      */
     public void addRule(String name, String keyword, String response) throws IOException {
-        Map<String, Map<String, Object>> rules = config.getRules();
-        boolean rulesWereAbsent = rules == null;
-        if (rulesWereAbsent) {
-            rules = new HashMap<>();
-            config.setRules(rules);
-        }
-
-        if (rules.get(name) != null) {
-            return;
-        }
-
-        Map<String, Map<String, Object>> rulesBefore = new LinkedHashMap<>(rules);
-
-        Map<String, Object> rule = new HashMap<>();
-        rule.put("keyword", keyword);
-        rule.put("response", response);
-        rule.put("mode", "contains");
-        rule.put("case-sensitive", false);
-        rules.put(name, rule);
-
-        try {
-            config.save();
-        } catch (IOException e) {
+        final Map<String, Map<String, Object>> rules;
+        final Map<String, Map<String, Object>> rulesBefore;
+        final boolean rulesWereAbsent;
+        synchronized (rulesLock) {
+            Map<String, Map<String, Object>> live = config.getRules();
+            rulesWereAbsent = live == null;
             if (rulesWereAbsent) {
+                live = new HashMap<>();
+                config.setRules(live);
+            }
+
+            if (live.get(name) != null) {
+                return;
+            }
+
+            rules = live;
+            rulesBefore = new LinkedHashMap<>(live);
+
+            Map<String, Object> rule = new HashMap<>();
+            rule.put("keyword", keyword);
+            rule.put("response", response);
+            rule.put("mode", "contains");
+            rule.put("case-sensitive", false);
+            live.put(name, rule);
+        }
+
+        saveOrRestore(() -> {
+            if (rulesWereAbsent) {
+                // Not an in-place restore, unlike every other rollback here: the field itself was
+                // absent, so restoring it means putting the absence back. Unreachable in practice --
+                // the field has a non-null initialiser and the framework never assigns null to it --
+                // and reached only by a caller that set it to null by hand.
                 config.setRules(null);
             } else {
                 restore(rules, rulesBefore);
             }
-            throw e;
-        }
+        });
     }
 
     /**
@@ -172,30 +201,38 @@ public class AutoReplyService {
      * @throws IOException if the configuration could not be written; the rule is left unchanged
      */
     public void setKeyword(String name, String keyword) throws IOException {
-        Map<String, Map<String, Object>> rules = config.getRules();
-        if (rules == null) {
-            return;
+        final Map<String, Object> rule;
+        final boolean hadKeyword;
+        final Object keywordBefore;
+        synchronized (rulesLock) {
+            Map<String, Map<String, Object>> rules = config.getRules();
+            if (rules == null) {
+                return;
+            }
+            rule = rules.get(name);
+            if (rule == null) {
+                return;
+            }
+
+            hadKeyword = rule.containsKey("keyword");
+            keywordBefore = rule.get("keyword");
+            if (hadKeyword && Objects.equals(keywordBefore, keyword)) {
+                // The rule already matches on this keyword. Writing the file here would change
+                // nothing in it and would put an operator's concurrent hand-edit at risk for no
+                // reason, so this call writes nothing -- as this method's contract says.
+                return;
+            }
+
+            rule.put("keyword", keyword);
         }
-        Map<String, Object> rule = rules.get(name);
-        if (rule == null) {
-            return;
-        }
 
-        boolean hadKeyword = rule.containsKey("keyword");
-        Object keywordBefore = rule.get("keyword");
-
-        rule.put("keyword", keyword);
-
-        try {
-            config.save();
-        } catch (IOException e) {
+        saveOrRestore(() -> {
             if (hadKeyword) {
                 rule.put("keyword", keywordBefore);
             } else {
                 rule.remove("keyword");
             }
-            throw e;
-        }
+        });
     }
 
     /**
@@ -212,31 +249,93 @@ public class AutoReplyService {
      * @throws IOException if the configuration could not be written; the rule set is left unchanged
      */
     public void removeRule(String name) throws IOException {
-        Map<String, Map<String, Object>> rules = config.getRules();
-        if (rules == null || !rules.containsKey(name)) {
-            // Returning here also skips the pattern-cache eviction below, which is observably the
-            // same as running it: the cache is keyed by a mode-prefixed keyword ("i:" or "s:" plus
-            // the pattern, see matchesRegex), never by a rule name, so evicting a rule name was
-            // already a no-op -- and an eviction is in any case only a recompile, never a
-            // behaviour change.
-            return;
+        final Map<String, Map<String, Object>> rules;
+        final Map<String, Map<String, Object>> rulesBefore;
+        synchronized (rulesLock) {
+            Map<String, Map<String, Object>> live = config.getRules();
+            if (live == null || !live.containsKey(name)) {
+                // Returning here also skips the pattern-cache eviction below, which is observably
+                // the same as running it: the cache is keyed by a mode-prefixed keyword ("i:" or
+                // "s:" plus the pattern, see matchesRegex), never by a rule name, so evicting a rule
+                // name was already a no-op -- and an eviction is in any case only a recompile, never
+                // a behaviour change.
+                return;
+            }
+
+            rules = live;
+            rulesBefore = new LinkedHashMap<>(live);
+
+            live.remove(name);
+            // Also remove cached pattern if any. Nothing to undo on the rollback path for the same
+            // reason the early return can skip it: this cache is never keyed by a rule name, so the
+            // call removes nothing, and a removal that did happen would cost one recompile.
+            patternCache.remove(name);
         }
 
-        Map<String, Map<String, Object>> rulesBefore = new LinkedHashMap<>(rules);
+        saveOrRestore(() -> restore(rules, rulesBefore));
+    }
 
-        rules.remove(name);
-        // Also remove cached pattern if any
-        Pattern removedPattern = patternCache.remove(name);
-
+    /**
+     * Writes the entity, and puts the rule set back as it was if the write fails.
+     * <p>
+     * One implementation for all three mutating methods, so the save, the rollback and the
+     * operator-edit warning cannot drift apart between them. The rollback runs under
+     * {@link #rulesLock}, so no chat thread observes a half-restored rule set.
+     *
+     * @param rollback undoes this method's caller's mutation; run only if the write fails
+     * @throws IOException the write failure, rethrown after the rollback
+     */
+    private void saveOrRestore(Rollback rollback) throws IOException {
+        // Read before save(), as ConfigManager#saveAll does: a successful save refreshes the
+        // entity's own record of the file, so afterwards the answer is always "no".
+        boolean overwritesOperatorEdit = config.isFileModifiedSinceSnapshot();
         try {
             config.save();
         } catch (IOException e) {
-            restore(rules, rulesBefore);
-            if (removedPattern != null) {
-                patternCache.put(name, removedPattern);
+            synchronized (rulesLock) {
+                rollback.run();
             }
             throw e;
         }
+        if (overwritesOperatorEdit) {
+            warnOperatorEditOverwritten();
+        }
+    }
+
+    /**
+     * Logs that this save wrote over a file somebody changed on disk while the server was running.
+     * <p>
+     * Overwriting is the contract -- a rule set changed by a command is what gets saved -- but it
+     * must not be silent, because the edit that is lost was somebody's work. The framework already
+     * says exactly this for the same event at shutdown
+     * ({@code ConfigManager#warnOperatorEditOverwritten}); this is that line, for the saves this
+     * module now performs during a command.
+     * <p>
+     * {@code isFileModifiedSinceSnapshot()} is the framework's own instrument and is marked
+     * {@code @ApiStatus.Internal}, so calling it from a module is a deliberate, recorded exception:
+     * the framework exposes no supported alternative, and the only other way to answer the question
+     * is for this module to keep a second fingerprint of the same file, which would be a copy of
+     * framework bookkeeping that drifts from it. Tracked as UltiKits/UltiTools-Reborn#527; when
+     * that lands -- a supported accessor, or the warning moved inside {@code save()} itself --
+     * this method goes away and the call with it. The call is safe either way -- it returns
+     * {@code false} when no snapshot has been taken.
+     */
+    private void warnOperatorEditOverwritten() {
+        UltiToolsPlugin plugin = config.getUltiToolsPlugin();
+        File file = new File(plugin.getResourceFolderPath(), config.getConfigFilePath());
+        plugin.getLogger().warn("Configuration file " + file.getAbsolutePath()
+                + " was changed or removed on disk while the server was running, but an auto-reply"
+                + " command also changed this configuration in memory. The in-memory configuration"
+                + " was saved, so the changes made to the file while the server ran were"
+                + " overwritten.");
+    }
+
+    /**
+     * Undoes one mutating method's own change to the rule set. Not {@link Runnable}, only so the
+     * name says what it is at the call site.
+     */
+    private interface Rollback {
+        void run();
     }
 
     /**
@@ -246,7 +345,10 @@ public class AutoReplyService {
      * The live map object is emptied and refilled rather than replaced, so every reference already
      * handed out by {@link #getRules()} still sees the restored set, and the snapshot holds the
      * original rule map instances rather than copies of them, so a restored rule is the same object
-     * it was before. Once the entity has been read from its file the rule map is a
+     * it was before. Callers hold {@link #rulesLock} across this, so the momentarily empty map is
+     * never visible to {@link #findMatch(String)}. The one rollback that does not come through here
+     * is {@code addRule}'s absent-rule-map branch, which restores the absence by replacing the
+     * field; that branch is unreachable in production. Once the entity has been read from its file the rule map is a
      * {@code LinkedHashMap} (that is what {@code DefaultConfigParser} builds), so this restores the
      * rule order the file preserves and not merely the rule set; before any such read it is the
      * field's own {@code HashMap} default, which has no order to restore.

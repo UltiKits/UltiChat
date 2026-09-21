@@ -166,14 +166,19 @@ public class ChatAdminCommands extends BaseCommandExecutor {
      * it was before the command ran. The sender is told that and nothing else: the underlying
      * {@link IOException} names a path on the server's own filesystem, which belongs in the log
      * rather than in a chat line (UltiKits/UltiChat#17).
+     * <p>
+     * The log call passes the exception itself rather than its {@code toString()}, so the stack
+     * trace survives -- it is what tells a read-only file apart from a full disk -- and so the
+     * {@code SEVERE} record carries a {@code Throwable}, which is what {@code SystemLogHandler}
+     * requires before it will report the failure to a connected panel.
      *
      * @param sender the sender to report to
      * @param name   the rule name the command was changing
      * @param cause  the write failure
      */
     private void reportSaveFailure(CommandSender sender, String name, IOException cause) {
-        plugin.getLogger().error("Could not save config/autoreply.yml after changing auto-reply rule '"
-                + name + "'; the change has been rolled back: " + cause);
+        plugin.getLogger().error(cause, "Could not save config/autoreply.yml after changing"
+                + " auto-reply rule '" + name + "'; the change has been rolled back");
         String msg = plugin.i18n("autoreply_save_failed").replace("{0}", name);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
     }
