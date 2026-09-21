@@ -2,10 +2,12 @@ package com.ultikits.plugins.chat.commands;
 
 import com.ultikits.plugins.chat.service.AutoReplyService;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
+import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
 import org.bukkit.command.CommandSender;
 import org.junit.jupiter.api.*;
 import org.mockito.ArgumentCaptor;
 
+import java.io.IOException;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.*;
@@ -44,6 +46,13 @@ class ChatAdminCommandsTest {
         verify(sender, atLeastOnce()).sendMessage(captor.capture());
         assertThat(captor.getAllValues())
                 .anyMatch(msg -> msg.contains(substring));
+    }
+
+    private void assertNoSentMessageContaining(CommandSender sender, String substring) {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(sender, atLeastOnce()).sendMessage(captor.capture());
+        assertThat(captor.getAllValues())
+                .noneMatch(msg -> msg.contains(substring));
     }
 
     // ==================== Reload Tests ====================
@@ -165,7 +174,7 @@ class ChatAdminCommandsTest {
 
         @Test
         @DisplayName("Should add rule and send confirmation")
-        void shouldAddRule() {
+        void shouldAddRule() throws Exception {
             CommandSender sender = mock(CommandSender.class);
 
             commands.onAutoReplyAdd(sender, "greet", "Hello there!");
@@ -176,7 +185,7 @@ class ChatAdminCommandsTest {
 
         @Test
         @DisplayName("Should repair a null-valued rule entry instead of reporting it already exists")
-        void shouldRepairANullValuedRuleEntry() {
+        void shouldRepairANullValuedRuleEntry() throws Exception {
             // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
             // leaves a name mapped to null. The command layer's own containsKey guard
             // mirrors the service's, so it must apply the same non-null check or it
@@ -214,7 +223,7 @@ class ChatAdminCommandsTest {
 
         @Test
         @DisplayName("Should remove existing rule")
-        void shouldRemoveExistingRule() {
+        void shouldRemoveExistingRule() throws Exception {
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();
@@ -229,7 +238,7 @@ class ChatAdminCommandsTest {
 
         @Test
         @DisplayName("Should send not-found message for missing rule")
-        void shouldSendNotFoundForMissing() {
+        void shouldSendNotFoundForMissing() throws Exception {
             CommandSender sender = mock(CommandSender.class);
             when(mockAutoReplyService.getRules()).thenReturn(Collections.<String, Map<String, Object>>emptyMap());
 
@@ -241,7 +250,7 @@ class ChatAdminCommandsTest {
 
         @Test
         @DisplayName("Should not call removeRule when rule not found")
-        void shouldNotRemoveWhenNotFound() {
+        void shouldNotRemoveWhenNotFound() throws Exception {
             CommandSender sender = mock(CommandSender.class);
             when(mockAutoReplyService.getRules()).thenReturn(Collections.<String, Map<String, Object>>emptyMap());
 
@@ -259,7 +268,7 @@ class ChatAdminCommandsTest {
 
         @Test
         @DisplayName("Should set the keyword on an existing rule and send confirmation")
-        void shouldSetKeywordOnExistingRule() {
+        void shouldSetKeywordOnExistingRule() throws Exception {
             // CR-01 problem 1: `autoreply add` still forces keyword = name with no
             // parameter to say otherwise. This closes that gap the smallest way that
             // avoids an ambiguous overload against the existing 2-arg `add` format --
@@ -280,7 +289,7 @@ class ChatAdminCommandsTest {
 
         @Test
         @DisplayName("Should send not-found message and not call setKeyword for a missing rule")
-        void shouldSendNotFoundForMissingRule() {
+        void shouldSendNotFoundForMissingRule() throws Exception {
             CommandSender sender = mock(CommandSender.class);
             when(mockAutoReplyService.getRules()).thenReturn(Collections.<String, Map<String, Object>>emptyMap());
 
@@ -292,7 +301,7 @@ class ChatAdminCommandsTest {
 
         @Test
         @DisplayName("Should send not-found, not a false success, for a null-valued rule entry")
-        void shouldSendNotFoundForANullValuedRuleEntry() {
+        void shouldSendNotFoundForANullValuedRuleEntry() throws Exception {
             // Codex review on PR #12 (commit 05901e6): malformed YAML such as `broken:`
             // makes containsKey(name) true even though the value is null. This guard
             // only checked key presence, so it would call the now-null-safe setKeyword
@@ -307,6 +316,76 @@ class ChatAdminCommandsTest {
 
             verify(mockAutoReplyService, never()).setKeyword(anyString(), anyString());
             assertSentMessageContaining(sender, "broken");
+        }
+    }
+
+    // ==================== Save Failure Tests ====================
+
+    @Nested
+    @DisplayName("Save Failure Reporting (UltiKits/UltiChat#17)")
+    class SaveFailureTests {
+
+        @BeforeEach
+        void stubFailureMessageAndLogger() {
+            when(mockPlugin.i18n("autoreply_save_failed")).thenReturn("Rule '{0}' was NOT saved.");
+            when(mockPlugin.getLogger()).thenReturn(mock(PluginLogger.class));
+        }
+
+        @Test
+        @DisplayName("add reports the failure and does not report success")
+        void addReportsTheFailure() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+            doThrow(new IOException("simulated write failure"))
+                    .when(mockAutoReplyService).addRule("greet", "greet", "Hello there!");
+
+            commands.onAutoReplyAdd(sender, "greet", "Hello there!");
+
+            assertSentMessageContaining(sender, "was NOT saved");
+            assertNoSentMessageContaining(sender, "added");
+        }
+
+        @Test
+        @DisplayName("setkeyword reports the failure and does not report success")
+        void setKeywordReportsTheFailure() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("server-ip", new HashMap<String, Object>());
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+            doThrow(new IOException("simulated write failure"))
+                    .when(mockAutoReplyService).setKeyword("server-ip", "server IP");
+
+            commands.onAutoReplySetKeyword(sender, "server-ip", "server IP");
+
+            assertSentMessageContaining(sender, "was NOT saved");
+            assertNoSentMessageContaining(sender, "keyword set to");
+        }
+
+        @Test
+        @DisplayName("remove reports the failure and does not report success")
+        void removeReportsTheFailure() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("greet", new HashMap<String, Object>());
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+            doThrow(new IOException("simulated write failure"))
+                    .when(mockAutoReplyService).removeRule("greet");
+
+            commands.onAutoReplyRemove(sender, "greet");
+
+            assertSentMessageContaining(sender, "was NOT saved");
+            assertNoSentMessageContaining(sender, "removed");
+        }
+
+        @Test
+        @DisplayName("A save that succeeds still reports success -- the control for the three above")
+        void aSucceedingSaveStillReportsSuccess() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onAutoReplyAdd(sender, "greet", "Hello there!");
+
+            verify(mockAutoReplyService).addRule("greet", "greet", "Hello there!");
+            assertSentMessageContaining(sender, "added");
+            assertNoSentMessageContaining(sender, "was NOT saved");
         }
     }
 
