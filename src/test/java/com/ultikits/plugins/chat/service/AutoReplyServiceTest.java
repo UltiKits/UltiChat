@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Tests for AutoReplyService — match modes, case sensitivity, pattern cache,
@@ -27,8 +28,14 @@ class AutoReplyServiceTest {
     void setUp() throws Exception {
         ChatTestHelper.setUp();
 
-        config = new AutoReplyConfig();
+        // A spy whose save() does nothing: every mutating method now persists the entity
+        // (UltiKits/UltiChat#17), and a bare AutoReplyConfig has neither a plugin nor a
+        // YamlConfiguration to write through. Persistence itself is proven end-to-end
+        // against real files in AutoReplyPersistenceTest; these tests are about rule
+        // semantics, so here the write is stubbed out rather than performed.
+        config = spy(new AutoReplyConfig());
         config.setRules(new HashMap<String, Map<String, Object>>());
+        doNothing().when(config).save();
 
         service = new AutoReplyService();
         ChatTestHelper.setField(service, "config", config);
@@ -346,7 +353,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Should add a simple rule")
-        void shouldAddRule() {
+        void shouldAddRule() throws Exception {
             service.addRule("greeting", "hi", "Hello there!");
 
             Map<String, Map<String, Object>> rules = service.getRules();
@@ -359,7 +366,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Should remove a rule")
-        void shouldRemoveRule() {
+        void shouldRemoveRule() throws Exception {
             addRule("r1", "test", "Response", "contains", false);
             assertThat(service.getRules()).hasSize(1);
 
@@ -393,7 +400,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Should add rule when rules map is null")
-        void shouldAddRuleWhenMapNull() {
+        void shouldAddRuleWhenMapNull() throws Exception {
             config.setRules(null);
 
             service.addRule("r1", "test", "Response");
@@ -429,7 +436,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Adding a rule under an existing name is refused")
-        void addingARuleUnderAnExistingNameIsRefused() {
+        void addingARuleUnderAnExistingNameIsRefused() throws Exception {
             service.addRule("greeting", "hi", "Original response");
 
             service.addRule("greeting", "hello", "Replacement response");
@@ -441,7 +448,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Adding a rule under an existing name also preserves its mode and case-sensitivity")
-        void addingARuleUnderAnExistingNamePreservesModeAndCaseSensitivity() {
+        void addingARuleUnderAnExistingNamePreservesModeAndCaseSensitivity() throws Exception {
             // WR-01: addRule(name, keyword, response) itself always hardcodes
             // mode="contains"/case-sensitive=false, so a rule built purely through the
             // service's own 3-arg addRule never puts those two fields in a state where
@@ -460,7 +467,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Adding a rule under a name that maps to null repairs it instead of refusing")
-        void addingARuleUnderANullValuedNameRepairsIt() {
+        void addingARuleUnderANullValuedNameRepairsIt() throws Exception {
             // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
             // leaves a name key mapped to null. findMatch already skips null rule maps
             // and setKeyword already treats them as absent; addRule's containsKey guard
@@ -478,7 +485,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Adding a rule under a new name still succeeds")
-        void addingARuleUnderANewNameStillSucceeds() {
+        void addingARuleUnderANewNameStillSucceeds() throws Exception {
             service.addRule("greeting", "hi", "Hello there!");
 
             Map<String, Map<String, Object>> rules = service.getRules();
@@ -488,7 +495,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("A refused add does not disturb the other existing rules")
-        void aRefusedAddDoesNotDisturbTheOtherExistingRules() {
+        void aRefusedAddDoesNotDisturbTheOtherExistingRules() throws Exception {
             // WR-02: this replaces a `containsExactly("first", "second")` order
             // assertion that could never fail independently of the response assertion
             // already in this test. Map.put(existingKey, newValue) never changes
@@ -530,7 +537,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Updates only the keyword of an existing rule, leaving response, mode, and case-sensitivity untouched")
-        void updatesOnlyTheKeywordOfAnExistingRule() {
+        void updatesOnlyTheKeywordOfAnExistingRule() throws Exception {
             addRule("server-ip", "server-ip", "Server address: play.example.com", "exact", true);
 
             service.setKeyword("server-ip", "server IP");
@@ -544,7 +551,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Is a no-op when the named rule does not exist")
-        void isANoOpWhenTheNamedRuleDoesNotExist() {
+        void isANoOpWhenTheNamedRuleDoesNotExist() throws Exception {
             service.setKeyword("missing", "anything");
 
             assertThat(service.getRules()).isEmpty();
@@ -552,7 +559,7 @@ class AutoReplyServiceTest {
 
         @Test
         @DisplayName("Is a no-op, not a throw, when the named rule's value is null")
-        void isANoOpWhenTheNamedRulesValueIsNull() {
+        void isANoOpWhenTheNamedRulesValueIsNull() throws Exception {
             // Codex review on PR #12: a null-valued entry (e.g. malformed YAML `broken:`)
             // makes containsKey(name) true but get(name) null, so calling put() on the
             // retrieved value directly throws instead of behaving like the documented
