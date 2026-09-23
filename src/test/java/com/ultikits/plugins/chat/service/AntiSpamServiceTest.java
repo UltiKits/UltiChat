@@ -322,9 +322,12 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "other");
 
+            // Retained: spam, spam, other -- two identical copies, below the threshold of 3.
             assertThat(service.checkSpam(player, "spam")).isNull();
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            // Retained: spam, spam, spam.
             assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
         }
     }
