@@ -37,6 +37,12 @@ class RemovedConfigKeysTest {
             + "  bossbar:\n    enabled: false\n    duration: 10\n"
             + "  title:\n    enabled: false\n    stay: 70\n";
 
+    private static final String CHAT_WITH_MUTE_DURATION =
+            "anti-spam:\n  enabled: true\n  cooldown: 2\n  mute-duration: 30\n  caps-limit: 70\n";
+
+    private static final String CHAT_WITHOUT_MUTE_DURATION =
+            "anti-spam:\n  enabled: true\n  cooldown: 2\n  caps-limit: 70\n";
+
     private final List<String> warnings = new ArrayList<String>();
 
     private File write(File dir, String relative, String body) throws IOException {
@@ -68,10 +74,37 @@ class RemovedConfigKeysTest {
     }
 
     @Test
-    @DisplayName("No warning when the file holds none of the removed keys")
+    @DisplayName("POSITIVE CONTROL: a leftover anti-spam.mute-duration gets one warning saying no player was ever muted (UltiKits/UltiChat#15)")
+    void warnsAboutLeftoverMuteDuration(@TempDir File dir) throws IOException {
+        File file = write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);
+
+        check(dir);
+
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains("UltiChat").contains(file.getPath())
+                .contains("'anti-spam.mute-duration'").contains("no longer reads")
+                .contains("never muted").contains("UltiKits/UltiChat#30");
+    }
+
+    @Test
+    @DisplayName("Leftovers in both files are all reported, announcements first")
+    void warnsAcrossBothFiles(@TempDir File dir) throws IOException {
+        write(dir, "config/announcements.yml", ANNOUNCEMENTS_WITH_INTERVALS);
+        write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);
+
+        check(dir);
+
+        assertThat(warnings).hasSize(4);
+        assertThat(warnings.get(0)).contains("'announcements.chat.interval'");
+        assertThat(warnings.get(3)).contains("'anti-spam.mute-duration'");
+    }
+
+    @Test
+    @DisplayName("No warning when the files hold none of the removed keys")
     void quietOnACleanFile(@TempDir File dir) throws IOException {
-        // Same file shape as the positive control, the three keys taken out and nothing else changed.
+        // Same file shapes as the positive controls, the removed keys taken out and nothing else changed.
         write(dir, "config/announcements.yml", ANNOUNCEMENTS_WITHOUT_INTERVALS);
+        write(dir, "config/chat.yml", CHAT_WITHOUT_MUTE_DURATION);
 
         check(dir);
 
