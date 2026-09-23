@@ -222,15 +222,22 @@ class AnnouncementConfigTest {
      * UltiKits/UltiChat#13, reworked on the framework's config-bound {@code @Scheduled}
      * (UltiKits/UltiTools-Reborn#531). The three interval keys are declared again and now drive the
      * broadcasts. Their defaults live only here, in the fields (the annotations carry no literal
-     * period), in seconds, within the framework's accepted range: at least 1 second and at most
-     * Integer.MAX_VALUE / 20 seconds, so the tick value cannot overflow.
+     * period), in seconds.
+     * <p>
+     * The fields deliberately carry no {@code @Range}. The framework enforces the binding's own range
+     * (at least 1 second, at most Integer.MAX_VALUE / 20) with the maintainer's two rules: refuse the
+     * module at load, and on reload keep the running value with a WARNING. A {@code @Range} would
+     * pre-empt the second rule: {@code ConfigManager#reloadConfigs} catches only {@code IOException},
+     * so the {@code ConfigurationException} a range violation throws from {@code init} would abort
+     * the whole reload ({@code UltiToolsPlugin#reloadSelf} never reaches its binding step, the other
+     * settings are not reloaded and {@code onReload} does not run) instead of keeping one timer.
      */
     @Nested
     @DisplayName("Announcement intervals are configurable keys (UltiKits/UltiChat#13, UltiTools-Reborn#531)")
     class IntervalKeys {
 
         @Test
-        @DisplayName("The three interval keys are declared, int seconds, defaults 300 / 60 / 600, range 1..107374182")
+        @DisplayName("The three interval keys are declared, int seconds, defaults 300 / 60 / 600, range left to the framework")
         void intervalKeysAreDeclared() throws Exception {
             assertInterval("chatInterval", "announcements.chat.interval", 300);
             assertInterval("bossBarInterval", "announcements.bossbar.interval", 60);
@@ -262,11 +269,11 @@ class AnnouncementConfigTest {
             ConfigEntry entry = field.getAnnotation(ConfigEntry.class);
             assertThat(entry).as(path).isNotNull();
             assertThat(entry.path()).isEqualTo(path);
-            com.ultikits.ultitools.annotations.config.Range range =
-                    field.getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
-            assertThat(range).as(path + " @Range").isNotNull();
-            assertThat(range.min()).isEqualTo(1.0);
-            assertThat(range.max()).isEqualTo((double) (Integer.MAX_VALUE / 20));
+            assertThat(field.getAnnotation(com.ultikits.ultitools.annotations.config.Range.class))
+                    .as(path + " must leave its range to the framework binding (see the class note)").isNull();
+            // Control: the reflection does see @Range where the class declares one.
+            assertThat(AnnouncementConfig.class.getDeclaredField("bossBarDuration")
+                    .getAnnotation(com.ultikits.ultitools.annotations.config.Range.class)).isNotNull();
             assertThat(defaultSeconds).isBetween(1, Integer.MAX_VALUE / 20);
         }
     }
