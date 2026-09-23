@@ -89,10 +89,6 @@ public class ChatConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "anti-spam.duplicate-window", comment = "Duplicate detection window (seconds) / 重复检测窗口(秒)")
     private int antiSpamDuplicateWindow = 60;
 
-    @Range(min = 5, max = 600)
-    @ConfigEntry(path = "anti-spam.mute-duration", comment = "Auto-mute duration (seconds) / 自动禁言时长(秒)")
-    private int antiSpamMuteDuration = 30;
-
     @Range(min = 0, max = 100)
     @ConfigEntry(path = "anti-spam.caps-limit", comment = "Max uppercase percentage / 最大大写百分比")
     private int antiSpamCapsLimit = 70;

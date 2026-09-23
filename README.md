@@ -19,7 +19,7 @@ Standalone chat module extracted from UltiEssentials with 8 features: auto-reply
 | 定时广播 | Broadcasts | 聊天/Boss栏/标题三种广播，轮播消息 |
 | @提及 | Mentions | @玩家名高亮提示+音效 |
 | 聊天频道 | Channels | 全局/本地/自定义频道，范围限制，权限控制 |
-| 防刷屏 | Anti-Spam | 冷却时间/重复检测/禁言，按权限豁免 |
+| 防刷屏 | Anti-Spam | 冷却时间/重复检测/大写限制，按权限豁免 |
 | 自定义表情 | Emojis | `:shortcode:` 替换为自定义文本/颜色 |
 
 ## 命令 / Commands

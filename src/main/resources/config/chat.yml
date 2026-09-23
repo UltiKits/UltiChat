@@ -36,5 +36,4 @@ anti-spam:
   cooldown: 2
   max-duplicate: 3
   duplicate-window: 60
-  mute-duration: 30
   caps-limit: 70

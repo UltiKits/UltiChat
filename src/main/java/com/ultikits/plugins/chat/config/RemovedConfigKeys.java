@@ -40,8 +40,16 @@ public final class RemovedConfigKeys {
         announcements.put("announcements.bossbar.interval", fixedPeriod("boss bar announcement", 60));
         announcements.put("announcements.title.interval", fixedPeriod("title announcement", 600));
 
+        Map<String, String> chat = new LinkedHashMap<String, String>();
+        chat.put("anti-spam.mute-duration",
+                "Nothing ever used it: players were never muted automatically, whatever it said, "
+                        + "and a spam trip still refuses only the offending message "
+                        + "(UltiKits/UltiChat#15). Automatic muting is requested as a feature in "
+                        + "UltiKits/UltiChat#30.");
+
         Map<String, Map<String, String>> removed = new LinkedHashMap<String, Map<String, String>>();
         removed.put("config/announcements.yml", Collections.unmodifiableMap(announcements));
+        removed.put("config/chat.yml", Collections.unmodifiableMap(chat));
         REMOVED = Collections.unmodifiableMap(removed);
     }
 

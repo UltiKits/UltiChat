@@ -26,6 +26,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   升级后的服务器自己的文件中仍保留这些键（框架从不删除键），因此本模块现在会在模块启动与每次重载时
   为每个残留键记录一条警告，指明文件与键名；删除该键即可消除警告。移除这些设置并不是否决「可配置周期」：
   这一能力属于框架，已在 UltiKits/UltiTools-Reborn#531 中提出请求（UltiKits/UltiChat#13）。
+- Removed the automatic-mute setting `anti-spam.mute-duration` from `config/chat.yml`. Automatic
+  muting was documented but never happened: the code that would have muted a player was never
+  called, so no player was ever muted, whatever the setting said. Anti-spam behaves exactly as
+  before -- a message that trips the cooldown, duplicate or capital-letter check is refused, and
+  the player can send the next acceptable message as usual. An upgraded server that still has the
+  key in its own file gets one warning at module start and on every reload, naming the file and the
+  key; delete the key to silence it. Removing the setting is not a rejection of automatic muting:
+  it is requested as a feature in UltiKits/UltiChat#30 (UltiKits/UltiChat#15).
+- 从 `config/chat.yml` 中移除了自动禁言设置 `anti-spam.mute-duration`。自动禁言此前有文档说明，
+  但从未真正发生：本应禁言玩家的代码从未被调用，因此无论该设置为何值，都没有任何玩家被禁言过。
+  反刷屏的行为与之前完全相同——触发冷却、重复或大写字母检测的消息会被拦截，玩家之后仍可照常发送合规消息。
+  自己的文件中仍保留该键的升级服务器，会在模块启动与每次重载时收到一条指明文件与键名的警告；
+  删除该键即可消除警告。移除该设置并不是否决自动禁言：它已作为功能请求记录在 UltiKits/UltiChat#30 中
+  （UltiKits/UltiChat#15）。
 
 ### Fixed
 

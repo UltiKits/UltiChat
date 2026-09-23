@@ -11,8 +11,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Anti-spam service that enforces cooldown, duplicate detection, caps limiting and temp muting.
- * 反垃圾消息服务，支持冷却、重复检测、大写字母限制和临时禁言。
+ * Anti-spam service that enforces cooldown, duplicate detection and caps limiting. A spam trip
+ * refuses the offending message only; there is no automatic muting (the never-called declaration
+ * of one was removed, UltiKits/UltiChat#15; the feature is requested in UltiKits/UltiChat#30).
+ * 反垃圾消息服务，支持冷却、重复检测和大写字母限制。触发时只拦截该条消息，不会自动禁言。
  */
 @Service
 public class AntiSpamService {
@@ -22,7 +24,6 @@ public class AntiSpamService {
 
     private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
     private final Map<UUID, LinkedList<String>> recentMessages = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> mutedUntil = new ConcurrentHashMap<>();
 
     /**
      * Check whether a message should be considered spam.
@@ -41,11 +42,6 @@ public class AntiSpamService {
         }
         UUID playerId = player.getUniqueId();
 
-        String muteReason = checkMute(playerId);
-        if (muteReason != null) {
-            return muteReason;
-        }
-
         String cooldownReason = checkCooldown(playerId);
         if (cooldownReason != null) {
             return cooldownReason;
@@ -59,18 +55,6 @@ public class AntiSpamService {
             return "消息中大写字母过多！";
         }
 
-        return null;
-    }
-
-    private String checkMute(UUID playerId) {
-        Long muteExpiry = mutedUntil.get(playerId);
-        if (muteExpiry == null) {
-            return null;
-        }
-        if (System.currentTimeMillis() < muteExpiry) {
-            return "你已被临时禁言！";
-        }
-        mutedUntil.remove(playerId);
         return null;
     }
 
@@ -110,20 +94,6 @@ public class AntiSpamService {
         while (messages.size() > maxDuplicate) {
             messages.removeFirst();
         }
-    }
-
-    /**
-     * Temporarily mute a player for the configured duration.
-     * 将玩家临时禁言（持续配置的时长）。
-     *
-     * @param playerId the player UUID
-     */
-    public void mutePlayer(UUID playerId) {
-        if (playerId == null) {
-            return;
-        }
-        long durationMs = config.getAntiSpamMuteDuration() * 1000L;
-        mutedUntil.put(playerId, System.currentTimeMillis() + durationMs);
     }
 
     /**
@@ -171,7 +141,6 @@ public class AntiSpamService {
         }
         lastMessageTime.remove(playerId);
         recentMessages.remove(playerId);
-        mutedUntil.remove(playerId);
     }
 
     /**

@@ -47,7 +47,7 @@ for UAT execution and issue reconciliation — the public description of these f
   that is not `command` — a config key or a scheduled task has no permission node to declare in
   the first place, which is a different fact from a command that declares `none` deliberately.
 - **Source:** `ClassName#member` — the class and member that actually reads or applies the
-  feature — for every Kind, `config` included: all 42 `config` rows below cite the reading
+  feature — for every Kind, `config` included: all 41 `config` rows below cite the reading
   member. Unlike the framework's own `config.yml` (read directly via Bukkit's
   `FileConfiguration`, with no bound entity at all), every one of this module's five
   configuration files is a real `@ConfigEntity`/`@ConfigEntry`-bound class, so a config row's
@@ -94,7 +94,7 @@ rather than an error:
 
 **Positive control:** the line-start form returns `@CmdExecutor` = 2, `@CmdMapping` = 7,
 `@EventListener` = 4 (classes), `@EventHandler` = 6 (handler methods), `@Scheduled` = 3,
-`@ConditionalOnConfig` = 1, `@ConfigEntity` = 5 (classes), `@ConfigEntry` = 42 — confirmed by
+`@ConditionalOnConfig` = 1, `@ConfigEntity` = 5 (classes), `@ConfigEntry` = 41 — confirmed by
 reading `ChatAdminCommands.java` (5 `@CmdMapping` sites: `reload`, `autoreply list`,
 `autoreply add <name> <response>`, `autoreply setkeyword <name> <keyword>` at line 110, and
 `autoreply remove <name>`) and `ChannelCommands.java` (2 sites: `list`, `<name>`) directly, not by
@@ -234,25 +234,25 @@ value stopped meaning anything.
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
-| ultichat.lifecycle.removed-key-warning | On module enable and again on every reload, read the operator's own `config/announcements.yml` and log one WARNING per key this version no longer reads but which is still present in that file — `announcements.chat.interval`, `announcements.bossbar.interval`, `announcements.title.interval`. Each warning names the module (`UltiChat`), the file's path and the key, says the key is no longer read and that the broadcast still runs on its fixed period (300 / 60 / 600 seconds respectively), cites `UltiKits/UltiTools-Reborn#531` for configurable periods, and tells the operator to delete the key to silence it. Nothing is logged when the file holds none of them, when the file is absent, or when it cannot be parsed — the framework's own config loading already reports an unparseable file | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, RemovedConfigKeys#warnAboutLeftovers |
+| ultichat.lifecycle.removed-key-warning | On module enable and again on every reload, read the operator's own `config/announcements.yml` and `config/chat.yml` and log one WARNING per key this version no longer reads but which is still present in that file — `announcements.chat.interval`, `announcements.bossbar.interval`, `announcements.title.interval` in the first, `anti-spam.mute-duration` in the second. Each warning names the module (`UltiChat`), the file's path and the key, and says the key is no longer read; an interval warning adds that the broadcast still runs on its fixed period (300 / 60 / 600 seconds respectively) and cites `UltiKits/UltiTools-Reborn#531` for configurable periods, the mute-duration warning adds that players were never muted automatically and cites `UltiKits/UltiChat#30`; every warning tells the operator to delete the key to silence it. Nothing is logged when the file holds none of them, when the file is absent, or when it cannot be parsed — the framework's own config loading already reports an unparseable file | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, RemovedConfigKeys#warnAboutLeftovers |
 
 ## Configuration
 
-Every `@ConfigEntry`-annotated field across this module's five `@ConfigEntity` classes (42 keys
-total: `AnnouncementConfig` 12, `AutoReplyConfig` 3, `ChannelConfig` 3, `ChatConfig` 22,
-`EmojiConfig` 2 — matching the reconciliation table's own `@ConfigEntry` count of 42 exactly).
+Every `@ConfigEntry`-annotated field across this module's five `@ConfigEntity` classes (41 keys
+total: `AnnouncementConfig` 12, `AutoReplyConfig` 3, `ChannelConfig` 3, `ChatConfig` 21,
+`EmojiConfig` 2 — matching the reconciliation table's own `@ConfigEntry` count of 41 exactly).
 Several of these keys already have a behavioural row above (auto-reply rules, the channel gate,
 join/quit messages, the chat pipeline, scheduled broadcasts) — that row documents the *feature*
 the key drives, this row documents the *key* itself, at file-and-key granularity, so the
 reconciliation table can prove every key is accounted for without also making every behavioural
 row carry a `config` Kind.
 
-**Two keys are declared and validated but never read by any production code, or are read only
-inside a method with no caller — both count as "no observable effect" from an operator's
-perspective.** Each is called out in its own row below with the filed issue number
-(`UltiKits/UltiChat#14`, `#15`) rather than a claim that flipping it changes anything. The three
-announcement interval keys that used to be listed here were deleted (`UltiKits/UltiChat#13`, see
-`## Scheduled Broadcasts`).
+**One key is declared and validated but never read by any production code — "no observable
+effect" from an operator's perspective.** It is called out in its own row below with the filed issue
+number (`UltiKits/UltiChat#14`) rather than a claim that flipping it changes anything. Four keys that
+used to be listed here were deleted: the three announcement intervals (`UltiKits/UltiChat#13`, see
+`## Scheduled Broadcasts`) and `anti-spam.mute-duration`, which was read only inside a method nothing
+called (`UltiKits/UltiChat#15`; automatic muting is requested as `UltiKits/UltiChat#30`).
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
@@ -279,7 +279,6 @@ announcement interval keys that used to be listed here were deleted (`UltiKits/U
 | ultichat.config.chat.anti-spam.duplicate-window | Declared and documented as a duplicate-detection time window (seconds); never read anywhere — `AntiSpamService#isDuplicate` compares only the last `anti-spam.max-duplicate` retained messages by count, with no time-based expiry at all. Known product defect, UltiKits/UltiChat#14 | config | `config/chat.yml: anti-spam.duplicate-window (default: 60, has no effect, see UltiKits/UltiChat#14)` | n/a | n/a | admin | brief | ChatConfig#antiSpamDuplicateWindow (declared, never read outside this class) |
 | ultichat.config.chat.anti-spam.enabled | Enable the anti-spam system entirely (cooldown, duplicate detection, caps limiting) | config | `config/chat.yml: anti-spam.enabled (default: true)` | n/a | n/a | admin | brief | AntiSpamService#checkSpam |
 | ultichat.config.chat.anti-spam.max-duplicate | Number of consecutive identical messages that trigger a duplicate refusal | config | `config/chat.yml: anti-spam.max-duplicate (default: 3)` | n/a | n/a | admin | brief | AntiSpamService#isDuplicate |
-| ultichat.config.chat.anti-spam.mute-duration | Read by `AntiSpamService#mutePlayer`, which itself is never called from anywhere in this module — the automatic-mute mechanism this key is meant to drive is unreachable; no player is ever actually muted regardless of this key's value. Known product defect, UltiKits/UltiChat#15 | config | `config/chat.yml: anti-spam.mute-duration (default: 30, has no effect, see UltiKits/UltiChat#15)` | n/a | n/a | admin | detailed | AntiSpamService#mutePlayer (read here, but this method has no caller) |
 | ultichat.config.chat.chat.format | The chat message format string, `{player}`/`{message}`/`{displayname}` placeholders plus PlaceholderAPI variables, applied when `chat.format-enabled` is true | config | `config/chat.yml: chat.format (default: "&7[&f%player_world%&7] &f{player}&7: &f{message}")` | n/a | n/a | admin | brief | ChatListener#applyChatFormat |
 | ultichat.config.chat.chat.format-enabled | Enable custom chat formatting via `chat.format` | config | `config/chat.yml: chat.format-enabled (default: true)` | n/a | n/a | admin | brief | ChatListener#onChat |
 | ultichat.config.chat.join-quit.first-join-message | Server-wide broadcast the first time a never-before-seen player joins; empty string disables it (checked, not merely a falsy default) | config | `config/chat.yml: join-quit.first-join-message (default: "&6Welcome new player &e%player_name%&6!")` | n/a | n/a | admin | brief | JoinQuitListener#onPlayerJoin |
