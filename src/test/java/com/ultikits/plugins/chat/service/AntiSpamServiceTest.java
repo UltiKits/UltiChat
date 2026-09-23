@@ -256,9 +256,10 @@ class AntiSpamServiceTest {
     /**
      * UltiKits/UltiChat#14. {@code anti-spam.duplicate-window} was declared and never read, so a
      * repeat counted however long ago its earlier copies were sent. It is now wired: a retained copy
-     * older than the window stops counting. These tests use the real clock, because the window is
-     * whole seconds and the only way to be outside it is to let time pass; the one test that needs
-     * that waits just over one second.
+     * older than the window stops counting. A window of 0 -- the declared default -- means no time
+     * limit, which is exactly the count-only detection of before. These tests use the real clock,
+     * because the window is whole seconds and the only way to be outside it is to let time pass; the
+     * one test that needs that waits just over one second.
      */
     @Nested
     @DisplayName("checkSpam - duplicate window (UltiKits/UltiChat#14)")
@@ -300,6 +301,30 @@ class AntiSpamServiceTest {
             // threshold of 2 the same repeat is refused. Without this the null above could also
             // mean "duplicate detection stopped working".
             config.setAntiSpamMaxDuplicate(2);
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+
+            // Window 0, the declared default: no time limit, exactly the count-only rule of before --
+            // the same history, with its copy older than a second, trips the threshold of 3 again.
+            config.setAntiSpamMaxDuplicate(3);
+            config.setAntiSpamDuplicateWindow(0);
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+        }
+
+        @Test
+        @DisplayName("Window 0 counts every retained copy, and still only identical ones")
+        void zeroWindowIsCountOnly() {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(0);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "other");
+
+            assertThat(service.checkSpam(player, "spam")).isNull();
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
             assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
         }
     }

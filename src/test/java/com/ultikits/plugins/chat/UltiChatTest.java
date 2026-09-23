@@ -145,10 +145,10 @@ class UltiChatTest {
      * apart its copies were sent. Wiring it makes an upgraded server's on-disk value (60, written by
      * earlier versions) take effect, which makes detection more permissive than before; the ruling
      * is that the value takes effect and the operator is told so, loudly, at load. The new declared
-     * default -- 600, the longest the key allows -- is the reference: anything shorter is announced.
+     * default is 0 -- no time limit, exactly the old behaviour -- so any positive window is announced.
      */
     @Nested
-    @DisplayName("A duplicate window shorter than the new default is announced at load (UltiKits/UltiChat#14)")
+    @DisplayName("Any positive duplicate window is announced at load (UltiKits/UltiChat#14)")
     class DuplicateWindowWarning {
 
         private PluginLogger logger;
@@ -190,7 +190,8 @@ class UltiChatTest {
                     .contains("'anti-spam.duplicate-window'")
                     .contains("60 seconds")
                     .contains("more permissive than before the upgrade")
-                    .contains("set it to 600")
+                    .contains("set it to 0")
+                    .contains("no time limit")
                     .contains("/uchat reload")
                     .contains("UltiKits/UltiChat#14");
         }
@@ -207,20 +208,23 @@ class UltiChatTest {
         }
 
         @Test
-        @DisplayName("One second short of the default still warns")
-        void justBelowTheDefaultWarns(@TempDir File dir) {
-            UltiChat plugin = pluginWithWindow(dir, 599);
-
-            plugin.registerSelf();
-
+        @DisplayName("The smallest and the largest positive window both warn")
+        void everyPositiveWindowWarns(@TempDir File dir) {
+            UltiChat smallest = pluginWithWindow(dir, 1);
+            smallest.registerSelf();
             assertThat(warnings()).hasSize(1);
-            assertThat(warnings().get(0)).contains("599 seconds");
+            assertThat(warnings().get(0)).contains("to 1 seconds");
+
+            UltiChat largest = pluginWithWindow(dir, 600);
+            largest.registerSelf();
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("to 600 seconds");
         }
 
         @Test
-        @DisplayName("The default itself is not announced")
+        @DisplayName("The default, 0 = no time limit, is not announced")
         void theDefaultIsQuiet(@TempDir File dir) {
-            UltiChat plugin = pluginWithWindow(dir, 600);
+            UltiChat plugin = pluginWithWindow(dir, 0);
 
             plugin.registerSelf();
             plugin.onReload();
