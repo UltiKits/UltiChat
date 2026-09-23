@@ -7,6 +7,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the three announcement interval settings `announcements.chat.interval`,
+  `announcements.bossbar.interval` and `announcements.title.interval` from
+  `config/announcements.yml`. None of them was ever read: the announcements have always run on
+  fixed periods -- chat every 300 seconds, boss bar every 60 seconds, title every 600 seconds --
+  whatever the file said, and they still do, so nothing about when announcements appear changes.
+  An upgraded server keeps the keys in its own file (the framework never removes a key), so at
+  module start and on every reload this module now logs one warning per leftover key, naming the
+  file and the key; delete the key to silence it. Removing the settings is not a rejection of
+  configurable periods: that capability belongs in the framework and is requested in
+  UltiKits/UltiTools-Reborn#531 (UltiKits/UltiChat#13).
+- 从 `config/announcements.yml` 中移除了三个公告间隔设置 `announcements.chat.interval`、
+  `announcements.bossbar.interval` 与 `announcements.title.interval`。它们从未被读取：
+  公告一直按固定周期播报——聊天公告每 300 秒、Boss 栏公告每 60 秒、标题公告每 600 秒——
+  与文件中的值无关，现在也仍是如此，因此公告出现的时间没有任何变化。
+  升级后的服务器自己的文件中仍保留这些键（框架从不删除键），因此本模块现在会在模块启动与每次重载时
+  为每个残留键记录一条警告，指明文件与键名；删除该键即可消除警告。移除这些设置并不是否决「可配置周期」：
+  这一能力属于框架，已在 UltiKits/UltiTools-Reborn#531 中提出请求（UltiKits/UltiChat#13）。
+
 ### Fixed
 
 - Auto-reply rules changed with `/uchat autoreply add`, `/uchat autoreply setkeyword` and

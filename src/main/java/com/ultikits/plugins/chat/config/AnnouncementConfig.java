@@ -11,6 +11,15 @@ import lombok.Setter;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Announcement settings.
+ * <p>
+ * There is deliberately no interval key: each broadcast runs on a period fixed in its
+ * {@code @Scheduled} annotation on {@code AnnouncementService} -- chat every 300 seconds, boss bar
+ * every 60, title every 600. The three {@code announcements.*.interval} keys this class used to
+ * declare were never read and were removed (UltiKits/UltiChat#13); making the periods configurable
+ * is requested of the framework in UltiKits/UltiTools-Reborn#531.
+ */
 @Getter
 @Setter
 @ConfigEntity("config/announcements.yml")
@@ -19,10 +28,6 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     // Chat announcements
     @ConfigEntry(path = "announcements.chat.enabled", comment = "Enable chat announcements / 启用聊天公告")
     private boolean chatEnabled = true;
-
-    @Range(min = 10, max = 3600)
-    @ConfigEntry(path = "announcements.chat.interval", comment = "Chat announcement interval (seconds) / 聊天公告间隔(秒)")
-    private int chatInterval = 300;
 
     @NotEmpty
     @ConfigEntry(path = "announcements.chat.prefix", comment = "Chat announcement prefix / 聊天公告前缀")
@@ -38,10 +43,6 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "announcements.bossbar.enabled", comment = "Enable boss bar announcements / 启用Boss栏公告")
     private boolean bossBarEnabled = false;
 
-    @Range(min = 10, max = 3600)
-    @ConfigEntry(path = "announcements.bossbar.interval", comment = "Boss bar interval (seconds) / Boss栏间隔(秒)")
-    private int bossBarInterval = 60;
-
     @Range(min = 1, max = 60)
     @ConfigEntry(path = "announcements.bossbar.duration", comment = "Boss bar display duration (seconds) / Boss栏显示时长(秒)")
     private int bossBarDuration = 10;
@@ -55,10 +56,6 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     // Title announcements
     @ConfigEntry(path = "announcements.title.enabled", comment = "Enable title announcements / 启用标题公告")
     private boolean titleEnabled = false;
-
-    @Range(min = 10, max = 3600)
-    @ConfigEntry(path = "announcements.title.interval", comment = "Title interval (seconds) / 标题间隔(秒)")
-    private int titleInterval = 600;
 
     @Range(min = 0, max = 100)
     @ConfigEntry(path = "announcements.title.fade-in", comment = "Title fade-in (ticks) / 标题淡入(tick)")

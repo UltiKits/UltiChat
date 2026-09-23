@@ -47,7 +47,7 @@ for UAT execution and issue reconciliation — the public description of these f
   that is not `command` — a config key or a scheduled task has no permission node to declare in
   the first place, which is a different fact from a command that declares `none` deliberately.
 - **Source:** `ClassName#member` — the class and member that actually reads or applies the
-  feature — for every Kind, `config` included: all 45 `config` rows below cite the reading
+  feature — for every Kind, `config` included: all 42 `config` rows below cite the reading
   member. Unlike the framework's own `config.yml` (read directly via Bukkit's
   `FileConfiguration`, with no bound entity at all), every one of this module's five
   configuration files is a real `@ConfigEntity`/`@ConfigEntry`-bound class, so a config row's
@@ -94,7 +94,7 @@ rather than an error:
 
 **Positive control:** the line-start form returns `@CmdExecutor` = 2, `@CmdMapping` = 7,
 `@EventListener` = 4 (classes), `@EventHandler` = 6 (handler methods), `@Scheduled` = 3,
-`@ConditionalOnConfig` = 1, `@ConfigEntity` = 5 (classes), `@ConfigEntry` = 45 — confirmed by
+`@ConditionalOnConfig` = 1, `@ConfigEntity` = 5 (classes), `@ConfigEntry` = 42 — confirmed by
 reading `ChatAdminCommands.java` (5 `@CmdMapping` sites: `reload`, `autoreply list`,
 `autoreply add <name> <response>`, `autoreply setkeyword <name> <keyword>` at line 110, and
 `autoreply remove <name>`) and `ChannelCommands.java` (2 sites: `list`, `<name>`) directly, not by
@@ -198,18 +198,19 @@ only to the joining player, and a server-wide first-join broadcast. All four sub
 
 ## Scheduled Broadcasts
 
-`AnnouncementService` — three independently-toggled, message-rotating broadcasts. Each
-`@Scheduled` method's `period` argument is a hardcoded tick count that happens to numerically
-match its corresponding `announcements.*.interval` config key's shipped default (300s/60s/600s
-respectively), but none of the three methods actually reads that key — see the row notes below
-and `UltiKits/UltiChat#13` (a known product defect, not fixed here per this plan's zero-new-code
-rule).
+`AnnouncementService` — three independently-toggled, message-rotating broadcasts. Each runs on a
+period fixed in its own `@Scheduled` annotation — chat every 6000 ticks (300 s), boss bar every 1200
+ticks (60 s), title every 12000 ticks (600 s) — and no configuration key changes it. The three
+`announcements.*.interval` keys that used to be declared for these periods were never read and were
+removed (`UltiKits/UltiChat#13`); a leftover copy in an upgraded server's file is reported by
+`ultichat.lifecycle.removed-key-warning`. Configurable periods are requested of the framework in
+`UltiKits/UltiTools-Reborn#531`.
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
-| ultichat.announce.bossbar-broadcast | Show a rotating boss-bar message to every online player, in the configured color, removed automatically after the configured duration; `announcements.bossbar.interval` is declared but never read — the real cadence is a hardcoded 1200-tick (60s) period regardless of this key's value (UltiKits/UltiChat#13) | scheduled | runs automatically every 1200 ticks (60s, hardcoded) while `announcements.bossbar.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastBossBar |
-| ultichat.announce.chat-broadcast | Broadcast a rotating chat message (with configured prefix) to every online player; `announcements.chat.interval` is declared but never read — the real cadence is a hardcoded 6000-tick (300s) period regardless of this key's value (UltiKits/UltiChat#13) | scheduled | runs automatically every 6000 ticks (300s, hardcoded) while `announcements.chat.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastChat |
-| ultichat.announce.title-broadcast | Show a rotating title/subtitle to every online player, splitting each configured message on its first double-vertical-bar occurrence into title and subtitle; `announcements.title.interval` is declared but never read — the real cadence is a hardcoded 12000-tick (600s) period regardless of this key's value (UltiKits/UltiChat#13) | scheduled | runs automatically every 12000 ticks (600s, hardcoded) while `announcements.title.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastTitle |
+| ultichat.announce.bossbar-broadcast | Show a rotating boss-bar message to every online player, in the configured color, removed automatically after the configured duration | scheduled | runs automatically every 1200 ticks (60 s, fixed) while `announcements.bossbar.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastBossBar |
+| ultichat.announce.chat-broadcast | Broadcast a rotating chat message (with configured prefix) to every online player | scheduled | runs automatically every 6000 ticks (300 s, fixed) while `announcements.chat.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastChat |
+| ultichat.announce.title-broadcast | Show a rotating title/subtitle to every online player, splitting each configured message on its first double-vertical-bar occurrence into title and subtitle | scheduled | runs automatically every 12000 ticks (600 s, fixed) while `announcements.title.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastTitle |
 
 ## Data persistence
 
@@ -222,37 +223,49 @@ write-on-change behaviour — it is catalogued in that section, not here, becaus
 consequence of the `/uchat autoreply` commands specifically, not a module-wide storage guarantee — it
 writes a configuration file, and this module still has no `@Table`/`DataOperator` storage at all.)
 
+## Module lifecycle
+
+`UltiChat#registerSelf` (module enable) and `UltiChat#onReload` (after the framework has reloaded
+this module's configuration files — reached by `/uchat reload` and by `/ul reload`) run the
+removed-key check. Deleting a `@ConfigEntry` stops the framework writing that key into a fresh file
+but does nothing to files already on disk: the framework writes a declared default only for a key
+that is missing, so an upgraded install keeps the key and its value with no indication that the
+value stopped meaning anything.
+
+| ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
+|---|---|---|---|---|---|---|---|---|
+| ultichat.lifecycle.removed-key-warning | On module enable and again on every reload, read the operator's own `config/announcements.yml` and log one WARNING per key this version no longer reads but which is still present in that file — `announcements.chat.interval`, `announcements.bossbar.interval`, `announcements.title.interval`. Each warning names the module (`UltiChat`), the file's path and the key, says the key is no longer read and that the broadcast still runs on its fixed period (300 / 60 / 600 seconds respectively), cites `UltiKits/UltiTools-Reborn#531` for configurable periods, and tells the operator to delete the key to silence it. Nothing is logged when the file holds none of them, when the file is absent, or when it cannot be parsed — the framework's own config loading already reports an unparseable file | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, RemovedConfigKeys#warnAboutLeftovers |
+
 ## Configuration
 
-Every `@ConfigEntry`-annotated field across this module's five `@ConfigEntity` classes (45 keys
-total: `AnnouncementConfig` 15, `AutoReplyConfig` 3, `ChannelConfig` 3, `ChatConfig` 22,
-`EmojiConfig` 2 — matching the reconciliation table's own `@ConfigEntry` count of 45 exactly).
+Every `@ConfigEntry`-annotated field across this module's five `@ConfigEntity` classes (42 keys
+total: `AnnouncementConfig` 12, `AutoReplyConfig` 3, `ChannelConfig` 3, `ChatConfig` 22,
+`EmojiConfig` 2 — matching the reconciliation table's own `@ConfigEntry` count of 42 exactly).
 Several of these keys already have a behavioural row above (auto-reply rules, the channel gate,
 join/quit messages, the chat pipeline, scheduled broadcasts) — that row documents the *feature*
 the key drives, this row documents the *key* itself, at file-and-key granularity, so the
 reconciliation table can prove every key is accounted for without also making every behavioural
 row carry a `config` Kind.
 
-**Five keys are declared and validated but never read by any production code, or are read only
+**Two keys are declared and validated but never read by any production code, or are read only
 inside a method with no caller — both count as "no observable effect" from an operator's
 perspective.** Each is called out in its own row below with the filed issue number
-(`UltiKits/UltiChat#13`, `#14`, `#15`) rather than a claim that flipping it changes anything.
+(`UltiKits/UltiChat#14`, `#15`) rather than a claim that flipping it changes anything. The three
+announcement interval keys that used to be listed here were deleted (`UltiKits/UltiChat#13`, see
+`## Scheduled Broadcasts`).
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
 | ultichat.config.announcements.announcements.bossbar.color | Boss-bar announcement color; invalid `BarColor` enum values silently fall back to `BLUE` | config | `config/announcements.yml: announcements.bossbar.color (default: BLUE)` | n/a | n/a | admin | brief | AnnouncementService#broadcastBossBar |
 | ultichat.config.announcements.announcements.bossbar.duration | Boss-bar display duration before automatic removal | config | `config/announcements.yml: announcements.bossbar.duration (default: 10)` | n/a | n/a | admin | brief | AnnouncementService#broadcastBossBar |
 | ultichat.config.announcements.announcements.bossbar.enabled | Enable the rotating boss-bar announcement | config | `config/announcements.yml: announcements.bossbar.enabled (default: false)` | n/a | n/a | admin | brief | AnnouncementService#broadcastBossBar |
-| ultichat.config.announcements.announcements.bossbar.interval | Declared as the boss-bar broadcast interval; never read — the real cadence is a hardcoded 1200-tick (60s) period regardless of this key's value. Known product defect, UltiKits/UltiChat#13 | config | `config/announcements.yml: announcements.bossbar.interval (default: 60, has no effect, see UltiKits/UltiChat#13)` | n/a | n/a | admin | brief | AnnouncementConfig#bossBarInterval (declared, never read outside this class) |
 | ultichat.config.announcements.announcements.bossbar.messages | Boss-bar message pool, rotated in order on each firing | config | `config/announcements.yml: announcements.bossbar.messages (default: 1 entry)` | n/a | n/a | admin | none | AnnouncementService#broadcastBossBar |
 | ultichat.config.announcements.announcements.chat.enabled | Enable the rotating chat-line announcement | config | `config/announcements.yml: announcements.chat.enabled (default: true)` | n/a | n/a | admin | brief | AnnouncementService#broadcastChat |
-| ultichat.config.announcements.announcements.chat.interval | Declared as the chat announcement interval; never read — the real cadence is a hardcoded 6000-tick (300s) period regardless of this key's value. Known product defect, UltiKits/UltiChat#13 | config | `config/announcements.yml: announcements.chat.interval (default: 300, has no effect, see UltiKits/UltiChat#13)` | n/a | n/a | admin | brief | AnnouncementConfig#chatInterval (declared, never read outside this class) |
 | ultichat.config.announcements.announcements.chat.messages | Chat announcement message pool, rotated in order on each firing | config | `config/announcements.yml: announcements.chat.messages (default: 2 entries)` | n/a | n/a | admin | none | AnnouncementService#broadcastChat |
 | ultichat.config.announcements.announcements.chat.prefix | Prefix prepended to every chat announcement line | config | `config/announcements.yml: announcements.chat.prefix (default: "&6[Announcement] &f")` | n/a | n/a | admin | none | AnnouncementService#broadcastChat |
 | ultichat.config.announcements.announcements.title.enabled | Enable the rotating title/subtitle announcement | config | `config/announcements.yml: announcements.title.enabled (default: false)` | n/a | n/a | admin | brief | AnnouncementService#broadcastTitle |
 | ultichat.config.announcements.announcements.title.fade-in | Title fade-in duration, in ticks | config | `config/announcements.yml: announcements.title.fade-in (default: 10)` | n/a | n/a | admin | none | AnnouncementService#broadcastTitle |
 | ultichat.config.announcements.announcements.title.fade-out | Title fade-out duration, in ticks | config | `config/announcements.yml: announcements.title.fade-out (default: 20)` | n/a | n/a | admin | none | AnnouncementService#broadcastTitle |
-| ultichat.config.announcements.announcements.title.interval | Declared as the title announcement interval; never read — the real cadence is a hardcoded 12000-tick (600s) period regardless of this key's value. Known product defect, UltiKits/UltiChat#13 | config | `config/announcements.yml: announcements.title.interval (default: 600, has no effect, see UltiKits/UltiChat#13)` | n/a | n/a | admin | brief | AnnouncementConfig#titleInterval (declared, never read outside this class) |
 | ultichat.config.announcements.announcements.title.messages | Title/subtitle message pool, double-vertical-bar-separated, rotated in order on each firing | config | `config/announcements.yml: announcements.title.messages (default: 1 entry)` | n/a | n/a | admin | none | AnnouncementService#broadcastTitle |
 | ultichat.config.announcements.announcements.title.stay | Title stay duration, in ticks | config | `config/announcements.yml: announcements.title.stay (default: 70)` | n/a | n/a | admin | none | AnnouncementService#broadcastTitle |
 | ultichat.config.autoreply.autoreply.cooldown | Global per-player cooldown between auto-reply triggers | config | `config/autoreply.yml: autoreply.cooldown (default: 10)` | n/a | n/a | admin | brief | AutoReplyListener#isOnCooldown |
