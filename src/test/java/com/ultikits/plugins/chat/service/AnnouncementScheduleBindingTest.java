@@ -258,6 +258,9 @@ class AnnouncementScheduleBindingTest {
     private void validateConfigBindings(UltiToolsPlugin plugin) throws Throwable {
         SimpleContainer container = mock(SimpleContainer.class);
         lenient().when(container.getSingletonValues()).thenReturn(Collections.<Object>singletonList(service));
+        // This module's command executors carry no @CmdCD binding; the check only needs to find none.
+        lenient().when(container.getBeanNamesForType(org.bukkit.command.CommandExecutor.class))
+                .thenReturn(new String[0]);
         Method method = PluginManager.class.getDeclaredMethod("validateConfigBindings",
                 UltiToolsPlugin.class, SimpleContainer.class);
         method.setAccessible(true); // NOPMD - package-private framework entry point
