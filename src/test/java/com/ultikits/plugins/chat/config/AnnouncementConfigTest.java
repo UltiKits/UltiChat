@@ -13,7 +13,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -220,54 +219,55 @@ class AnnouncementConfigTest {
     }
 
     /**
-     * UltiKits/UltiChat#13. The three announcement broadcasts run on periods fixed in their
-     * {@code @Scheduled} annotations (300 / 60 / 600 seconds); the three {@code *.interval} keys
-     * were never read. The maintainer's ruling deletes the keys rather than wiring them, so these
-     * tests pin that neither the class the framework writes a fresh file from, nor the file this
-     * module ships, still offers a setting that does nothing.
+     * UltiKits/UltiChat#13, reworked on the framework's config-bound {@code @Scheduled}
+     * (UltiKits/UltiTools-Reborn#531). The three interval keys are declared again and now drive the
+     * broadcasts. Their defaults live only here, in the fields (the annotations carry no literal
+     * period), in seconds, within the framework's accepted range: at least 1 second and at most
+     * Integer.MAX_VALUE / 20 seconds, so the tick value cannot overflow.
      */
     @Nested
-    @DisplayName("Announcement intervals are not configurable (UltiKits/UltiChat#13)")
-    class NoIntervalKeys {
-
-        private final List<String> removed = Arrays.asList(
-                "announcements.chat.interval",
-                "announcements.bossbar.interval",
-                "announcements.title.interval");
+    @DisplayName("Announcement intervals are configurable keys (UltiKits/UltiChat#13, UltiTools-Reborn#531)")
+    class IntervalKeys {
 
         @Test
-        @DisplayName("A freshly written announcements.yml gets no interval key")
-        void declaresNoIntervalKey() {
-            List<String> declared = declaredPaths();
-
-            // Positive control: the reflection really reads the declared paths.
-            assertThat(declared).contains("announcements.chat.enabled",
-                    "announcements.bossbar.duration", "announcements.title.stay");
-            assertThat(declared).doesNotContainAnyElementsOf(removed);
+        @DisplayName("The three interval keys are declared, int seconds, defaults 300 / 60 / 600, range 1..107374182")
+        void intervalKeysAreDeclared() throws Exception {
+            assertInterval("chatInterval", "announcements.chat.interval", 300);
+            assertInterval("bossBarInterval", "announcements.bossbar.interval", 60);
+            assertInterval("titleInterval", "announcements.title.interval", 600);
+            assertThat(field("chatInterval").getInt(config)).isEqualTo(300);
+            assertThat(field("bossBarInterval").getInt(config)).isEqualTo(60);
+            assertThat(field("titleInterval").getInt(config)).isEqualTo(600);
         }
 
         @Test
-        @DisplayName("The shipped announcements.yml carries no interval key")
-        void shippedFileCarriesNoIntervalKey() throws Exception {
+        @DisplayName("The shipped announcements.yml carries the three intervals at their defaults")
+        void shippedFileCarriesIntervals() throws Exception {
             YamlConfiguration shipped = shipped("config/announcements.yml");
 
-            // Positive control: the file was found and parsed.
-            assertThat(shipped.contains("announcements.chat.enabled")).isTrue();
-            assertThat(shipped.contains("announcements.title.messages")).isTrue();
-            for (String key : removed) {
-                assertThat(shipped.contains(key)).as(key).isFalse();
-            }
+            assertThat(shipped.getInt("announcements.chat.interval", -1)).isEqualTo(300);
+            assertThat(shipped.getInt("announcements.bossbar.interval", -1)).isEqualTo(60);
+            assertThat(shipped.getInt("announcements.title.interval", -1)).isEqualTo(600);
         }
 
-        private List<String> declaredPaths() {
-            List<String> paths = new ArrayList<String>();
-            for (Field field : AnnouncementConfig.class.getDeclaredFields()) {
-                ConfigEntry entry = field.getAnnotation(ConfigEntry.class);
-                if (entry != null) {
-                    paths.add(entry.path());
-                }
-            }
-            return paths;
+        private Field field(String name) throws Exception {
+            Field field = AnnouncementConfig.class.getDeclaredField(name);
+            field.setAccessible(true); // NOPMD - reads the default without depending on the accessor
+            return field;
+        }
+
+        private void assertInterval(String fieldName, String path, int defaultSeconds) throws Exception {
+            Field field = field(fieldName);
+            assertThat(field.getType()).isEqualTo(int.class);
+            ConfigEntry entry = field.getAnnotation(ConfigEntry.class);
+            assertThat(entry).as(path).isNotNull();
+            assertThat(entry.path()).isEqualTo(path);
+            com.ultikits.ultitools.annotations.config.Range range =
+                    field.getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
+            assertThat(range).as(path + " @Range").isNotNull();
+            assertThat(range.min()).isEqualTo(1.0);
+            assertThat(range.max()).isEqualTo((double) (Integer.MAX_VALUE / 20));
+            assertThat(defaultSeconds).isBetween(1, Integer.MAX_VALUE / 20);
         }
     }
 

@@ -57,20 +57,19 @@ class RemovedConfigKeysTest {
     }
 
     @Test
-    @DisplayName("POSITIVE CONTROL: each leftover announcement interval gets one warning naming module, file and key (UltiKits/UltiChat#13)")
-    void warnsAboutEveryLeftoverInterval(@TempDir File dir) throws IOException {
-        File file = write(dir, "config/announcements.yml", ANNOUNCEMENTS_WITH_INTERVALS);
+    @DisplayName("The announcement intervals are live keys again, so they are never reported (UltiKits/UltiChat#13)")
+    void intervalsAreNotReported(@TempDir File dir) throws IOException {
+        write(dir, "config/announcements.yml", ANNOUNCEMENTS_WITH_INTERVALS);
+        // Control in the same run: a real leftover in the other file is still reported, so the
+        // silence about the intervals is not a check that stopped reading files.
+        write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);
 
         check(dir);
 
-        assertThat(warnings).hasSize(3);
-        for (String line : warnings) {
-            assertThat(line).contains("UltiChat").contains(file.getPath())
-                    .contains("no longer reads").contains("UltiKits/UltiTools-Reborn#531");
-        }
-        assertThat(warnings.get(0)).contains("'announcements.chat.interval'").contains("300 seconds");
-        assertThat(warnings.get(1)).contains("'announcements.bossbar.interval'").contains("60 seconds");
-        assertThat(warnings.get(2)).contains("'announcements.title.interval'").contains("600 seconds");
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains("'anti-spam.mute-duration'");
+        assertThat(String.join("\n", warnings)).doesNotContain("interval");
+        assertThat(RemovedConfigKeys.removedKeys()).doesNotContainKey("config/announcements.yml");
     }
 
     @Test
@@ -84,19 +83,6 @@ class RemovedConfigKeysTest {
         assertThat(warnings.get(0)).contains("UltiChat").contains(file.getPath())
                 .contains("'anti-spam.mute-duration'").contains("no longer reads")
                 .contains("never muted").contains("UltiKits/UltiChat#30");
-    }
-
-    @Test
-    @DisplayName("Leftovers in both files are all reported, announcements first")
-    void warnsAcrossBothFiles(@TempDir File dir) throws IOException {
-        write(dir, "config/announcements.yml", ANNOUNCEMENTS_WITH_INTERVALS);
-        write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);
-
-        check(dir);
-
-        assertThat(warnings).hasSize(4);
-        assertThat(warnings.get(0)).contains("'announcements.chat.interval'");
-        assertThat(warnings.get(3)).contains("'anti-spam.mute-duration'");
     }
 
     @Test

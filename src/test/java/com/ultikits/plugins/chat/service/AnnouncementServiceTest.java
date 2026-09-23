@@ -323,26 +323,32 @@ class AnnouncementServiceTest {
     }
 
     /**
-     * UltiKits/UltiChat#13. The periods live in the annotations and are the only thing that sets
-     * the cadence -- the three {@code *.interval} keys were deleted rather than wired, and the
-     * documentation and change log state these fixed values. A change here must change them too.
+     * UltiKits/UltiChat#13, reworked on UltiKits/UltiTools-Reborn#531. Each broadcast's period is
+     * bound to its interval key on {@code AnnouncementConfig}; the annotation carries no literal
+     * period (a literal beside a binding refuses the module), no delay key and the default delay 0
+     * (first run on the next tick, as before), and stays synchronous (a bound async task refuses
+     * the module).
      */
     @Nested
-    @DisplayName("Broadcast periods are fixed (UltiKits/UltiChat#13)")
-    class FixedPeriods {
+    @DisplayName("Broadcast periods are bound to the interval keys (UltiKits/UltiChat#13)")
+    class BoundPeriods {
 
         @Test
-        @DisplayName("Chat every 6000 ticks (300 s), boss bar every 1200 (60 s), title every 12000 (600 s), all on the main thread")
-        void periodsAreFixed() throws Exception {
-            assertPeriod("broadcastChat", 6000L);
-            assertPeriod("broadcastBossBar", 1200L);
-            assertPeriod("broadcastTitle", 12000L);
+        @DisplayName("Chat, boss bar and title are bound to announcements.{chat,bossbar,title}.interval, sync, no literal")
+        void periodsAreBound() throws Exception {
+            assertBound("broadcastChat", "announcements.chat.interval");
+            assertBound("broadcastBossBar", "announcements.bossbar.interval");
+            assertBound("broadcastTitle", "announcements.title.interval");
         }
 
-        private void assertPeriod(String method, long ticks) throws Exception {
+        private void assertBound(String method, String key) throws Exception {
             Scheduled scheduled = AnnouncementService.class.getMethod(method).getAnnotation(Scheduled.class);
             assertThat(scheduled).as(method).isNotNull();
-            assertThat(scheduled.period()).as(method).isEqualTo(ticks);
+            assertThat(scheduled.config()).as(method).isEqualTo(AnnouncementConfig.class);
+            assertThat(scheduled.periodKey()).as(method).isEqualTo(key);
+            assertThat(scheduled.period()).as(method + " literal period must stay unset").isEqualTo(-1L);
+            assertThat(scheduled.delay()).as(method).isEqualTo(0L);
+            assertThat(scheduled.delayKey()).as(method).isEmpty();
             assertThat(scheduled.async()).as(method).isFalse();
         }
     }

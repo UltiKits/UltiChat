@@ -73,22 +73,21 @@ class UltiChatTest {
      * the same entry points over a file with the keys taken out and nothing else changed.
      */
     @Nested
-    @DisplayName("The removed-key check is actually called (UltiKits/UltiChat#13)")
+    @DisplayName("The removed-key check is actually called (UltiKits/UltiChat#15)")
     class RemovedKeyCheckWiring {
 
-        private static final String WITH_INTERVALS =
-                "announcements:\n  chat:\n    enabled: true\n    interval: 300\n"
-                + "  bossbar:\n    interval: 60\n  title:\n    interval: 600\n";
+        private static final String WITH_MUTE_DURATION =
+                "anti-spam:\n  enabled: true\n  mute-duration: 30\n";
 
-        private static final String WITHOUT_INTERVALS =
-                "announcements:\n  chat:\n    enabled: true\n";
+        private static final String WITHOUT_MUTE_DURATION =
+                "anti-spam:\n  enabled: true\n";
 
         private PluginLogger logger;
 
-        private UltiChat pluginReading(final File dir, String announcements) throws IOException {
-            File file = new File(dir, "config/announcements.yml");
+        private UltiChat pluginReading(final File dir, String chatYml) throws IOException {
+            File file = new File(dir, "config/chat.yml");
             file.getParentFile().mkdirs();
-            Files.write(file.toPath(), announcements.getBytes(StandardCharsets.UTF_8));
+            Files.write(file.toPath(), chatYml.getBytes(StandardCharsets.UTF_8));
 
             UltiChat plugin = mock(UltiChat.class);
             logger = mock(PluginLogger.class);
@@ -105,39 +104,38 @@ class UltiChatTest {
         }
 
         @Test
-        @DisplayName("POSITIVE CONTROL: registerSelf warns about every leftover interval key")
+        @DisplayName("POSITIVE CONTROL: registerSelf warns about the leftover key")
         void registerSelfWarns(@TempDir File dir) throws IOException {
-            UltiChat plugin = pluginReading(dir, WITH_INTERVALS);
+            UltiChat plugin = pluginReading(dir, WITH_MUTE_DURATION);
             when(plugin.registerSelf()).thenCallRealMethod();
 
             assertThat(plugin.registerSelf()).isTrue();
 
-            assertThat(warnings()).hasSize(3);
-            assertThat(warnings()).anySatisfy(l -> assertThat(l).contains("announcements.chat.interval"));
-            assertThat(warnings()).anySatisfy(l -> assertThat(l).contains("announcements.title.interval"));
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("anti-spam.mute-duration");
         }
 
         @Test
-        @DisplayName("POSITIVE CONTROL: onReload warns about every leftover interval key")
+        @DisplayName("POSITIVE CONTROL: onReload warns about the leftover key")
         void onReloadWarns(@TempDir File dir) throws IOException {
-            UltiChat plugin = pluginReading(dir, WITH_INTERVALS);
+            UltiChat plugin = pluginReading(dir, WITH_MUTE_DURATION);
             doCallRealMethod().when(plugin).onReload();
 
             plugin.onReload();
 
-            assertThat(warnings()).hasSize(3);
-            assertThat(warnings()).anySatisfy(l -> assertThat(l).contains("announcements.bossbar.interval"));
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("anti-spam.mute-duration");
         }
 
         @Test
         @DisplayName("Neither entry point warns when the file holds no removed key")
         void neitherWarnsOnACleanFile(@TempDir File dir) throws IOException {
-            UltiChat onEnable = pluginReading(dir, WITHOUT_INTERVALS);
+            UltiChat onEnable = pluginReading(dir, WITHOUT_MUTE_DURATION);
             when(onEnable.registerSelf()).thenCallRealMethod();
             onEnable.registerSelf();
             assertThat(warnings()).isEmpty();
 
-            UltiChat onReload = pluginReading(dir, WITHOUT_INTERVALS);
+            UltiChat onReload = pluginReading(dir, WITHOUT_MUTE_DURATION);
             doCallRealMethod().when(onReload).onReload();
             onReload.onReload();
             assertThat(warnings()).isEmpty();
