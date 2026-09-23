@@ -38,6 +38,19 @@ class PlayerChannelListenerTest {
         listener = new PlayerChannelListener();
         ChatTestHelper.setField(listener, "channelService", channelService);
         ChatTestHelper.setField(listener, "channelConfig", channelConfig);
+        injectByType(mock(AntiSpamService.class));
+    }
+
+    /**
+     * Sets every field of the listener whose type is the service's, as the container's by-type
+     * {@code @Autowired} does, so no test depends on the field's name.
+     */
+    private void injectByType(AntiSpamService service) throws Exception {
+        for (Field field : PlayerChannelListener.class.getDeclaredFields()) {
+            if (field.getType() == AntiSpamService.class) {
+                ChatTestHelper.setField(listener, field.getName(), service);
+            }
+        }
     }
 
     @AfterEach
@@ -170,11 +183,7 @@ class PlayerChannelListenerTest {
             ChatConfig chatConfig = new ChatConfig();
             antiSpam = new AntiSpamService();
             ChatTestHelper.setField(antiSpam, "config", chatConfig);
-            for (Field field : PlayerChannelListener.class.getDeclaredFields()) {
-                if (field.getType() == AntiSpamService.class) {
-                    ChatTestHelper.setField(listener, field.getName(), antiSpam);
-                }
-            }
+            injectByType(antiSpam);
         }
 
         @SuppressWarnings("unchecked")
