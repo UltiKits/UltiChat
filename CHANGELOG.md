@@ -46,23 +46,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
-- Removed the three announcement interval settings `announcements.chat.interval`,
-  `announcements.bossbar.interval` and `announcements.title.interval` from
-  `config/announcements.yml`. None of them was ever read: the announcements have always run on
-  fixed periods -- chat every 300 seconds, boss bar every 60 seconds, title every 600 seconds --
-  whatever the file said, and they still do, so nothing about when announcements appear changes.
-  An upgraded server keeps the keys in its own file (the framework never removes a key), so at
-  module start and on every reload this module now logs one warning per leftover key, naming the
-  file and the key; delete the key to silence it. Removing the settings is not a rejection of
-  configurable periods: that capability belongs in the framework and is requested in
-  UltiKits/UltiTools-Reborn#531 (UltiKits/UltiChat#13).
-- 从 `config/announcements.yml` 中移除了三个公告间隔设置 `announcements.chat.interval`、
-  `announcements.bossbar.interval` 与 `announcements.title.interval`。它们从未被读取：
-  公告一直按固定周期播报——聊天公告每 300 秒、Boss 栏公告每 60 秒、标题公告每 600 秒——
-  与文件中的值无关，现在也仍是如此，因此公告出现的时间没有任何变化。
-  升级后的服务器自己的文件中仍保留这些键（框架从不删除键），因此本模块现在会在模块启动与每次重载时
-  为每个残留键记录一条警告，指明文件与键名；删除该键即可消除警告。移除这些设置并不是否决「可配置周期」：
-  这一能力属于框架，已在 UltiKits/UltiTools-Reborn#531 中提出请求（UltiKits/UltiChat#13）。
 - Removed the automatic-mute setting `anti-spam.mute-duration` from `config/chat.yml`. Automatic
   muting was documented but never happened: the code that would have muted a player was never
   called, so no player was ever muted, whatever the setting said. Anti-spam behaves exactly as
@@ -79,6 +62,28 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   （UltiKits/UltiChat#15）。
 
 ### Fixed
+
+- The announcement interval settings `announcements.chat.interval`, `announcements.bossbar.interval`
+  and `announcements.title.interval` in `config/announcements.yml` now take effect. They were
+  documented but never read: the announcements always ran every 300, 60 and 600 seconds
+  respectively, whatever the file said. The values are in seconds, with the same defaults (300 / 60
+  / 600), so a server that never changed them sees no difference; a server that did now gets the
+  interval it configured. A changed value takes effect at `/ul reload` (or `/uchat reload`) without
+  a restart, keeping each announcement's place in its cycle -- the next one comes one new interval
+  after the last, or on the next tick if that moment has already passed. A value below 1 second (or
+  above about 3.4 years) stops the module from loading at startup with a message naming the key;
+  on a reload it is ignored with a warning and the running interval is kept. This uses the
+  framework's config-bound timers (UltiKits/UltiTools-Reborn#531), so this version needs UltiTools
+  6.3.0 or later and declares `api-version: 630` (UltiKits/UltiChat#13).
+- `config/announcements.yml` 中的公告间隔设置 `announcements.chat.interval`、
+  `announcements.bossbar.interval` 与 `announcements.title.interval` 现在会生效。它们此前有文档说明却从未被读取：
+  无论文件中写什么，公告一直分别每 300、60、600 秒播报一次。数值单位为秒，默认值不变（300 / 60 / 600），
+  因此从未改过的服务器不会看到任何变化；改过的服务器现在会按其配置的间隔播报。修改后的值在执行
+  `/ul reload`（或 `/uchat reload`）时生效，无需重启，并保持每条公告在周期中的位置——下一次播报在上一次之后
+  一个新间隔，若该时刻已过则在下一个 tick。小于 1 秒（或大于约 3.4 年）的值会在启动时使模块拒绝加载，
+  并提示键名；重载时则忽略该值并警告，继续使用正在运行的间隔。此功能使用框架的配置绑定定时器
+  （UltiKits/UltiTools-Reborn#531），因此本版本需要 UltiTools 6.3.0 或更高版本，并声明 `api-version: 630`
+  （UltiKits/UltiChat#13）。
 
 - A channel's own `format:` in `config/channels.yml` now applies to its members' chat lines, while
   both `channels.enabled` and `chat.format-enabled` (in `config/chat.yml`) are true -- the defaults;

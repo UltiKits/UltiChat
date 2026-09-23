@@ -14,11 +14,16 @@ import java.util.List;
 /**
  * Announcement settings.
  * <p>
- * There is deliberately no interval key: each broadcast runs on a period fixed in its
- * {@code @Scheduled} annotation on {@code AnnouncementService} -- chat every 300 seconds, boss bar
- * every 60, title every 600. The three {@code announcements.*.interval} keys this class used to
- * declare were never read and were removed (UltiKits/UltiChat#13); making the periods configurable
- * is requested of the framework in UltiKits/UltiTools-Reborn#531.
+ * The three {@code announcements.*.interval} keys are each broadcast's period, in seconds. They
+ * were declared but never read before (UltiKits/UltiChat#13); they are now bound to the
+ * {@code @Scheduled} methods on {@code AnnouncementService} through the framework's config-bound
+ * periods (UltiKits/UltiTools-Reborn#531), so these fields hold the only copy of the defaults. A
+ * changed value takes effect at {@code /ul reload} (or {@code /uchat reload}), keeping the task's
+ * place in its cycle. The range -- at least 1 second, at most {@code Integer.MAX_VALUE / 20}
+ * seconds -- is enforced by the framework's binding, not by {@code @Range} here: an invalid value
+ * refuses the module at load and, on reload, is ignored with a warning while the running interval
+ * is kept. A {@code @Range} would abort the whole reload instead, because the configuration's own
+ * validation failure leaves {@code reloadSelf} before the binding step runs.
  */
 @Getter
 @Setter
@@ -28,6 +33,9 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     // Chat announcements
     @ConfigEntry(path = "announcements.chat.enabled", comment = "Enable chat announcements / 启用聊天公告")
     private boolean chatEnabled = true;
+
+    @ConfigEntry(path = "announcements.chat.interval", comment = "Chat announcement interval (seconds) / 聊天公告间隔(秒)")
+    private int chatInterval = 300;
 
     @NotEmpty
     @ConfigEntry(path = "announcements.chat.prefix", comment = "Chat announcement prefix / 聊天公告前缀")
@@ -43,6 +51,9 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "announcements.bossbar.enabled", comment = "Enable boss bar announcements / 启用Boss栏公告")
     private boolean bossBarEnabled = false;
 
+    @ConfigEntry(path = "announcements.bossbar.interval", comment = "Boss bar interval (seconds) / Boss栏间隔(秒)")
+    private int bossBarInterval = 60;
+
     @Range(min = 1, max = 60)
     @ConfigEntry(path = "announcements.bossbar.duration", comment = "Boss bar display duration (seconds) / Boss栏显示时长(秒)")
     private int bossBarDuration = 10;
@@ -56,6 +67,9 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     // Title announcements
     @ConfigEntry(path = "announcements.title.enabled", comment = "Enable title announcements / 启用标题公告")
     private boolean titleEnabled = false;
+
+    @ConfigEntry(path = "announcements.title.interval", comment = "Title interval (seconds) / 标题间隔(秒)")
+    private int titleInterval = 600;
 
     @Range(min = 0, max = 100)
     @ConfigEntry(path = "announcements.title.fade-in", comment = "Title fade-in (ticks) / 标题淡入(tick)")

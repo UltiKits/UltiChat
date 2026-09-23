@@ -23,7 +23,8 @@ public class UltiChat extends UltiToolsPlugin {
     /**
      * Runs after the framework has reloaded this module's configuration files, so an operator who
      * edits a file and reloads ({@code /uchat reload} or {@code /ul reload}) is told about it again.
-     * Nothing is rescheduled here: every period this module uses is fixed.
+     * Nothing is rescheduled here: the announcement periods are config-bound, and the framework's
+     * own reload step reschedules a changed one before this hook runs (UltiTools-Reborn#531).
      */
     @Override
     protected void onReload() {
@@ -120,7 +121,7 @@ public class UltiChat extends UltiToolsPlugin {
      * only its predicate.
      *
      * @param path a path relative to this module's configuration folder, such as
-     *             {@code config/announcements.yml}
+     *             {@code config/chat.yml}
      * @return the file that path resolves to for this installation
      */
     File operatorConfigFile(String path) {

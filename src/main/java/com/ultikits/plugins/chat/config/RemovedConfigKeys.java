@@ -35,11 +35,6 @@ public final class RemovedConfigKeys {
     private static final Map<String, Map<String, String>> REMOVED;
 
     static {
-        Map<String, String> announcements = new LinkedHashMap<String, String>();
-        announcements.put("announcements.chat.interval", fixedPeriod("chat announcement", 300));
-        announcements.put("announcements.bossbar.interval", fixedPeriod("boss bar announcement", 60));
-        announcements.put("announcements.title.interval", fixedPeriod("title announcement", 600));
-
         Map<String, String> chat = new LinkedHashMap<String, String>();
         chat.put("anti-spam.mute-duration",
                 "Nothing ever used it: players were never muted automatically, whatever it said, "
@@ -48,20 +43,12 @@ public final class RemovedConfigKeys {
                         + "UltiKits/UltiChat#30.");
 
         Map<String, Map<String, String>> removed = new LinkedHashMap<String, Map<String, String>>();
-        removed.put("config/announcements.yml", Collections.unmodifiableMap(announcements));
         removed.put("config/chat.yml", Collections.unmodifiableMap(chat));
         REMOVED = Collections.unmodifiableMap(removed);
     }
 
     private RemovedConfigKeys() {
         // Utility class
-    }
-
-    private static String fixedPeriod(String what, int seconds) {
-        return "Nothing ever read this key: the " + what + " has always run every " + seconds
-                + " seconds whatever it said, and it still does -- the period is fixed in this "
-                + "version (UltiKits/UltiChat#13). Making it configurable is requested in "
-                + "UltiKits/UltiTools-Reborn#531.";
     }
 
     /**
@@ -81,7 +68,7 @@ public final class RemovedConfigKeys {
      * loading already reports an unparseable file, and a second message from this check would only
      * add noise to it.
      *
-     * @param fileFor resolves a configuration path such as {@code config/announcements.yml} to the
+     * @param fileFor resolves a configuration path such as {@code config/chat.yml} to the
      *                operator's own copy of that file
      * @param warn    where to send each warning, normally the module logger's warn method
      */

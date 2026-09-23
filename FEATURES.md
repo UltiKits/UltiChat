@@ -47,7 +47,7 @@ for UAT execution and issue reconciliation — the public description of these f
   that is not `command` — a config key or a scheduled task has no permission node to declare in
   the first place, which is a different fact from a command that declares `none` deliberately.
 - **Source:** `ClassName#member` — the class and member that actually reads or applies the
-  feature — for every Kind, `config` included: all 41 `config` rows below cite the reading
+  feature — for every Kind, `config` included: all 44 `config` rows below cite the reading
   member. Unlike the framework's own `config.yml` (read directly via Bukkit's
   `FileConfiguration`, with no bound entity at all), every one of this module's five
   configuration files is a real `@ConfigEntity`/`@ConfigEntry`-bound class, so a config row's
@@ -94,7 +94,7 @@ rather than an error:
 
 **Positive control:** the line-start form returns `@CmdExecutor` = 2, `@CmdMapping` = 7,
 `@EventListener` = 4 (classes), `@EventHandler` = 6 (handler methods), `@Scheduled` = 3,
-`@ConditionalOnConfig` = 1, `@ConfigEntity` = 5 (classes), `@ConfigEntry` = 41 — confirmed by
+`@ConditionalOnConfig` = 1, `@ConfigEntity` = 5 (classes), `@ConfigEntry` = 44 — confirmed by
 reading `ChatAdminCommands.java` (5 `@CmdMapping` sites: `reload`, `autoreply list`,
 `autoreply add <name> <response>`, `autoreply setkeyword <name> <keyword>` at line 110, and
 `autoreply remove <name>`) and `ChannelCommands.java` (2 sites: `list`, `<name>`) directly, not by
@@ -198,19 +198,22 @@ only to the joining player, and a server-wide first-join broadcast. All four sub
 
 ## Scheduled Broadcasts
 
-`AnnouncementService` — three independently-toggled, message-rotating broadcasts. Each runs on a
-period fixed in its own `@Scheduled` annotation — chat every 6000 ticks (300 s), boss bar every 1200
-ticks (60 s), title every 12000 ticks (600 s) — and no configuration key changes it. The three
-`announcements.*.interval` keys that used to be declared for these periods were never read and were
-removed (`UltiKits/UltiChat#13`); a leftover copy in an upgraded server's file is reported by
-`ultichat.lifecycle.removed-key-warning`. Configurable periods are requested of the framework in
-`UltiKits/UltiTools-Reborn#531`.
+`AnnouncementService` — three independently-toggled, message-rotating broadcasts. Each runs on the
+period its `announcements.*.interval` key gives, in seconds (defaults: chat 300, boss bar 60, title
+600), through the framework's config-bound `@Scheduled` (`UltiKits/UltiTools-Reborn#531`; the
+annotation carries no literal period, so the config field holds the only default). The first run is
+on the tick after the module loads, as before. A changed value takes effect at `/ul reload` or
+`/uchat reload`, keeping the task's place in its cycle: the next run is the last run plus the new
+interval, or the next tick if that has already passed. An invalid value (below 1 second, or above
+`Integer.MAX_VALUE / 20` seconds) refuses the module at load, and on a reload is ignored with a
+WARNING while the running interval is kept. The keys were declared but never read before
+(`UltiKits/UltiChat#13`). A module using these bindings declares `api-version: 630`.
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
-| ultichat.announce.bossbar-broadcast | Show a rotating boss-bar message to every online player, in the configured color, removed automatically after the configured duration | scheduled | runs automatically every 1200 ticks (60 s, fixed) while `announcements.bossbar.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastBossBar |
-| ultichat.announce.chat-broadcast | Broadcast a rotating chat message (with configured prefix) to every online player | scheduled | runs automatically every 6000 ticks (300 s, fixed) while `announcements.chat.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastChat |
-| ultichat.announce.title-broadcast | Show a rotating title/subtitle to every online player, splitting each configured message on its first double-vertical-bar occurrence into title and subtitle | scheduled | runs automatically every 12000 ticks (600 s, fixed) while `announcements.title.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastTitle |
+| ultichat.announce.bossbar-broadcast | Show a rotating boss-bar message to every online player, in the configured color, removed automatically after the configured duration | scheduled | runs automatically every `announcements.bossbar.interval` seconds (default 60) while `announcements.bossbar.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastBossBar |
+| ultichat.announce.chat-broadcast | Broadcast a rotating chat message (with configured prefix) to every online player | scheduled | runs automatically every `announcements.chat.interval` seconds (default 300) while `announcements.chat.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastChat |
+| ultichat.announce.title-broadcast | Show a rotating title/subtitle to every online player, splitting each configured message on its first double-vertical-bar occurrence into title and subtitle | scheduled | runs automatically every `announcements.title.interval` seconds (default 600) while `announcements.title.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastTitle |
 
 ## Data persistence
 
@@ -236,37 +239,40 @@ value stopped meaning anything.
 |---|---|---|---|---|---|---|---|---|
 | ultichat.lifecycle.channel-format-warning | On module enable and again on every reload, while `channels.enabled` and `chat.format-enabled` are both true, for each channel whose own `format` is in effect (not unset, not one of the three formerly shipped strings) and lacks a sender token (`{player}`, `{displayname}`) or the message token (`{message}`), log exactly one WARNING naming the module (`UltiChat`), the path of the operator's `config/channels.yml`, the channel and its format, what its lines are missing (`no sender name`, `no message text`, or both) and what to add, or to remove the format to use the global one. The format still applies as written. Exists because a format edited in an earlier version of this module had no effect, so an operator had no reason to notice it names no player; after the upgrade it applies (`UltiKits/UltiChat#16`, gate-1 WR-01) | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, UltiChat#warnAboutIncompleteChannelFormats |
 | ultichat.lifecycle.duplicate-window-warning | On module enable and again on every reload, if the loaded `anti-spam.duplicate-window` is above 0 (its declared default, meaning no time limit), log exactly one WARNING naming the module (`UltiChat`), the path of the operator's `config/chat.yml`, the key and its value in force; saying the value now applies (a repeat counts only while its earlier copies are at most that many seconds old), that before this version the setting was ignored and repeats counted however far apart they were sent, so duplicate detection is more permissive than before the upgrade; and telling the operator to set it to 0 (no time limit) and run `/uchat reload` to restore the previous behaviour exactly. Nothing is logged at 0. Exists because an upgraded server's file holds the 60 that earlier versions wrote into it, which this version applies for the first time (`UltiKits/UltiChat#14`) | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, UltiChat#warnIfDuplicateWindowShortened |
-| ultichat.lifecycle.removed-key-warning | On module enable and again on every reload, read the operator's own `config/announcements.yml` and `config/chat.yml` and log one WARNING per key this version no longer reads but which is still present in that file — `announcements.chat.interval`, `announcements.bossbar.interval`, `announcements.title.interval` in the first, `anti-spam.mute-duration` in the second. Each warning names the module (`UltiChat`), the file's path and the key, and says the key is no longer read; an interval warning adds that the broadcast still runs on its fixed period (300 / 60 / 600 seconds respectively) and cites `UltiKits/UltiTools-Reborn#531` for configurable periods, the mute-duration warning adds that players were never muted automatically and cites `UltiKits/UltiChat#30`; every warning tells the operator to delete the key to silence it. Nothing is logged when the file holds none of them, when the file is absent, or when it cannot be parsed — the framework's own config loading already reports an unparseable file | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, RemovedConfigKeys#warnAboutLeftovers |
+| ultichat.lifecycle.removed-key-warning | On module enable and again on every reload, read the operator's own `config/chat.yml` and log one WARNING if it still holds `anti-spam.mute-duration`, the one key this version removed. The warning names the module (`UltiChat`), the file's path and the key, says the key is no longer read and that players were never muted automatically, cites `UltiKits/UltiChat#30`, and tells the operator to delete the key to silence it. (The three announcement interval keys are not on this list: they are live settings again, `UltiKits/UltiChat#13`.) Nothing is logged when the file holds none of them, when the file is absent, or when it cannot be parsed — the framework's own config loading already reports an unparseable file | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, RemovedConfigKeys#warnAboutLeftovers |
 
 ## Configuration
 
-Every `@ConfigEntry`-annotated field across this module's five `@ConfigEntity` classes (41 keys
-total: `AnnouncementConfig` 12, `AutoReplyConfig` 3, `ChannelConfig` 3, `ChatConfig` 21,
-`EmojiConfig` 2 — matching the reconciliation table's own `@ConfigEntry` count of 41 exactly).
+Every `@ConfigEntry`-annotated field across this module's five `@ConfigEntity` classes (44 keys
+total: `AnnouncementConfig` 15, `AutoReplyConfig` 3, `ChannelConfig` 3, `ChatConfig` 21,
+`EmojiConfig` 2 — matching the reconciliation table's own `@ConfigEntry` count of 44 exactly).
 Several of these keys already have a behavioural row above (auto-reply rules, the channel gate,
 join/quit messages, the chat pipeline, scheduled broadcasts) — that row documents the *feature*
 the key drives, this row documents the *key* itself, at file-and-key granularity, so the
 reconciliation table can prove every key is accounted for without also making every behavioural
 row carry a `config` Kind.
 
-**Every key below has an observable effect.** Five keys used to be listed here as having none. Four
-were deleted: the three announcement intervals (`UltiKits/UltiChat#13`, see
-`## Scheduled Broadcasts`) and `anti-spam.mute-duration`, which was read only inside a method nothing
-called (`UltiKits/UltiChat#15`; automatic muting is requested as `UltiKits/UltiChat#30`). The fifth,
-`anti-spam.duplicate-window`, is now read (`UltiKits/UltiChat#14`).
+**Every key below has an observable effect.** Five keys used to be listed here as having none. The
+three announcement intervals are now bound to their broadcasts (`UltiKits/UltiChat#13`, see
+`## Scheduled Broadcasts`); `anti-spam.mute-duration`, which was read only inside a method nothing
+called, was deleted (`UltiKits/UltiChat#15`; automatic muting is requested as `UltiKits/UltiChat#30`);
+`anti-spam.duplicate-window` is now read (`UltiKits/UltiChat#14`).
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
 | ultichat.config.announcements.announcements.bossbar.color | Boss-bar announcement color; invalid `BarColor` enum values silently fall back to `BLUE` | config | `config/announcements.yml: announcements.bossbar.color (default: BLUE)` | n/a | n/a | admin | brief | AnnouncementService#broadcastBossBar |
 | ultichat.config.announcements.announcements.bossbar.duration | Boss-bar display duration before automatic removal | config | `config/announcements.yml: announcements.bossbar.duration (default: 10)` | n/a | n/a | admin | brief | AnnouncementService#broadcastBossBar |
 | ultichat.config.announcements.announcements.bossbar.enabled | Enable the rotating boss-bar announcement | config | `config/announcements.yml: announcements.bossbar.enabled (default: false)` | n/a | n/a | admin | brief | AnnouncementService#broadcastBossBar |
+| ultichat.config.announcements.announcements.bossbar.interval | The boss-bar broadcast's period, in seconds, bound to `AnnouncementService#broadcastBossBar` through the framework's config-bound `@Scheduled`; range 1 to `Integer.MAX_VALUE / 20` (an invalid value refuses the module at load, and on reload is ignored with a WARNING keeping the running period); a change applies at `/ul reload` or `/uchat reload`, keeping the task's place in its cycle (`UltiKits/UltiChat#13`, `UltiKits/UltiTools-Reborn#531`) | config | `config/announcements.yml: announcements.bossbar.interval (default: 60)` | n/a | n/a | admin | brief | AnnouncementService#broadcastBossBar |
 | ultichat.config.announcements.announcements.bossbar.messages | Boss-bar message pool, rotated in order on each firing | config | `config/announcements.yml: announcements.bossbar.messages (default: 1 entry)` | n/a | n/a | admin | none | AnnouncementService#broadcastBossBar |
 | ultichat.config.announcements.announcements.chat.enabled | Enable the rotating chat-line announcement | config | `config/announcements.yml: announcements.chat.enabled (default: true)` | n/a | n/a | admin | brief | AnnouncementService#broadcastChat |
+| ultichat.config.announcements.announcements.chat.interval | The chat broadcast's period, in seconds, bound to `AnnouncementService#broadcastChat` through the framework's config-bound `@Scheduled`; range 1 to `Integer.MAX_VALUE / 20` (an invalid value refuses the module at load, and on reload is ignored with a WARNING keeping the running period); a change applies at `/ul reload` or `/uchat reload`, keeping the task's place in its cycle (`UltiKits/UltiChat#13`, `UltiKits/UltiTools-Reborn#531`) | config | `config/announcements.yml: announcements.chat.interval (default: 300)` | n/a | n/a | admin | brief | AnnouncementService#broadcastChat |
 | ultichat.config.announcements.announcements.chat.messages | Chat announcement message pool, rotated in order on each firing | config | `config/announcements.yml: announcements.chat.messages (default: 2 entries)` | n/a | n/a | admin | none | AnnouncementService#broadcastChat |
 | ultichat.config.announcements.announcements.chat.prefix | Prefix prepended to every chat announcement line | config | `config/announcements.yml: announcements.chat.prefix (default: "&6[Announcement] &f")` | n/a | n/a | admin | none | AnnouncementService#broadcastChat |
 | ultichat.config.announcements.announcements.title.enabled | Enable the rotating title/subtitle announcement | config | `config/announcements.yml: announcements.title.enabled (default: false)` | n/a | n/a | admin | brief | AnnouncementService#broadcastTitle |
 | ultichat.config.announcements.announcements.title.fade-in | Title fade-in duration, in ticks | config | `config/announcements.yml: announcements.title.fade-in (default: 10)` | n/a | n/a | admin | none | AnnouncementService#broadcastTitle |
 | ultichat.config.announcements.announcements.title.fade-out | Title fade-out duration, in ticks | config | `config/announcements.yml: announcements.title.fade-out (default: 20)` | n/a | n/a | admin | none | AnnouncementService#broadcastTitle |
+| ultichat.config.announcements.announcements.title.interval | The title broadcast's period, in seconds, bound to `AnnouncementService#broadcastTitle` through the framework's config-bound `@Scheduled`; range 1 to `Integer.MAX_VALUE / 20` (an invalid value refuses the module at load, and on reload is ignored with a WARNING keeping the running period); a change applies at `/ul reload` or `/uchat reload`, keeping the task's place in its cycle (`UltiKits/UltiChat#13`, `UltiKits/UltiTools-Reborn#531`) | config | `config/announcements.yml: announcements.title.interval (default: 600)` | n/a | n/a | admin | brief | AnnouncementService#broadcastTitle |
 | ultichat.config.announcements.announcements.title.messages | Title/subtitle message pool, double-vertical-bar-separated, rotated in order on each firing | config | `config/announcements.yml: announcements.title.messages (default: 1 entry)` | n/a | n/a | admin | none | AnnouncementService#broadcastTitle |
 | ultichat.config.announcements.announcements.title.stay | Title stay duration, in ticks | config | `config/announcements.yml: announcements.title.stay (default: 70)` | n/a | n/a | admin | none | AnnouncementService#broadcastTitle |
 | ultichat.config.autoreply.autoreply.cooldown | Global per-player cooldown between auto-reply triggers | config | `config/autoreply.yml: autoreply.cooldown (default: 10)` | n/a | n/a | admin | brief | AutoReplyListener#isOnCooldown |

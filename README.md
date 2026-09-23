@@ -50,7 +50,7 @@ Standalone chat module extracted from UltiEssentials with 8 features: auto-reply
 | `config/chat.yml` | 聊天格式、@提及、入退消息、反刷屏 |
 | `config/autoreply.yml` | 自动回复规则（关键词、匹配模式、回复内容、冷却） |
 | `config/channels.yml` | 频道定义（显示名、范围、权限、跨世界、可选的频道格式） |
-| `config/announcements.yml` | 定时广播（聊天/Boss栏/标题，消息列表；周期固定为 300 / 60 / 600 秒） |
+| `config/announcements.yml` | 定时广播（聊天/Boss栏/标题，消息列表，间隔秒数，默认 300 / 60 / 600；`/ul reload` 即生效） |
 | `config/emojis.yml` | 表情开关与自定义表情映射 |
 
 ### 自动回复示例 / Auto-Reply Example
