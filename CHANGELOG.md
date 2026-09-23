@@ -68,7 +68,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   documented but never read: the announcements always ran every 300, 60 and 600 seconds
   respectively, whatever the file said. The values are in seconds, with the same defaults (300 / 60
   / 600), so a server that never changed them sees no difference; a server that did now gets the
-  interval it configured. A changed value takes effect at `/ul reload` (or `/uchat reload`) without
+  interval it configured -- **including a value edited before this upgrade, which had no effect
+  until now and starts applying the first time this version loads**. The old accepted range of 10 to
+  3600 seconds is gone: the range is now the framework's, 1 second to about 3.4 years, so an
+  interval of 1 to 9 seconds (which the old range rejected) and one above an hour are both
+  accepted and take effect -- `interval: 1` on the chat announcement sends a line every second.
+  A changed value takes effect at `/ul reload` (or `/uchat reload`) without
   a restart, keeping each announcement's place in its cycle -- the next one comes one new interval
   after the last, or on the next tick if that moment has already passed. A value below 1 second (or
   above about 3.4 years) stops the module from loading at startup with a message naming the key;
@@ -78,7 +83,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `config/announcements.yml` 中的公告间隔设置 `announcements.chat.interval`、
   `announcements.bossbar.interval` 与 `announcements.title.interval` 现在会生效。它们此前有文档说明却从未被读取：
   无论文件中写什么，公告一直分别每 300、60、600 秒播报一次。数值单位为秒，默认值不变（300 / 60 / 600），
-  因此从未改过的服务器不会看到任何变化；改过的服务器现在会按其配置的间隔播报。修改后的值在执行
+  因此从未改过的服务器不会看到任何变化；改过的服务器现在会按其配置的间隔播报——**包括升级前编辑过的值：
+  它此前不起作用，本版本首次加载时开始生效**。原先 10 到 3600 秒的允许范围已取消，范围改为框架的 1 秒到约 3.4 年，
+  因此 1 到 9 秒（原范围不接受）以及超过一小时的间隔都会被接受并生效——聊天公告设 `interval: 1` 即每秒发送一条。
+  修改后的值在执行
   `/ul reload`（或 `/uchat reload`）时生效，无需重启，并保持每条公告在周期中的位置——下一次播报在上一次之后
   一个新间隔，若该时刻已过则在下一个 tick。小于 1 秒（或大于约 3.4 年）的值会在启动时使模块拒绝加载，
   并提示键名；重载时则忽略该值并警告，继续使用正在运行的间隔。此功能使用框架的配置绑定定时器
