@@ -168,9 +168,19 @@ class ChatConfigTest {
         }
 
         @Test
-        @DisplayName("Should have default duplicate window of 60 seconds")
-        void shouldHaveDefaultDuplicateWindow() {
-            assertThat(config.getAntiSpamDuplicateWindow()).isEqualTo(60);
+        @DisplayName("Should have default duplicate window of 600 seconds, the longest the key allows (UltiKits/UltiChat#14)")
+        void shouldHaveDefaultDuplicateWindow() throws Exception {
+            assertThat(config.getAntiSpamDuplicateWindow()).isEqualTo(600);
+            // The declared default equals the declared maximum: a window is the only way the setting
+            // can weaken detection that used to have no time limit at all, so a new install gets the
+            // weakest weakening the declaration permits.
+            com.ultikits.ultitools.annotations.config.Range range = ChatConfig.class
+                    .getDeclaredField("antiSpamDuplicateWindow")
+                    .getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
+            assertThat(range).isNotNull();
+            assertThat((double) config.getAntiSpamDuplicateWindow()).isEqualTo(range.max());
+            assertThat(AnnouncementConfigTest.shipped("config/chat.yml").getInt("anti-spam.duplicate-window"))
+                    .isEqualTo(600);
         }
 
         @Test

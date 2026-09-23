@@ -1,5 +1,6 @@
 package com.ultikits.plugins.chat;
 
+import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -135,6 +136,105 @@ class UltiChatTest {
             UltiChat onReload = pluginReading(dir, WITHOUT_INTERVALS);
             doCallRealMethod().when(onReload).onReload();
             onReload.onReload();
+            assertThat(warnings()).isEmpty();
+        }
+    }
+
+    /**
+     * UltiKits/UltiChat#14. The duplicate window used to be ignored, so a repeat counted however far
+     * apart its copies were sent. Wiring it makes an upgraded server's on-disk value (60, written by
+     * earlier versions) take effect, which makes detection more permissive than before; the ruling
+     * is that the value takes effect and the operator is told so, loudly, at load. The new declared
+     * default -- 600, the longest the key allows -- is the reference: anything shorter is announced.
+     */
+    @Nested
+    @DisplayName("A duplicate window shorter than the new default is announced at load (UltiKits/UltiChat#14)")
+    class DuplicateWindowWarning {
+
+        private PluginLogger logger;
+
+        private UltiChat pluginWithWindow(final File dir, Integer windowSeconds) {
+            UltiChat plugin = mock(UltiChat.class);
+            logger = mock(PluginLogger.class);
+            when(plugin.getLogger()).thenReturn(logger);
+            when(plugin.operatorConfigFile(anyString()))
+                    .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
+            ChatConfig config = null;
+            if (windowSeconds != null) {
+                config = new ChatConfig();
+                config.setAntiSpamDuplicateWindow(windowSeconds);
+            }
+            when(plugin.getConfig(ChatConfig.class)).thenReturn(config);
+            when(plugin.registerSelf()).thenCallRealMethod();
+            doCallRealMethod().when(plugin).onReload();
+            return plugin;
+        }
+
+        private List<String> warnings() {
+            ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+            verify(logger, atLeast(0)).warn(captor.capture());
+            return captor.getAllValues();
+        }
+
+        @Test
+        @DisplayName("POSITIVE CONTROL: an on-disk 60 at module start gives exactly one warning saying what changed and how to undo it")
+        void sixtyAtStartWarns(@TempDir File dir) {
+            UltiChat plugin = pluginWithWindow(dir, 60);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0))
+                    .contains("UltiChat")
+                    .contains(new File(dir, "config/chat.yml").getPath())
+                    .contains("'anti-spam.duplicate-window'")
+                    .contains("60 seconds")
+                    .contains("more permissive than before the upgrade")
+                    .contains("set it to 600")
+                    .contains("/uchat reload")
+                    .contains("UltiKits/UltiChat#14");
+        }
+
+        @Test
+        @DisplayName("POSITIVE CONTROL: the same warning on reload")
+        void sixtyOnReloadWarns(@TempDir File dir) {
+            UltiChat plugin = pluginWithWindow(dir, 60);
+
+            plugin.onReload();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("'anti-spam.duplicate-window'").contains("60 seconds");
+        }
+
+        @Test
+        @DisplayName("One second short of the default still warns")
+        void justBelowTheDefaultWarns(@TempDir File dir) {
+            UltiChat plugin = pluginWithWindow(dir, 599);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("599 seconds");
+        }
+
+        @Test
+        @DisplayName("The default itself is not announced")
+        void theDefaultIsQuiet(@TempDir File dir) {
+            UltiChat plugin = pluginWithWindow(dir, 600);
+
+            plugin.registerSelf();
+            plugin.onReload();
+
+            assertThat(warnings()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("No configuration object, no warning and no failure")
+        void noConfigIsQuiet(@TempDir File dir) {
+            UltiChat plugin = pluginWithWindow(dir, null);
+
+            assertThat(plugin.registerSelf()).isTrue();
+
             assertThat(warnings()).isEmpty();
         }
     }

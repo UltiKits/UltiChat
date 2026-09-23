@@ -8,7 +8,7 @@ import org.junit.jupiter.api.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.LinkedList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -48,6 +48,14 @@ class AntiSpamServiceTest {
 
     private Player createPlayerWithId(UUID uuid) {
         return ChatTestHelper.createMockPlayer("TestPlayer", uuid);
+    }
+
+    /** The retained-message history for a player, whatever its element type. */
+    private Collection<?> retained(UUID playerId) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<UUID, ? extends Collection<?>> recentMessages =
+                (Map<UUID, ? extends Collection<?>>) ChatTestHelper.getField(service, "recentMessages");
+        return recentMessages.get(playerId);
     }
 
     // -------------------------------------------------------------------------
@@ -158,21 +166,23 @@ class AntiSpamServiceTest {
     @DisplayName("checkSpam - duplicate detection")
     class CheckSpamDuplicateTests {
 
+        /** Records {@code count} copies of {@code message} as accepted messages, with no cooldown in the way. */
+        private void recordCopies(UUID playerId, String message, int count) {
+            int cooldown = config.getAntiSpamCooldown();
+            config.setAntiSpamCooldown(0);
+            for (int i = 0; i < count; i++) {
+                service.recordMessage(playerId, message);
+            }
+            config.setAntiSpamCooldown(cooldown);
+        }
+
         @Test
         @DisplayName("should detect duplicate messages")
-        void shouldDetectDuplicateMessages() throws Exception {
+        void shouldDetectDuplicateMessages() {
             Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            // Simulate 3 identical messages in history (maxDuplicate is 3)
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("spam");
-            messages.add("spam");
-            messages.add("spam");
-            recentMessages.put(playerId, messages);
+            // 3 identical messages in history (maxDuplicate is 3)
+            recordCopies(player.getUniqueId(), "spam", 3);
+            config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "spam");
             assertThat(reason).isEqualTo("请不要发送重复消息！");
@@ -180,18 +190,11 @@ class AntiSpamServiceTest {
 
         @Test
         @DisplayName("should allow message when below duplicate threshold")
-        void shouldAllowBelowDuplicateThreshold() throws Exception {
+        void shouldAllowBelowDuplicateThreshold() {
             Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("spam");
-            messages.add("spam");
             // Only 2 duplicates, threshold is 3
-            recentMessages.put(playerId, messages);
+            recordCopies(player.getUniqueId(), "spam", 2);
+            config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "spam");
             assertThat(reason).isNull();
@@ -199,35 +202,15 @@ class AntiSpamServiceTest {
 
         @Test
         @DisplayName("should allow different messages")
-        void shouldAllowDifferentMessages() throws Exception {
+        void shouldAllowDifferentMessages() {
             Player player = createPlayer();
             UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("message1");
-            messages.add("message2");
-            messages.add("message3");
-            recentMessages.put(playerId, messages);
+            recordCopies(playerId, "message1", 1);
+            recordCopies(playerId, "message2", 1);
+            recordCopies(playerId, "message3", 1);
+            config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "message4");
-            assertThat(reason).isNull();
-        }
-
-        @Test
-        @DisplayName("should handle empty recent messages")
-        void shouldHandleEmptyRecentMessages() throws Exception {
-            Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            recentMessages.put(playerId, new LinkedList<String>());
-
-            String reason = service.checkSpam(player, "hello");
             assertThat(reason).isNull();
         }
 
@@ -241,23 +224,83 @@ class AntiSpamServiceTest {
 
         @Test
         @DisplayName("should handle maxDuplicate of zero")
-        void shouldHandleMaxDuplicateOfZero() throws Exception {
-            config.setAntiSpamMaxDuplicate(0);
+        void shouldHandleMaxDuplicateOfZero() {
             Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("spam");
-            messages.add("spam");
-            messages.add("spam");
-            recentMessages.put(playerId, messages);
+            recordCopies(player.getUniqueId(), "spam", 3);
+            config.setAntiSpamMaxDuplicate(0);
+            config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "spam");
             // maxDuplicate <= 0 means duplicate check is disabled
             assertThat(reason).isNull();
+        }
+
+        @Test
+        @DisplayName("only the last max-duplicate accepted messages are retained: an older copy pushed out no longer counts")
+        void oldestCopyIsPushedOut() {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            recordCopies(playerId, "spam", 3);
+            recordCopies(playerId, "other", 1);
+            config.setAntiSpamCooldown(0);
+
+            // Retained: spam, spam, other -- two copies, below the threshold of 3.
+            assertThat(service.checkSpam(player, "spam")).isNull();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Duplicate window (UltiKits/UltiChat#14)
+    // -------------------------------------------------------------------------
+
+    /**
+     * UltiKits/UltiChat#14. {@code anti-spam.duplicate-window} was declared and never read, so a
+     * repeat counted however long ago its earlier copies were sent. It is now wired: a retained copy
+     * older than the window stops counting. These tests use the real clock, because the window is
+     * whole seconds and the only way to be outside it is to let time pass; the one test that needs
+     * that waits just over one second.
+     */
+    @Nested
+    @DisplayName("checkSpam - duplicate window (UltiKits/UltiChat#14)")
+    class DuplicateWindowTests {
+
+        @Test
+        @DisplayName("A repeat inside the window counts as a duplicate")
+        void repeatInsideTheWindowCounts() {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(60);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+        }
+
+        @Test
+        @DisplayName("Copies older than the window stop counting; copies inside it still count")
+        void copiesOutsideTheWindowStopCounting() throws Exception {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(1);
+
+            service.recordMessage(playerId, "spam");
+            Thread.sleep(1100L);
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+
+            // Three copies retained, but the first is older than the 1-second window: two count,
+            // below the threshold of 3, so the repeat is accepted.
+            assertThat(service.checkSpam(player, "spam")).isNull();
+
+            // Control on the same history: the two copies inside the window DO count -- with a
+            // threshold of 2 the same repeat is refused. Without this the null above could also
+            // mean "duplicate detection stopped working".
+            config.setAntiSpamMaxDuplicate(2);
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
         }
     }
 
@@ -421,10 +464,7 @@ class AntiSpamServiceTest {
             UUID playerId = UUID.randomUUID();
             service.recordMessage(playerId, "hello");
 
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            assertThat(recentMessages.get(playerId)).containsExactly("hello");
+            assertThat(retained(playerId)).hasSize(1);
         }
 
         @Test
@@ -438,12 +478,8 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "msg3");
             service.recordMessage(playerId, "msg4");
 
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = recentMessages.get(playerId);
-            assertThat(messages).hasSize(3);
-            assertThat(messages).containsExactly("msg2", "msg3", "msg4");
+            // Which three are kept is pinned behaviourally by oldestCopyIsPushedOut.
+            assertThat(retained(playerId)).hasSize(3);
         }
 
         @Test
@@ -470,12 +506,8 @@ class AntiSpamServiceTest {
                 service.recordMessage(playerId, "msg" + i);
             }
 
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = recentMessages.get(playerId);
             // Default is 3 when config is 0
-            assertThat(messages).hasSize(3);
+            assertThat(retained(playerId)).hasSize(3);
         }
     }
 
