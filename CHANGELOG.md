@@ -69,6 +69,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A player who leaves the server now has their anti-spam history cleared -- the time of their last
+  message and the recent messages kept for duplicate detection. Previously this was never done,
+  so the module kept an entry for every player who had chatted since the server started, for as
+  long as the server ran. What a player notices: after leaving and rejoining, their message
+  history starts empty, so a message refused as a duplicate before they left is accepted again
+  after they rejoin (UltiKits/UltiChat#20).
+- 玩家离开服务器时，其反刷屏记录（上一条消息的时间，以及为重复检测保留的最近消息）现在会被清除。
+  此前从未清除，因此只要服务器在运行，本模块就会为自启动以来每一位发过言的玩家保留一条记录。
+  玩家可察觉的变化：离开并重新进入后，其消息记录从空开始，因此离开前被判为重复而拦截的消息，
+  重新进入后会被接受（UltiKits/UltiChat#20）。
 - Auto-reply rules changed with `/uchat autoreply add`, `/uchat autoreply setkeyword` and
   `/uchat autoreply remove` are now written to `config/autoreply.yml` as the command runs, so they
   survive `/uchat reload` and `/ul reload`; previously only a clean server stop saved them, and
