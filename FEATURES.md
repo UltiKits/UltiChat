@@ -226,14 +226,15 @@ writes a configuration file, and this module still has no `@Table`/`DataOperator
 ## Module lifecycle
 
 `UltiChat#registerSelf` (module enable) and `UltiChat#onReload` (after the framework has reloaded
-this module's configuration files — reached by `/uchat reload` and by `/ul reload`) run the
-removed-key check. Deleting a `@ConfigEntry` stops the framework writing that key into a fresh file
+this module's configuration files — reached by `/uchat reload` and by `/ul reload`) run two
+upgrade checks: the removed-key check, and the duplicate-window notice. Deleting a `@ConfigEntry` stops the framework writing that key into a fresh file
 but does nothing to files already on disk: the framework writes a declared default only for a key
 that is missing, so an upgraded install keeps the key and its value with no indication that the
 value stopped meaning anything.
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
+| ultichat.lifecycle.duplicate-window-warning | On module enable and again on every reload, if the loaded `anti-spam.duplicate-window` is shorter than its declared default of 600 seconds, log exactly one WARNING naming the module (`UltiChat`), the path of the operator's `config/chat.yml`, the key and its value in force; saying the value now applies (a repeat counts only while its earlier copies are at most that many seconds old), that before this version the setting was ignored and repeats counted however far apart they were sent, so duplicate detection is more permissive than before the upgrade; and telling the operator to set it to 600 and run `/uchat reload`. Nothing is logged at 600. Exists because an upgraded server's file holds the 60 that earlier versions wrote into it, which this version applies for the first time (`UltiKits/UltiChat#14`) | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, UltiChat#warnIfDuplicateWindowShortened |
 | ultichat.lifecycle.removed-key-warning | On module enable and again on every reload, read the operator's own `config/announcements.yml` and `config/chat.yml` and log one WARNING per key this version no longer reads but which is still present in that file — `announcements.chat.interval`, `announcements.bossbar.interval`, `announcements.title.interval` in the first, `anti-spam.mute-duration` in the second. Each warning names the module (`UltiChat`), the file's path and the key, and says the key is no longer read; an interval warning adds that the broadcast still runs on its fixed period (300 / 60 / 600 seconds respectively) and cites `UltiKits/UltiTools-Reborn#531` for configurable periods, the mute-duration warning adds that players were never muted automatically and cites `UltiKits/UltiChat#30`; every warning tells the operator to delete the key to silence it. Nothing is logged when the file holds none of them, when the file is absent, or when it cannot be parsed — the framework's own config loading already reports an unparseable file | event | automatic, at module enable and at `/uchat reload` or `/ul reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onReload, RemovedConfigKeys#warnAboutLeftovers |
 
 ## Configuration
@@ -247,12 +248,11 @@ the key drives, this row documents the *key* itself, at file-and-key granularity
 reconciliation table can prove every key is accounted for without also making every behavioural
 row carry a `config` Kind.
 
-**One key is declared and validated but never read by any production code — "no observable
-effect" from an operator's perspective.** It is called out in its own row below with the filed issue
-number (`UltiKits/UltiChat#14`) rather than a claim that flipping it changes anything. Four keys that
-used to be listed here were deleted: the three announcement intervals (`UltiKits/UltiChat#13`, see
+**Every key below has an observable effect.** Five keys used to be listed here as having none. Four
+were deleted: the three announcement intervals (`UltiKits/UltiChat#13`, see
 `## Scheduled Broadcasts`) and `anti-spam.mute-duration`, which was read only inside a method nothing
-called (`UltiKits/UltiChat#15`; automatic muting is requested as `UltiKits/UltiChat#30`).
+called (`UltiKits/UltiChat#15`; automatic muting is requested as `UltiKits/UltiChat#30`). The fifth,
+`anti-spam.duplicate-window`, is now read (`UltiKits/UltiChat#14`).
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
@@ -276,9 +276,9 @@ called (`UltiKits/UltiChat#15`; automatic muting is requested as `UltiKits/UltiC
 | ultichat.config.channels.channels.enabled | Two distinct effects: gates whether `ChannelCommands` (`/ch`) is registered at boot (see `ultichat.channel.gate`, restart required either way), AND is read live on every chat message by `ChatListener#onChat` to decide whether channel-scoped recipient filtering and the channel-display-name format prefix apply — the second effect DOES take immediate effect on `/uchat reload`/`/ul reload`, unlike the first | config | `config/channels.yml: channels.enabled (default: true)` | n/a | n/a | admin | detailed | ChatListener#onChat, ChannelCommands#ChannelCommands |
 | ultichat.config.chat.anti-spam.caps-limit | Maximum uppercase-letter percentage before a message is refused as excessive caps; a value of `0` or `100`+ disables this specific check | config | `config/chat.yml: anti-spam.caps-limit (default: 70)` | n/a | n/a | admin | brief | AntiSpamService#isExcessiveCaps |
 | ultichat.config.chat.anti-spam.cooldown | Minimum seconds between a player's messages before the next one is refused | config | `config/chat.yml: anti-spam.cooldown (default: 2)` | n/a | n/a | admin | brief | AntiSpamService#checkCooldown |
-| ultichat.config.chat.anti-spam.duplicate-window | Declared and documented as a duplicate-detection time window (seconds); never read anywhere — `AntiSpamService#isDuplicate` compares only the last `anti-spam.max-duplicate` retained messages by count, with no time-based expiry at all. Known product defect, UltiKits/UltiChat#14 | config | `config/chat.yml: anti-spam.duplicate-window (default: 60, has no effect, see UltiKits/UltiChat#14)` | n/a | n/a | admin | brief | ChatConfig#antiSpamDuplicateWindow (declared, never read outside this class) |
+| ultichat.config.chat.anti-spam.duplicate-window | Duplicate-detection time window, in seconds: a retained copy of a message sent longer ago than this stops counting toward `anti-spam.max-duplicate`, so a repeat is refused only when enough identical copies fall inside the window. The declared default is the key's own maximum, 600, because the window was ignored before 6.3.0 and any finite value loosens the old unlimited detection. An upgraded server keeps the value earlier versions wrote into its file (60), which now takes effect and is announced at load (`ultichat.lifecycle.duplicate-window-warning`). `UltiKits/UltiChat#14` | config | `config/chat.yml: anti-spam.duplicate-window (default: 600)` | n/a | n/a | admin | brief | AntiSpamService#isDuplicate |
 | ultichat.config.chat.anti-spam.enabled | Enable the anti-spam system entirely (cooldown, duplicate detection, caps limiting) | config | `config/chat.yml: anti-spam.enabled (default: true)` | n/a | n/a | admin | brief | AntiSpamService#checkSpam |
-| ultichat.config.chat.anti-spam.max-duplicate | Number of consecutive identical messages that trigger a duplicate refusal | config | `config/chat.yml: anti-spam.max-duplicate (default: 3)` | n/a | n/a | admin | brief | AntiSpamService#isDuplicate |
+| ultichat.config.chat.anti-spam.max-duplicate | Number of consecutive identical messages, each sent within `anti-spam.duplicate-window` seconds, that trigger a duplicate refusal; also the number of accepted messages a player's history retains | config | `config/chat.yml: anti-spam.max-duplicate (default: 3)` | n/a | n/a | admin | brief | AntiSpamService#isDuplicate |
 | ultichat.config.chat.chat.format | The chat message format string, `{player}`/`{message}`/`{displayname}` placeholders plus PlaceholderAPI variables, applied when `chat.format-enabled` is true | config | `config/chat.yml: chat.format (default: "&7[&f%player_world%&7] &f{player}&7: &f{message}")` | n/a | n/a | admin | brief | ChatListener#applyChatFormat |
 | ultichat.config.chat.chat.format-enabled | Enable custom chat formatting via `chat.format` | config | `config/chat.yml: chat.format-enabled (default: true)` | n/a | n/a | admin | brief | ChatListener#onChat |
 | ultichat.config.chat.join-quit.first-join-message | Server-wide broadcast the first time a never-before-seen player joins; empty string disables it (checked, not merely a falsy default) | config | `config/chat.yml: join-quit.first-join-message (default: "&6Welcome new player &e%player_name%&6!")` | n/a | n/a | admin | brief | JoinQuitListener#onPlayerJoin |

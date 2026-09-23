@@ -35,5 +35,5 @@ anti-spam:
   enabled: true
   cooldown: 2
   max-duplicate: 3
-  duplicate-window: 60
+  duplicate-window: 600
   caps-limit: 70

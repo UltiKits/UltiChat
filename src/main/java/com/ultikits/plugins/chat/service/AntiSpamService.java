@@ -23,7 +23,21 @@ public class AntiSpamService {
     private ChatConfig config;
 
     private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
-    private final Map<UUID, LinkedList<String>> recentMessages = new ConcurrentHashMap<>();
+    private final Map<UUID, LinkedList<RecentMessage>> recentMessages = new ConcurrentHashMap<>();
+
+    /**
+     * One accepted message kept for duplicate detection, with the time it was sent, so that a copy
+     * older than {@code anti-spam.duplicate-window} can stop counting (UltiKits/UltiChat#14).
+     */
+    private static final class RecentMessage {
+        private final String text;
+        private final long sentAt;
+
+        private RecentMessage(String text, long sentAt) {
+            this.text = text;
+            this.sentAt = sentAt;
+        }
+    }
 
     /**
      * Check whether a message should be considered spam.
@@ -82,10 +96,12 @@ public class AntiSpamService {
         if (playerId == null || message == null) {
             return;
         }
-        lastMessageTime.put(playerId, System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        lastMessageTime.put(playerId, now);
 
-        LinkedList<String> messages = recentMessages.computeIfAbsent(playerId, k -> new LinkedList<String>());
-        messages.addLast(message);
+        LinkedList<RecentMessage> messages =
+                recentMessages.computeIfAbsent(playerId, k -> new LinkedList<RecentMessage>());
+        messages.addLast(new RecentMessage(message, now));
 
         int maxDuplicate = config.getAntiSpamMaxDuplicate();
         if (maxDuplicate <= 0) {
@@ -145,9 +161,15 @@ public class AntiSpamService {
 
     /**
      * Check if a message is a duplicate of recent messages within the configured window.
+     * <p>
+     * A message is a duplicate when at least {@code anti-spam.max-duplicate} of the player's
+     * retained messages (the last {@code max-duplicate} accepted ones) are identical to it and were
+     * sent no longer than {@code anti-spam.duplicate-window} seconds ago. A retained copy older than
+     * the window stops counting. Before UltiKits/UltiChat#14 the window was never read and every
+     * retained copy counted, however old.
      */
     private boolean isDuplicate(UUID playerId, String message) {
-        LinkedList<String> messages = recentMessages.get(playerId);
+        LinkedList<RecentMessage> messages = recentMessages.get(playerId);
         if (messages == null || messages.isEmpty()) {
             return false;
         }
@@ -157,10 +179,12 @@ public class AntiSpamService {
             return false;
         }
 
-        // Count how many of the recent messages match
+        // Count how many of the recent messages match and are still inside the window
+        long windowMs = config.getAntiSpamDuplicateWindow() * 1000L;
+        long now = System.currentTimeMillis();
         int duplicateCount = 0;
-        for (String recent : messages) {
-            if (message.equals(recent)) {
+        for (RecentMessage recent : messages) {
+            if (now - recent.sentAt <= windowMs && message.equals(recent.text)) {
                 duplicateCount++;
             }
         }
