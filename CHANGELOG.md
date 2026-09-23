@@ -68,6 +68,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A channel's own `format:` in `config/channels.yml` now applies to its members' chat lines. It was
+  documented but never used: every channel's line was the global `chat.format` with the channel's
+  display name in front, and that is still what a channel without its own format gets. In a
+  channel format, `{display}` is replaced by the channel's display name, alongside `{player}`,
+  `{displayname}` and `{message}`. The channels shipped with this module no longer set a format.
+  **Upgraded servers:** earlier versions wrote three formats into every server's `channels.yml`
+  (`{display}&f: {message}` for global, `{display}&7: {message}` for local,
+  `&c[Staff] &f{player}&7: {message}` for staff); two of them contain no player name. A format
+  exactly equal to one of those three strings is treated as not set, so an upgraded server's chat
+  looks exactly as before. The cost: none of those three exact strings can be chosen on purpose --
+  change any single character (for example, add a space) and the format counts as your own and
+  takes effect (UltiKits/UltiChat#16).
+- `config/channels.yml` 中频道自己的 `format:` 现在会作用于该频道成员的聊天行。它此前有文档说明却从未被使用：
+  每个频道的聊天行都是全局 `chat.format` 前加频道显示名，未设置自有格式的频道现在仍是如此。
+  在频道格式中，`{display}` 会被替换为频道显示名，与 `{player}`、`{displayname}`、`{message}` 并用。
+  本模块出厂的频道不再设置格式。**升级的服务器：**早期版本曾把三条格式写入每台服务器的 `channels.yml`
+  （global 为 `{display}&f: {message}`，local 为 `{display}&7: {message}`，
+  staff 为 `&c[Staff] &f{player}&7: {message}`），其中两条不含玩家名。与这三条字符串之一完全相同的格式
+  会被视为未设置，因此升级后服务器的聊天显示与之前完全相同。代价是：无法刻意选用这三条字符串本身——
+  只要改动任意一个字符（例如加一个空格），该格式就会被视为您自己的格式并生效（UltiKits/UltiChat#16）。
 - A player who leaves the server now has their anti-spam history cleared -- the time of their last
   message and the recent messages kept for duplicate detection. Previously this was never done,
   so the module kept an entry for every player who had chatted since the server started, for as

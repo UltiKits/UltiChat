@@ -20,11 +20,16 @@ public class ChannelConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "channels.default-channel", comment = "Default channel for new players / 默认频道")
     private String defaultChannel = "global";
 
+    /**
+     * Channel definitions. A channel may set {@code format:} to replace the chat line for its
+     * members, with {@code {display}} for the channel's display name; without one the line is the
+     * global {@code chat.format} with the display name in front. The shipped channels set none
+     * (UltiKits/UltiChat#16).
+     */
     @ConfigEntry(path = "channels.channels", comment = "Channel definitions / 频道定义")
     private Map<String, Map<String, Object>> channels = new HashMap<String, Map<String, Object>>() {{
         HashMap<String, Object> global = new HashMap<>();
         global.put("display-name", "&f[Global]");
-        global.put("format", "{display}&f: {message}");
         global.put("permission", "");
         global.put("range", -1);
         global.put("cross-world", true);
@@ -32,7 +37,6 @@ public class ChannelConfig extends AbstractConfigEntity {
 
         HashMap<String, Object> local = new HashMap<>();
         local.put("display-name", "&a[Local]");
-        local.put("format", "{display}&7: {message}");
         local.put("permission", "");
         local.put("range", 100);
         local.put("cross-world", false);
@@ -40,7 +44,6 @@ public class ChannelConfig extends AbstractConfigEntity {
 
         HashMap<String, Object> staff = new HashMap<>();
         staff.put("display-name", "&c[Staff]");
-        staff.put("format", "&c[Staff] &f{player}&7: {message}");
         staff.put("permission", "ultichat.channel.staff");
         staff.put("range", -1);
         staff.put("cross-world", true);

@@ -109,11 +109,17 @@ public class ChatListener implements Listener {
     private void applyChatFormat(Player player, AsyncPlayerChatEvent event) {
         String format = chatConfig.getChatFormat();
 
-        // Prepend channel display name if channels enabled
+        // With channels enabled: the channel's own format if it has one ({display} = its display
+        // name), otherwise the global format with the display name in front (UltiKits/UltiChat#16).
         if (channelConfig.isEnabled()) {
             String channel = channelService.getPlayerChannel(player.getUniqueId());
             String channelDisplay = channelService.getChannelDisplayName(channel);
-            format = channelDisplay + " " + format;
+            String channelFormat = channelService.getChannelFormat(channel);
+            if (channelFormat != null) {
+                format = channelFormat.replace("{display}", channelDisplay);
+            } else {
+                format = channelDisplay + " " + format;
+            }
         }
 
         // Replace placeholders
