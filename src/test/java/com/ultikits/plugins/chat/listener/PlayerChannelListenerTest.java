@@ -1,6 +1,8 @@
 package com.ultikits.plugins.chat.listener;
 
 import com.ultikits.plugins.chat.config.ChannelConfig;
+import com.ultikits.plugins.chat.config.ChatConfig;
+import com.ultikits.plugins.chat.service.AntiSpamService;
 import com.ultikits.plugins.chat.service.ChannelService;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import org.bukkit.entity.Player;
@@ -10,8 +12,11 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Field;
+import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -139,6 +144,63 @@ class PlayerChannelListenerTest {
 
             listener.onPlayerQuit(new PlayerQuitEvent(player, "left"));
             verify(channelService).removePlayer(uuid);
+        }
+    }
+
+    // ==================== Anti-spam eviction on quit (UltiKits/UltiChat#20) ====================
+
+    /**
+     * UltiKits/UltiChat#20. {@code AntiSpamService#cleanup} existed and was tested, but nothing
+     * called it, so the per-player anti-spam maps kept an entry for every player who had ever chatted
+     * since the server started. The quit handler here is the one that always runs -- it is registered
+     * unconditionally and has no configuration switch, unlike {@code JoinQuitListener}'s, which
+     * returns before doing anything when custom quit messages are disabled.
+     * <p>
+     * The service is a real one, injected by type the way the container does it, so these tests do
+     * not depend on how the listener names its field.
+     */
+    @Nested
+    @DisplayName("Quit evicts the player's anti-spam tracking (UltiKits/UltiChat#20)")
+    class AntiSpamEviction {
+
+        private AntiSpamService antiSpam;
+
+        @BeforeEach
+        void injectRealAntiSpamService() throws Exception {
+            ChatConfig chatConfig = new ChatConfig();
+            antiSpam = new AntiSpamService();
+            ChatTestHelper.setField(antiSpam, "config", chatConfig);
+            for (Field field : PlayerChannelListener.class.getDeclaredFields()) {
+                if (field.getType() == AntiSpamService.class) {
+                    ChatTestHelper.setField(listener, field.getName(), antiSpam);
+                }
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        private Map<UUID, ?> map(String name) throws Exception {
+            return (Map<UUID, ?>) ChatTestHelper.getField(antiSpam, name);
+        }
+
+        @Test
+        @DisplayName("After quit, neither anti-spam map holds the player; another player's entries stay")
+        void quitEvictsOnlyTheQuitter() throws Exception {
+            UUID quitter = UUID.randomUUID();
+            UUID stayer = UUID.randomUUID();
+            antiSpam.recordMessage(quitter, "hello");
+            antiSpam.recordMessage(stayer, "hi");
+
+            // Positive control: the state this test expects to disappear is really there first.
+            assertThat(map("lastMessageTime")).containsKeys(quitter, stayer);
+            assertThat(map("recentMessages")).containsKeys(quitter, stayer);
+
+            listener.onPlayerQuit(new PlayerQuitEvent(
+                    ChatTestHelper.createMockPlayer("Quitter", quitter), "left"));
+
+            assertThat(map("lastMessageTime")).doesNotContainKey(quitter).containsKey(stayer);
+            assertThat(map("recentMessages")).doesNotContainKey(quitter).containsKey(stayer);
+            // The existing channel cleanup still happens alongside it.
+            verify(channelService).removePlayer(quitter);
         }
     }
 }
