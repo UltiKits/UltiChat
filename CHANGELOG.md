@@ -32,6 +32,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   模块启动时与每次重载时，只要时间窗口大于 0，就会记录一条指明文件、键名与当前值的警告；
   将其设为 `0` 并执行 `/uchat reload`，即可完全恢复旧行为（UltiKits/UltiChat#14）。
 
+- A channel format you edited before this version now takes effect. Channel formats were never
+  applied before, so an edit -- for example recolouring the shipped `{display}&f: {message}` to
+  `{display}&e: {message}` -- showed nothing; it is no longer one of the three formerly shipped
+  strings, so it now applies as written, and a format without `{player}` or `{displayname}` shows
+  no sender name, one without `{message}` no message text. At module start and on every reload,
+  each channel whose format is in effect and lacks one of those gets one warning naming the file,
+  the channel, and what to add (UltiKits/UltiChat#16).
+- 您在本版本之前编辑过的频道格式现在会生效。频道格式此前从未被应用，因此编辑它（例如把出厂的
+  `{display}&f: {message}` 改色为 `{display}&e: {message}`）不会有任何显示；改动后它已不再是三条旧出厂字符串之一，
+  因此现在会按原样生效：不含 `{player}` 或 `{displayname}` 的格式不会显示发送者名字，不含 `{message}` 的格式不会显示消息内容。
+  模块启动时与每次重载时，对每个格式生效且缺少上述内容的频道，会记录一条指明文件、频道与需要添加什么的警告（UltiKits/UltiChat#16）。
+
 ### Removed
 
 - Removed the three announcement interval settings `announcements.chat.interval`,
@@ -68,7 +80,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- A channel's own `format:` in `config/channels.yml` now applies to its members' chat lines. It was
+- A channel's own `format:` in `config/channels.yml` now applies to its members' chat lines, while
+  both `channels.enabled` and `chat.format-enabled` (in `config/chat.yml`) are true -- the defaults;
+  with either off, no channel format is used, as before. It was
   documented but never used: every channel's line was the global `chat.format` with the channel's
   display name in front, and that is still what a channel without its own format gets. In a
   channel format, `{display}` is replaced by the channel's display name, alongside `{player}`,
@@ -80,7 +94,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   looks exactly as before. The cost: none of those three exact strings can be chosen on purpose --
   change any single character (for example, add a space) and the format counts as your own and
   takes effect (UltiKits/UltiChat#16).
-- `config/channels.yml` 中频道自己的 `format:` 现在会作用于该频道成员的聊天行。它此前有文档说明却从未被使用：
+- `config/channels.yml` 中频道自己的 `format:` 现在会作用于该频道成员的聊天行，前提是 `channels.enabled`
+  与（`config/chat.yml` 中的）`chat.format-enabled` 均为 true（默认如此）；任一关闭时不使用任何频道格式，与之前相同。
+  它此前有文档说明却从未被使用：
   每个频道的聊天行都是全局 `chat.format` 前加频道显示名，未设置自有格式的频道现在仍是如此。
   在频道格式中，`{display}` 会被替换为频道显示名，与 `{player}`、`{displayname}`、`{message}` 并用。
   本模块出厂的频道不再设置格式。**升级的服务器：**早期版本曾把三条格式写入每台服务器的 `channels.yml`

@@ -1,13 +1,16 @@
 package com.ultikits.plugins.chat;
 
+import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.plugins.chat.config.RemovedConfigKeys;
+import com.ultikits.plugins.chat.service.ChannelService;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.UltiToolsModule;
 
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 @UltiToolsModule
 public class UltiChat extends UltiToolsPlugin {
@@ -41,6 +44,44 @@ public class UltiChat extends UltiToolsPlugin {
     private void warnAboutConfiguration() {
         RemovedConfigKeys.warnAboutLeftovers(this::operatorConfigFile, getLogger()::warn);
         warnIfDuplicateWindowShortened();
+        warnAboutIncompleteChannelFormats();
+    }
+
+    /**
+     * Gate-1 WR-01 on UltiKits/UltiChat#16: channel formats now apply. A format an operator edited
+     * while it had no effect -- a recoloured copy of a shipped format that names no player, say --
+     * is not one of the legacy strings, so it now applies as written. For each channel whose format
+     * is in effect (channels enabled, {@code chat.format-enabled} true) and lacks a sender token or
+     * the message token, the operator is told once per load which channel and what to add.
+     */
+    private void warnAboutIncompleteChannelFormats() {
+        ChannelConfig channels = getConfig(ChannelConfig.class);
+        ChatConfig chat = getConfig(ChatConfig.class);
+        if (channels == null || chat == null || !channels.isEnabled() || !chat.isChatFormatEnabled()
+                || channels.getChannels() == null) {
+            return;
+        }
+        for (Map.Entry<String, Map<String, Object>> channel : channels.getChannels().entrySet()) {
+            String format = ChannelService.ownFormat(channel.getValue());
+            if (format == null) {
+                continue;
+            }
+            boolean sender = format.contains("{player}") || format.contains("{displayname}")
+                    || format.contains("%1$s");
+            boolean text = format.contains("{message}") || format.contains("%2$s");
+            if (sender && text) {
+                continue;
+            }
+            String missing = !sender && !text ? "no sender name and no message text"
+                    : !sender ? "no sender name" : "no message text";
+            String add = !sender && !text ? "add {player} or {displayname}, and add {message}"
+                    : !sender ? "add {player} or {displayname}" : "add {message}";
+            getLogger().warn("UltiChat: " + operatorConfigFile("config/channels.yml").getPath()
+                    + " gives channel '" + channel.getKey() + "' the format \"" + format + "\", "
+                    + "which this version applies, so that channel's chat lines show " + missing
+                    + ". To fix it, " + add + " to the format, or remove the format to use the "
+                    + "global chat format (UltiKits/UltiChat#16).");
+        }
     }
 
     /**

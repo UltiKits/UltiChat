@@ -1,5 +1,6 @@
 # UltiChat - Channel Configuration
-# A channel may add `format:` to replace its chat line; `{display}` is the channel display name.
+# A channel may add `format:` to replace its chat line (used only while chat.format-enabled in chat.yml
+# is true, the default); `{display}` is the channel display name.
 
 channels:
   enabled: true

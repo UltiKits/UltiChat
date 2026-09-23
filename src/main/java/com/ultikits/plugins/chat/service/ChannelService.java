@@ -91,7 +91,19 @@ public class ChannelService {
      * @return the channel's own format, or {@code null}
      */
     public String getChannelFormat(String channel) {
-        Map<String, Object> def = getChannelDef(channel);
+        return ownFormat(getChannelDef(channel));
+    }
+
+    /**
+     * A channel definition's own chat format, by the same rule as {@link #getChannelFormat}:
+     * {@code null} for a missing definition, no {@code format:}, or one of the formerly shipped
+     * formats. Static so the module's load-time checks can apply the rule to the configuration
+     * directly.
+     *
+     * @param def a channel definition from {@code channels.channels}, or {@code null}
+     * @return the channel's own format, or {@code null}
+     */
+    public static String ownFormat(Map<String, Object> def) {
         if (def == null) {
             return null;
         }
