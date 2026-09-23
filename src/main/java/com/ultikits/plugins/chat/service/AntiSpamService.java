@@ -9,6 +9,7 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 
 /**
  * Anti-spam service that enforces cooldown, duplicate detection and caps limiting. A spam trip
@@ -23,6 +24,12 @@ public class AntiSpamService {
     private ChatConfig config;
 
     private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
+
+    /**
+     * The one time source for the cooldown and the duplicate window, in epoch milliseconds.
+     * Package-private and non-final so a test can move time explicitly instead of sleeping.
+     */
+    LongSupplier clock = System::currentTimeMillis;
     private final Map<UUID, LinkedList<RecentMessage>> recentMessages = new ConcurrentHashMap<>();
 
     /**
@@ -77,7 +84,7 @@ public class AntiSpamService {
         if (lastTime == null) {
             return null;
         }
-        long elapsed = System.currentTimeMillis() - lastTime;
+        long elapsed = clock.getAsLong() - lastTime;
         long cooldownMs = config.getAntiSpamCooldown() * 1000L;
         if (elapsed < cooldownMs) {
             return "发送消息太快了！";
@@ -96,7 +103,7 @@ public class AntiSpamService {
         if (playerId == null || message == null) {
             return;
         }
-        long now = System.currentTimeMillis();
+        long now = clock.getAsLong();
         lastMessageTime.put(playerId, now);
 
         LinkedList<RecentMessage> messages =
@@ -183,7 +190,7 @@ public class AntiSpamService {
         // Count how many of the recent messages match and are still inside the window (if any)
         long windowMs = config.getAntiSpamDuplicateWindow() * 1000L;
         boolean timeLimited = windowMs > 0;
-        long now = System.currentTimeMillis();
+        long now = clock.getAsLong();
         int duplicateCount = 0;
         for (RecentMessage recent : messages) {
             boolean inWindow = !timeLimited || now - recent.sentAt <= windowMs;
