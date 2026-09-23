@@ -12,6 +12,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -257,9 +258,10 @@ class AntiSpamServiceTest {
      * UltiKits/UltiChat#14. {@code anti-spam.duplicate-window} was declared and never read, so a
      * repeat counted however long ago its earlier copies were sent. It is now wired: a retained copy
      * older than the window stops counting. A window of 0 -- the declared default -- means no time
-     * limit, which is exactly the count-only detection of before. These tests use the real clock,
-     * because the window is whole seconds and the only way to be outside it is to let time pass; the
-     * one test that needs that waits just over one second.
+     * limit, which is exactly the count-only detection of before. The tests that need time to pass
+     * replace the service's clock with a hand-set one (gate-1 IN-05: the earlier version slept 1.1 s
+     * against a 1-second window, and a JVM stall of over a second between the record and the control
+     * assertion would have failed it).
      */
     @Nested
     @DisplayName("checkSpam - duplicate window (UltiKits/UltiChat#14)")
@@ -280,21 +282,29 @@ class AntiSpamServiceTest {
             assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
         }
 
+        /** Replaces the service's clock with a hand-set one; returns the cell that holds "now". */
+        private long[] manualClock() throws Exception {
+            final long[] now = {1_000_000L};
+            ChatTestHelper.setField(service, "clock", (LongSupplier) () -> now[0]);
+            return now;
+        }
+
         @Test
         @DisplayName("Copies older than the window stop counting; copies inside it still count")
         void copiesOutsideTheWindowStopCounting() throws Exception {
             Player player = createPlayer();
             UUID playerId = player.getUniqueId();
+            long[] now = manualClock();
             config.setAntiSpamCooldown(0);
             config.setAntiSpamDuplicateWindow(1);
 
             service.recordMessage(playerId, "spam");
-            Thread.sleep(1100L);
+            now[0] += 1500L;
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
 
-            // Three copies retained, but the first is older than the 1-second window: two count,
-            // below the threshold of 3, so the repeat is accepted.
+            // Three copies retained, but the first is 1.5 s old against a 1-second window: two
+            // count, below the threshold of 3, so the repeat is accepted.
             assertThat(service.checkSpam(player, "spam")).isNull();
 
             // Control on the same history: the two copies inside the window DO count -- with a
@@ -308,6 +318,25 @@ class AntiSpamServiceTest {
             config.setAntiSpamMaxDuplicate(3);
             config.setAntiSpamDuplicateWindow(0);
             assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+        }
+
+        @Test
+        @DisplayName("A copy exactly as old as the window still counts; one millisecond older does not")
+        void windowBoundaryIsInclusive() throws Exception {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(2);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+
+            now[0] += 2000L;
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+            now[0] += 1L;
+            assertThat(service.checkSpam(player, "spam")).isNull();
         }
 
         @Test
