@@ -558,4 +558,104 @@ class ChatListenerTest {
             assertThat(result).isEqualTo("test%%");
         }
     }
+
+    // ==================== Per-channel format (UltiKits/UltiChat#16) ====================
+
+    /**
+     * UltiKits/UltiChat#16. A channel's {@code format:} was declared and never applied. It is now
+     * wired, with the maintainer's rule for upgraded servers: a format byte-for-byte equal to one of
+     * the three strings earlier versions shipped (and wrote into every server's {@code channels.yml})
+     * counts as unset, so those servers keep today's line; any other format applies, with
+     * {@code {display}} standing for the channel's display name.
+     * <p>
+     * These tests use a real {@link ChannelService} and {@link ChannelConfig}, so the legacy
+     * recognition and the substitution are exercised together with the listener. Every sender is in
+     * {@code global}, whose shipped display name is {@code &f[Global]}.
+     */
+    @Nested
+    @DisplayName("Per-channel format (UltiKits/UltiChat#16)")
+    class PerChannelFormatTests {
+
+        /** Today's line for the global channel under the shipped chat.format, PlaceholderAPI absent. */
+        private static final String TODAYS_GLOBAL_LINE =
+                "§f[Global] §7[§f%%player_world%%§7] §f%1$s§7: §f%2$s";
+
+        private ChatListener realListener;
+        private ChannelConfig realChannelConfig;
+
+        @BeforeEach
+        void useRealChannelService() throws Exception {
+            chatConfig.setChatFormatEnabled(true);
+            chatConfig.setAntiSpamEnabled(false);
+            chatConfig.setMentionsEnabled(false);
+            realChannelConfig = new ChannelConfig();
+            realChannelConfig.setEnabled(true);
+            ChannelService realChannelService = new ChannelService();
+            ChatTestHelper.setField(realChannelService, "config", realChannelConfig);
+            realListener = new ChatListener(chatConfig, realChannelConfig,
+                    antiSpamService, realChannelService, emojiService);
+        }
+
+        /** Sets (or, for null, removes) the global channel's format and returns the chat line. */
+        private String lineWithGlobalFormat(String format) {
+            Map<String, Map<String, Object>> channels = new HashMap<String, Map<String, Object>>();
+            Map<String, Object> global = new HashMap<String, Object>();
+            global.put("display-name", "&f[Global]");
+            if (format != null) {
+                global.put("format", format);
+            }
+            global.put("permission", "");
+            global.put("range", -1);
+            global.put("cross-world", true);
+            channels.put("global", global);
+            realChannelConfig.setChannels(channels);
+
+            AsyncPlayerChatEvent event = createChatEvent("hello");
+            realListener.onChat(event);
+            return event.getFormat();
+        }
+
+        @Test
+        @DisplayName("Unset: today's line, byte for byte")
+        void unsetIsTodaysLine() {
+            assertThat(lineWithGlobalFormat(null)).isEqualTo(TODAYS_GLOBAL_LINE);
+        }
+
+        @Test
+        @DisplayName("Each of the three formats earlier versions shipped counts as unset")
+        void legacyShippedFormatsAreUnset() {
+            assertThat(lineWithGlobalFormat("{display}&f: {message}")).isEqualTo(TODAYS_GLOBAL_LINE);
+            assertThat(lineWithGlobalFormat("{display}&7: {message}")).isEqualTo(TODAYS_GLOBAL_LINE);
+            assertThat(lineWithGlobalFormat("&c[Staff] &f{player}&7: {message}")).isEqualTo(TODAYS_GLOBAL_LINE);
+        }
+
+        @Test
+        @DisplayName("A one-character change to a shipped string is a custom format and applies")
+        void oneCharacterVariantApplies() {
+            // "&f" -> "&e": not one of the shipped strings any more.
+            assertThat(lineWithGlobalFormat("{display}&e: {message}"))
+                    .isEqualTo("§f[Global]§e: %2$s");
+            // A trailing space is also a change.
+            assertThat(lineWithGlobalFormat("&c[Staff] &f{player}&7: {message} "))
+                    .isEqualTo("§c[Staff] §f%1$s§7: %2$s ");
+        }
+
+        @Test
+        @DisplayName("{display} is the channel's display name, alongside the other placeholders")
+        void displayIsTheChannelDisplayName() {
+            when(player.getDisplayName()).thenReturn("Fancy");
+
+            assertThat(lineWithGlobalFormat("{display} {player} ({displayname}) > {message}"))
+                    .isEqualTo("§f[Global] %1$s (Fancy) > %2$s");
+        }
+
+        @Test
+        @DisplayName("With channels disabled, a channel's format is not used: the global format alone, as today")
+        void channelsDisabledIgnoresChannelFormat() {
+            realChannelConfig.setEnabled(false);
+
+            assertThat(lineWithGlobalFormat("{display} custom {message}"))
+                    .isEqualTo("§7[§f%%player_world%%§7] §f%1$s§7: §f%2$s");
+        }
+    }
 }
