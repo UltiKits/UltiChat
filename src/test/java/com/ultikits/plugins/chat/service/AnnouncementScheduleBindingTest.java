@@ -237,6 +237,30 @@ class AnnouncementScheduleBindingTest {
     }
 
     @Test
+    @DisplayName("A panel-style write of 0 to a bound interval is refused once the binding is resolved; 30 is accepted (gate-1 round-2 WR-06)")
+    void panelWriteOutsideTheBindingRangeIsRefused() {
+        com.google.gson.JsonObject zero = new com.google.gson.JsonObject();
+        zero.addProperty("announcements.chat.interval", 0);
+
+        // Control: before the binding is resolved nothing restricts the key (the field has no
+        // @Range, by ruling), so the same write passes -- the refusal below comes from the binding.
+        config.validateProposedProperties(zero);
+
+        taskManager.registerScheduledMethods(module, service);
+
+        assertThatThrownBy(() -> config.validateProposedProperties(zero))
+                .isInstanceOf(com.ultikits.ultitools.exceptions.ConfigurationException.class)
+                .hasMessageContaining("announcements.chat.interval")
+                .hasMessageContaining("value 0");
+        assertThat(config.getChatInterval()).as("the refused write leaves the field as it was").isEqualTo(300);
+
+        com.google.gson.JsonObject thirty = new com.google.gson.JsonObject();
+        thirty.addProperty("announcements.chat.interval", 30);
+        config.validateProposedProperties(thirty);
+        assertThat(config.getChatInterval()).as("validation alone changes nothing").isEqualTo(300);
+    }
+
+    @Test
     @DisplayName("The shipped plugin.yml declares the api-version the framework requires of a binding module")
     void pluginYmlMeetsTheBindingFloor() throws Throwable {
         assertThat(shippedApiVersion()).isGreaterThanOrEqualTo(630);
