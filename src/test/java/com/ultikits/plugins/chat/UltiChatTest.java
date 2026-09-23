@@ -1,5 +1,6 @@
 package com.ultikits.plugins.chat;
 
+import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
 import org.junit.jupiter.api.DisplayName;
@@ -14,7 +15,10 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -239,6 +243,128 @@ class UltiChatTest {
 
             assertThat(plugin.registerSelf()).isTrue();
 
+            assertThat(warnings()).isEmpty();
+        }
+    }
+
+    /**
+     * Gate-1 WR-01 on UltiKits/UltiChat#16. Channel formats now apply, and an operator may have
+     * edited one before this version while it had no effect -- for example recoloured the shipped
+     * {@code {display}&f: {message}}, which names no player. That edit is no longer one of the three
+     * legacy strings, so it applies after the upgrade and the channel's lines lose their sender.
+     * The format still applies (the maintainer's ruling); the operator is told, once per channel, at
+     * load and on every reload, whenever a format that is in effect lacks a sender token or the
+     * message token.
+     */
+    @Nested
+    @DisplayName("A channel format in effect without a sender or message token is announced (gate-1 WR-01, UltiKits/UltiChat#16)")
+    class ChannelFormatTokenWarning {
+
+        private PluginLogger logger;
+        private ChannelConfig channels;
+        private ChatConfig chat;
+
+        private UltiChat pluginWithChannelFormats(final File dir, String... nameThenFormat) {
+            UltiChat plugin = mock(UltiChat.class);
+            logger = mock(PluginLogger.class);
+            when(plugin.getLogger()).thenReturn(logger);
+            when(plugin.operatorConfigFile(anyString()))
+                    .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
+            chat = new ChatConfig();
+            channels = new ChannelConfig();
+            Map<String, Map<String, Object>> defs = new LinkedHashMap<String, Map<String, Object>>();
+            for (int i = 0; i < nameThenFormat.length; i += 2) {
+                Map<String, Object> def = new HashMap<String, Object>();
+                def.put("display-name", "&f[" + nameThenFormat[i] + "]");
+                if (nameThenFormat[i + 1] != null) {
+                    def.put("format", nameThenFormat[i + 1]);
+                }
+                defs.put(nameThenFormat[i], def);
+            }
+            channels.setChannels(defs);
+            when(plugin.getConfig(ChatConfig.class)).thenReturn(chat);
+            when(plugin.getConfig(ChannelConfig.class)).thenReturn(channels);
+            when(plugin.registerSelf()).thenCallRealMethod();
+            doCallRealMethod().when(plugin).onReload();
+            return plugin;
+        }
+
+        private List<String> warnings() {
+            ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+            verify(logger, atLeast(0)).warn(captor.capture());
+            return captor.getAllValues();
+        }
+
+        @Test
+        @DisplayName("POSITIVE CONTROL: a recoloured legacy format with no player warns at start, naming file, channel and what to add")
+        void recolouredLegacyFormatWarns(@TempDir File dir) {
+            UltiChat plugin = pluginWithChannelFormats(dir, "global", "{display}&e: {message}");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0))
+                    .contains("UltiChat")
+                    .contains(new File(dir, "config/channels.yml").getPath())
+                    .contains("channel 'global'")
+                    .contains("no sender name")
+                    .contains("add {player} or {displayname}")
+                    .doesNotContain("add {message}")
+                    .contains("UltiKits/UltiChat#16");
+        }
+
+        @Test
+        @DisplayName("POSITIVE CONTROL: a format without {message} warns, on reload too")
+        void missingMessageWarnsOnReload(@TempDir File dir) {
+            UltiChat plugin = pluginWithChannelFormats(dir, "staff", "&c[Staff] {player}");
+
+            plugin.onReload();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("channel 'staff'").contains("no message text")
+                    .contains("add {message}").doesNotContain("add {player}");
+        }
+
+        @Test
+        @DisplayName("A format missing both is one warning naming both")
+        void missingBothIsOneWarning(@TempDir File dir) {
+            UltiChat plugin = pluginWithChannelFormats(dir, "local", "{display} says hi");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("add {player} or {displayname}").contains("add {message}");
+        }
+
+        @Test
+        @DisplayName("One warning per offending channel; complete, unset and legacy formats are quiet")
+        void onlyOffendingChannelsWarn(@TempDir File dir) {
+            UltiChat plugin = pluginWithChannelFormats(dir,
+                    "a", "{display}&e: {message}",
+                    "b", "{display} {player}: {message}",
+                    "c", "{displayname} > {message}",
+                    "d", null,
+                    "e", "{display}&f: {message}",
+                    "f", "&c[Staff] {player}");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(2);
+            assertThat(warnings().get(0)).contains("channel 'a'");
+            assertThat(warnings().get(1)).contains("channel 'f'");
+        }
+
+        @Test
+        @DisplayName("Quiet when the format is not in effect: channels disabled, or chat.format-enabled false")
+        void quietWhenFormatsAreNotApplied(@TempDir File dir) {
+            UltiChat channelsOff = pluginWithChannelFormats(dir, "global", "{display}&e: {message}");
+            channels.setEnabled(false);
+            channelsOff.registerSelf();
+            assertThat(warnings()).isEmpty();
+
+            UltiChat formattingOff = pluginWithChannelFormats(dir, "global", "{display}&e: {message}");
+            chat.setChatFormatEnabled(false);
+            formattingOff.registerSelf();
             assertThat(warnings()).isEmpty();
         }
     }

@@ -657,5 +657,14 @@ class ChatListenerTest {
             assertThat(lineWithGlobalFormat("{display} custom {message}"))
                     .isEqualTo("§7[§f%%player_world%%§7] §f%1$s§7: §f%2$s");
         }
+
+        @Test
+        @DisplayName("With chat.format-enabled false, a channel's format is not used either: no line format is set at all (gate-1 WR-03)")
+        void formattingDisabledIgnoresChannelFormat() {
+            chatConfig.setChatFormatEnabled(false);
+            AsyncPlayerChatEvent untouched = createChatEvent("hello");
+
+            assertThat(lineWithGlobalFormat("{display} custom {message}")).isEqualTo(untouched.getFormat());
+        }
     }
 }
