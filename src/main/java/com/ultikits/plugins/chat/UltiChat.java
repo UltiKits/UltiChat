@@ -46,9 +46,10 @@ public class UltiChat extends UltiToolsPlugin {
     /**
      * UltiKits/UltiChat#14: {@code anti-spam.duplicate-window} used to be ignored, so a repeat
      * counted however far apart its copies were sent. It now takes effect, and an upgraded server's
-     * file still holds the value earlier versions wrote into it (60). A window shorter than the new
-     * declared default makes duplicate detection more permissive than it was before the upgrade, so
-     * the operator is told once per load, with the value in force and how to change it.
+     * file still holds the value earlier versions wrote into it (60). Any positive window makes
+     * duplicate detection more permissive than it was before the upgrade -- the new default, 0, is
+     * the old unlimited rule -- so the operator is told once per load, with the value in force and
+     * how to restore the old behaviour.
      */
     private void warnIfDuplicateWindowShortened() {
         ChatConfig chat = getConfig(ChatConfig.class);
@@ -56,7 +57,7 @@ public class UltiChat extends UltiToolsPlugin {
             return;
         }
         int window = chat.getAntiSpamDuplicateWindow();
-        if (window >= ChatConfig.DEFAULT_DUPLICATE_WINDOW_SECONDS) {
+        if (window <= 0) {
             return;
         }
         getLogger().warn("UltiChat: " + operatorConfigFile("config/chat.yml").getPath()
@@ -64,10 +65,9 @@ public class UltiChat extends UltiToolsPlugin {
                 + "applies it: a repeated message now counts as a duplicate only while its earlier "
                 + "copies are at most " + window + " seconds old. Before this version the setting "
                 + "was ignored and repeats counted however far apart they were sent, so duplicate "
-                + "detection is now more permissive than before the upgrade. To keep it as close to "
-                + "the previous behaviour as the setting allows, set it to "
-                + ChatConfig.DEFAULT_DUPLICATE_WINDOW_SECONDS + " (the new default and the longest "
-                + "allowed) and run /uchat reload (UltiKits/UltiChat#14).");
+                + "detection is now more permissive than before the upgrade. To restore the previous "
+                + "behaviour exactly, set it to " + ChatConfig.DEFAULT_DUPLICATE_WINDOW_SECONDS
+                + " (no time limit, the new default) and run /uchat reload (UltiKits/UltiChat#14).");
     }
 
     /**

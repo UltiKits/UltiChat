@@ -86,16 +86,16 @@ public class ChatConfig extends AbstractConfigEntity {
     private int antiSpamMaxDuplicate = 3;
 
     /**
-     * The declared default duplicate window, in seconds -- the longest the key allows.
+     * The declared default duplicate window, in seconds: {@code 0}, meaning no time limit.
      * <p>
      * Before UltiKits/UltiChat#14 the window was ignored and a repeat counted however far apart its
-     * copies were sent, so any finite window weakens detection for slow repeats. The default is
-     * therefore the declared maximum: the weakest weakening the setting permits.
+     * copies were sent. Any positive window weakens that for slow repeats, so the default keeps the
+     * old count-only rule exactly, and a positive value is an operator's choice to add a time limit.
      */
-    public static final int DEFAULT_DUPLICATE_WINDOW_SECONDS = 600;
+    public static final int DEFAULT_DUPLICATE_WINDOW_SECONDS = 0;
 
-    @Range(min = 10, max = DEFAULT_DUPLICATE_WINDOW_SECONDS)
-    @ConfigEntry(path = "anti-spam.duplicate-window", comment = "Duplicate detection window (seconds) / 重复检测窗口(秒)")
+    @Range(min = 0, max = 600)
+    @ConfigEntry(path = "anti-spam.duplicate-window", comment = "Duplicate detection window (seconds, 0 = no time limit) / 重复检测窗口(秒，0 = 不限时)")
     private int antiSpamDuplicateWindow = DEFAULT_DUPLICATE_WINDOW_SECONDS;
 
     @Range(min = 0, max = 100)

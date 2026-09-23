@@ -12,26 +12,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `anti-spam.duplicate-window` in `config/chat.yml` now takes effect. It was documented as the
   duplicate-detection time window but never read: a message counted as a duplicate when the
   player's last `anti-spam.max-duplicate` accepted messages were all the same text, however long
-  ago they had been sent. Now a retained copy older than the window stops counting. The declared
-  default changes from 60 to 600 seconds -- the longest the setting allows, because any window
-  makes detection more permissive for slow repeats than the old unlimited behaviour, and 600
-  weakens it least. **Upgrade consequence:** a server that ran an earlier version already has
-  `duplicate-window: 60` in its own file (the framework wrote the old default there), and that 60
-  now applies, so duplicate detection on such a server is more permissive than before the upgrade:
-  with the default `max-duplicate: 3`, the same message sent three times is refused on the fourth
-  only if the first of those three is at most 60 seconds old. At module start and on every reload,
-  a window shorter than 600 is announced with one warning naming the file, the key and the value;
-  set it to 600 and run `/uchat reload` to keep detection as close to the old behaviour as the
-  setting allows (UltiKits/UltiChat#14).
+  ago they had been sent. It now means: `0` -- the new declared default -- is no time limit, exactly
+  that old rule; a positive value (up to 600) is a window in seconds, and a retained copy older than
+  it stops counting. The allowed range is now 0-600 (it was 10-600). **Upgrade consequence:** a
+  server that ran an earlier version already has `duplicate-window: 60` in its own file (the
+  framework wrote the old default there), and that 60 now applies, so duplicate detection on such a
+  server is more permissive than before the upgrade: with the default `max-duplicate: 3`, the same
+  message sent three times is refused on the fourth only if the first of those three is at most 60
+  seconds old. At module start and on every reload, any window above 0 is announced with one
+  warning naming the file, the key and the value; set it to `0` and run `/uchat reload` to restore
+  the previous behaviour exactly (UltiKits/UltiChat#14).
 - `config/chat.yml` 中的 `anti-spam.duplicate-window` 现在会生效。它此前被文档描述为重复检测的时间窗口，
   但从未被读取：只要玩家最近 `anti-spam.max-duplicate` 条被接受的消息都是同一内容，无论发送于多久以前，
-  新消息都会被判为重复。现在，早于该时间窗口的保留消息不再计数。声明的默认值由 60 秒改为 600 秒——
-  这是该设置允许的最大值，因为任何时间窗口对慢速重复的检测都会比旧的「无时间限制」更宽松，而 600 削弱最少。
+  新消息都会被判为重复。现在它的含义是：`0`（新的声明默认值）表示不限时，与上述旧规则完全相同；
+  正值（最大 600）表示以秒为单位的时间窗口，早于该窗口的保留消息不再计数。允许范围改为 0-600（原为 10-600）。
   **升级后果：**运行过早期版本的服务器，其自己的文件中已有 `duplicate-window: 60`（框架曾把旧默认值写入该文件），
   这个 60 现在会生效，因此该服务器上的重复检测会比升级前更宽松：在默认 `max-duplicate: 3` 下，
   同一消息发送三次后，只有当这三次中的第一次发送于 60 秒以内时，第四次才会被拦截。
-  模块启动时与每次重载时，若时间窗口短于 600，会记录一条指明文件、键名与当前值的警告；
-  将其设为 600 并执行 `/uchat reload`，即可让检测尽可能接近旧行为（UltiKits/UltiChat#14）。
+  模块启动时与每次重载时，只要时间窗口大于 0，就会记录一条指明文件、键名与当前值的警告；
+  将其设为 `0` 并执行 `/uchat reload`，即可完全恢复旧行为（UltiKits/UltiChat#14）。
 
 ### Removed
 
