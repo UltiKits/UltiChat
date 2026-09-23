@@ -2,6 +2,7 @@ package com.ultikits.plugins.chat.service;
 
 import com.ultikits.plugins.chat.config.AnnouncementConfig;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
+import com.ultikits.ultitools.annotations.Scheduled;
 import org.bukkit.Bukkit;
 import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
@@ -318,6 +319,31 @@ class AnnouncementServiceTest {
             doReturn(Collections.emptyList()).when(ChatTestHelper.getMockServer()).getOnlinePlayers();
 
             service.broadcastTitle();
+        }
+    }
+
+    /**
+     * UltiKits/UltiChat#13. The periods live in the annotations and are the only thing that sets
+     * the cadence -- the three {@code *.interval} keys were deleted rather than wired, and the
+     * documentation and change log state these fixed values. A change here must change them too.
+     */
+    @Nested
+    @DisplayName("Broadcast periods are fixed (UltiKits/UltiChat#13)")
+    class FixedPeriods {
+
+        @Test
+        @DisplayName("Chat every 6000 ticks (300 s), boss bar every 1200 (60 s), title every 12000 (600 s), all on the main thread")
+        void periodsAreFixed() throws Exception {
+            assertPeriod("broadcastChat", 6000L);
+            assertPeriod("broadcastBossBar", 1200L);
+            assertPeriod("broadcastTitle", 12000L);
+        }
+
+        private void assertPeriod(String method, long ticks) throws Exception {
+            Scheduled scheduled = AnnouncementService.class.getMethod(method).getAnnotation(Scheduled.class);
+            assertThat(scheduled).as(method).isNotNull();
+            assertThat(scheduled.period()).as(method).isEqualTo(ticks);
+            assertThat(scheduled.async()).as(method).isFalse();
         }
     }
 }

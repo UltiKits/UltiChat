@@ -6,6 +6,14 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import com.ultikits.ultitools.annotations.ConfigEntry;
+import org.bukkit.configuration.file.YamlConfiguration;
+
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -35,12 +43,6 @@ class AnnouncementConfigTest {
         }
 
         @Test
-        @DisplayName("Should have default chat interval of 300 seconds")
-        void shouldHaveDefaultChatInterval() {
-            assertThat(config.getChatInterval()).isEqualTo(300);
-        }
-
-        @Test
         @DisplayName("Should have default chat prefix")
         void shouldHaveDefaultChatPrefix() {
             assertThat(config.getChatPrefix()).isEqualTo("&6[Announcement] &f");
@@ -63,12 +65,6 @@ class AnnouncementConfigTest {
         @DisplayName("Should have boss bar disabled by default")
         void shouldHaveBossBarDisabled() {
             assertThat(config.isBossBarEnabled()).isFalse();
-        }
-
-        @Test
-        @DisplayName("Should have default boss bar interval of 60 seconds")
-        void shouldHaveDefaultBossBarInterval() {
-            assertThat(config.getBossBarInterval()).isEqualTo(60);
         }
 
         @Test
@@ -100,12 +96,6 @@ class AnnouncementConfigTest {
         @DisplayName("Should have title disabled by default")
         void shouldHaveTitleDisabled() {
             assertThat(config.isTitleEnabled()).isFalse();
-        }
-
-        @Test
-        @DisplayName("Should have default title interval of 600 seconds")
-        void shouldHaveDefaultTitleInterval() {
-            assertThat(config.getTitleInterval()).isEqualTo(600);
         }
 
         @Test
@@ -147,13 +137,6 @@ class AnnouncementConfigTest {
         }
 
         @Test
-        @DisplayName("Should update chat interval")
-        void shouldUpdateChatInterval() {
-            config.setChatInterval(600);
-            assertThat(config.getChatInterval()).isEqualTo(600);
-        }
-
-        @Test
         @DisplayName("Should update chat prefix")
         void shouldUpdateChatPrefix() {
             config.setChatPrefix("&c[Notice] &f");
@@ -174,13 +157,6 @@ class AnnouncementConfigTest {
         void shouldUpdateBossBarEnabled() {
             config.setBossBarEnabled(true);
             assertThat(config.isBossBarEnabled()).isTrue();
-        }
-
-        @Test
-        @DisplayName("Should update boss bar interval")
-        void shouldUpdateBossBarInterval() {
-            config.setBossBarInterval(120);
-            assertThat(config.getBossBarInterval()).isEqualTo(120);
         }
 
         @Test
@@ -213,13 +189,6 @@ class AnnouncementConfigTest {
         }
 
         @Test
-        @DisplayName("Should update title interval")
-        void shouldUpdateTitleInterval() {
-            config.setTitleInterval(1200);
-            assertThat(config.getTitleInterval()).isEqualTo(1200);
-        }
-
-        @Test
         @DisplayName("Should update title fade-in")
         void shouldUpdateTitleFadeIn() {
             config.setTitleFadeIn(20);
@@ -247,6 +216,68 @@ class AnnouncementConfigTest {
             config.setTitleMessages(newMessages);
             assertThat(config.getTitleMessages()).hasSize(2);
             assertThat(config.getTitleMessages().get(0)).isEqualTo("Title1||Sub1");
+        }
+    }
+
+    /**
+     * UltiKits/UltiChat#13. The three announcement broadcasts run on periods fixed in their
+     * {@code @Scheduled} annotations (300 / 60 / 600 seconds); the three {@code *.interval} keys
+     * were never read. The maintainer's ruling deletes the keys rather than wiring them, so these
+     * tests pin that neither the class the framework writes a fresh file from, nor the file this
+     * module ships, still offers a setting that does nothing.
+     */
+    @Nested
+    @DisplayName("Announcement intervals are not configurable (UltiKits/UltiChat#13)")
+    class NoIntervalKeys {
+
+        private final List<String> removed = Arrays.asList(
+                "announcements.chat.interval",
+                "announcements.bossbar.interval",
+                "announcements.title.interval");
+
+        @Test
+        @DisplayName("A freshly written announcements.yml gets no interval key")
+        void declaresNoIntervalKey() {
+            List<String> declared = declaredPaths();
+
+            // Positive control: the reflection really reads the declared paths.
+            assertThat(declared).contains("announcements.chat.enabled",
+                    "announcements.bossbar.duration", "announcements.title.stay");
+            assertThat(declared).doesNotContainAnyElementsOf(removed);
+        }
+
+        @Test
+        @DisplayName("The shipped announcements.yml carries no interval key")
+        void shippedFileCarriesNoIntervalKey() throws Exception {
+            YamlConfiguration shipped = shipped("config/announcements.yml");
+
+            // Positive control: the file was found and parsed.
+            assertThat(shipped.contains("announcements.chat.enabled")).isTrue();
+            assertThat(shipped.contains("announcements.title.messages")).isTrue();
+            for (String key : removed) {
+                assertThat(shipped.contains(key)).as(key).isFalse();
+            }
+        }
+
+        private List<String> declaredPaths() {
+            List<String> paths = new ArrayList<String>();
+            for (Field field : AnnouncementConfig.class.getDeclaredFields()) {
+                ConfigEntry entry = field.getAnnotation(ConfigEntry.class);
+                if (entry != null) {
+                    paths.add(entry.path());
+                }
+            }
+            return paths;
+        }
+    }
+
+    static YamlConfiguration shipped(String resource) throws Exception {
+        InputStream in = AnnouncementConfigTest.class.getClassLoader().getResourceAsStream(resource);
+        assertThat(in).as("shipped resource " + resource).isNotNull();
+        try {
+            return YamlConfiguration.loadConfiguration(new InputStreamReader(in, StandardCharsets.UTF_8));
+        } finally {
+            in.close();
         }
     }
 }
