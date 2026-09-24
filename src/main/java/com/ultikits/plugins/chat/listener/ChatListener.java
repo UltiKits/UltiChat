@@ -100,6 +100,14 @@ public class ChatListener implements Listener {
             return true;
         }
         antiSpamService.recordMessage(player.getUniqueId(), message);
+        // This runs off the main thread, so the record above can land after the quit handler's
+        // AntiSpamService#cleanup and re-create the quitter's entries (UltiKits/UltiChat#20).
+        // Observe after writing: a sender who has left keeps no entry. A record written while the
+        // quitter is still online for the rest of the quit event is swept by
+        // PlayerChannelListener#onPlayerQuit on the next tick.
+        if (!player.isOnline()) {
+            antiSpamService.cleanup(player.getUniqueId());
+        }
         return false;
     }
 
@@ -109,11 +117,17 @@ public class ChatListener implements Listener {
     private void applyChatFormat(Player player, AsyncPlayerChatEvent event) {
         String format = chatConfig.getChatFormat();
 
-        // Prepend channel display name if channels enabled
+        // With channels enabled: the channel's own format if it has one ({display} = its display
+        // name), otherwise the global format with the display name in front (UltiKits/UltiChat#16).
         if (channelConfig.isEnabled()) {
             String channel = channelService.getPlayerChannel(player.getUniqueId());
             String channelDisplay = channelService.getChannelDisplayName(channel);
-            format = channelDisplay + " " + format;
+            String channelFormat = channelService.getChannelFormat(channel);
+            if (channelFormat != null) {
+                format = channelFormat.replace("{display}", channelDisplay);
+            } else {
+                format = channelDisplay + " " + format;
+            }
         }
 
         // Replace placeholders

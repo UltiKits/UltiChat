@@ -2,6 +2,7 @@ package com.ultikits.plugins.chat.service;
 
 import com.ultikits.plugins.chat.config.AnnouncementConfig;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
+import com.ultikits.ultitools.annotations.Scheduled;
 import org.bukkit.Bukkit;
 import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
@@ -318,6 +319,37 @@ class AnnouncementServiceTest {
             doReturn(Collections.emptyList()).when(ChatTestHelper.getMockServer()).getOnlinePlayers();
 
             service.broadcastTitle();
+        }
+    }
+
+    /**
+     * UltiKits/UltiChat#13, reworked on UltiKits/UltiTools-Reborn#531. Each broadcast's period is
+     * bound to its interval key on {@code AnnouncementConfig}; the annotation carries no literal
+     * period (a literal beside a binding refuses the module), no delay key and the default delay 0
+     * (first run on the next tick, as before), and stays synchronous (a bound async task refuses
+     * the module).
+     */
+    @Nested
+    @DisplayName("Broadcast periods are bound to the interval keys (UltiKits/UltiChat#13)")
+    class BoundPeriods {
+
+        @Test
+        @DisplayName("Chat, boss bar and title are bound to announcements.{chat,bossbar,title}.interval, sync, no literal")
+        void periodsAreBound() throws Exception {
+            assertBound("broadcastChat", "announcements.chat.interval");
+            assertBound("broadcastBossBar", "announcements.bossbar.interval");
+            assertBound("broadcastTitle", "announcements.title.interval");
+        }
+
+        private void assertBound(String method, String key) throws Exception {
+            Scheduled scheduled = AnnouncementService.class.getMethod(method).getAnnotation(Scheduled.class);
+            assertThat(scheduled).as(method).isNotNull();
+            assertThat(scheduled.config()).as(method).isEqualTo(AnnouncementConfig.class);
+            assertThat(scheduled.periodKey()).as(method).isEqualTo(key);
+            assertThat(scheduled.period()).as(method + " literal period must stay unset").isEqualTo(-1L);
+            assertThat(scheduled.delay()).as(method).isEqualTo(0L);
+            assertThat(scheduled.delayKey()).as(method).isEmpty();
+            assertThat(scheduled.async()).as(method).isFalse();
         }
     }
 }

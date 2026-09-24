@@ -52,7 +52,7 @@ class ChannelConfigTest {
             assertThat(config.getChannels()).containsKey("global");
             Map<String, Object> global = config.getChannels().get("global");
             assertThat(global.get("display-name")).isEqualTo("&f[Global]");
-            assertThat(global.get("format")).isEqualTo("{display}&f: {message}");
+            assertThat(global).doesNotContainKey("format");
             assertThat(global.get("permission")).isEqualTo("");
             assertThat(global.get("range")).isEqualTo(-1);
             assertThat(global.get("cross-world")).isEqualTo(true);
@@ -64,7 +64,7 @@ class ChannelConfigTest {
             assertThat(config.getChannels()).containsKey("local");
             Map<String, Object> local = config.getChannels().get("local");
             assertThat(local.get("display-name")).isEqualTo("&a[Local]");
-            assertThat(local.get("format")).isEqualTo("{display}&7: {message}");
+            assertThat(local).doesNotContainKey("format");
             assertThat(local.get("permission")).isEqualTo("");
             assertThat(local.get("range")).isEqualTo(100);
             assertThat(local.get("cross-world")).isEqualTo(false);
@@ -76,7 +76,7 @@ class ChannelConfigTest {
             assertThat(config.getChannels()).containsKey("staff");
             Map<String, Object> staff = config.getChannels().get("staff");
             assertThat(staff.get("display-name")).isEqualTo("&c[Staff]");
-            assertThat(staff.get("format")).isEqualTo("&c[Staff] &f{player}&7: {message}");
+            assertThat(staff).doesNotContainKey("format");
             assertThat(staff.get("permission")).isEqualTo("ultichat.channel.staff");
             assertThat(staff.get("range")).isEqualTo(-1);
             assertThat(staff.get("cross-world")).isEqualTo(true);
@@ -126,6 +126,24 @@ class ChannelConfigTest {
         void shouldAllowEmptyChannels() {
             config.setChannels(new HashMap<String, Map<String, Object>>());
             assertThat(config.getChannels()).isEmpty();
+        }
+    }
+
+    /**
+     * UltiKits/UltiChat#16: shipped channels set no {@code format:}, so an unset channel keeps
+     * today's line (the global chat format with the channel's display name in front).
+     */
+    @Test
+    @DisplayName("The shipped channels.yml sets no format on any channel (UltiKits/UltiChat#16)")
+    void shippedChannelsSetNoFormat() throws Exception {
+        org.bukkit.configuration.file.YamlConfiguration shipped =
+                AnnouncementConfigTest.shipped("config/channels.yml");
+
+        // Positive control: the file was found and the three channels parsed.
+        assertThat(shipped.getString("channels.channels.global.display-name")).isEqualTo("&f[Global]");
+        assertThat(shipped.getString("channels.channels.staff.permission")).isEqualTo("ultichat.channel.staff");
+        for (String channel : new String[]{"global", "local", "staff"}) {
+            assertThat(shipped.contains("channels.channels." + channel + ".format")).as(channel).isFalse();
         }
     }
 }

@@ -5,9 +5,14 @@ import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import org.bukkit.entity.Player;
 import org.junit.jupiter.api.*;
 
-import java.util.LinkedList;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,7 +32,6 @@ class AntiSpamServiceTest {
         config.setAntiSpamCooldown(2);
         config.setAntiSpamMaxDuplicate(3);
         config.setAntiSpamDuplicateWindow(30);
-        config.setAntiSpamMuteDuration(60);
         config.setAntiSpamCapsLimit(70);
 
         service = new AntiSpamService();
@@ -45,6 +49,14 @@ class AntiSpamServiceTest {
 
     private Player createPlayerWithId(UUID uuid) {
         return ChatTestHelper.createMockPlayer("TestPlayer", uuid);
+    }
+
+    /** The retained-message history for a player, whatever its element type. */
+    private Collection<?> retained(UUID playerId) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<UUID, ? extends Collection<?>> recentMessages =
+                (Map<UUID, ? extends Collection<?>>) ChatTestHelper.getField(service, "recentMessages");
+        return recentMessages.get(playerId);
     }
 
     // -------------------------------------------------------------------------
@@ -81,58 +93,6 @@ class AntiSpamServiceTest {
         void shouldReturnNullForNormalMessage() {
             Player player = createPlayer();
             assertThat(service.checkSpam(player, "hello world")).isNull();
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Mute checks
-    // -------------------------------------------------------------------------
-
-    @Nested
-    @DisplayName("checkSpam - mute")
-    class CheckSpamMuteTests {
-
-        @Test
-        @DisplayName("should return mute reason when player is muted")
-        void shouldReturnMuteReasonWhenMuted() throws Exception {
-            Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            // Directly put a future mute time
-            @SuppressWarnings("unchecked")
-            Map<UUID, Long> mutedUntil = (Map<UUID, Long>) ChatTestHelper.getField(service, "mutedUntil");
-            mutedUntil.put(playerId, System.currentTimeMillis() + 60000);
-
-            String reason = service.checkSpam(player, "hello");
-            assertThat(reason).isEqualTo("你已被临时禁言！");
-        }
-
-        @Test
-        @DisplayName("should allow message when mute has expired")
-        void shouldAllowMessageWhenMuteExpired() throws Exception {
-            Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, Long> mutedUntil = (Map<UUID, Long>) ChatTestHelper.getField(service, "mutedUntil");
-            mutedUntil.put(playerId, System.currentTimeMillis() - 1000);
-
-            String reason = service.checkSpam(player, "hello");
-            assertThat(reason).isNull();
-        }
-
-        @Test
-        @DisplayName("should clean up expired mute entry")
-        void shouldCleanUpExpiredMuteEntry() throws Exception {
-            Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, Long> mutedUntil = (Map<UUID, Long>) ChatTestHelper.getField(service, "mutedUntil");
-            mutedUntil.put(playerId, System.currentTimeMillis() - 1000);
-
-            service.checkSpam(player, "hello");
-            assertThat(mutedUntil).doesNotContainKey(playerId);
         }
     }
 
@@ -207,21 +167,23 @@ class AntiSpamServiceTest {
     @DisplayName("checkSpam - duplicate detection")
     class CheckSpamDuplicateTests {
 
+        /** Records {@code count} copies of {@code message} as accepted messages, with no cooldown in the way. */
+        private void recordCopies(UUID playerId, String message, int count) {
+            int cooldown = config.getAntiSpamCooldown();
+            config.setAntiSpamCooldown(0);
+            for (int i = 0; i < count; i++) {
+                service.recordMessage(playerId, message);
+            }
+            config.setAntiSpamCooldown(cooldown);
+        }
+
         @Test
         @DisplayName("should detect duplicate messages")
-        void shouldDetectDuplicateMessages() throws Exception {
+        void shouldDetectDuplicateMessages() {
             Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            // Simulate 3 identical messages in history (maxDuplicate is 3)
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("spam");
-            messages.add("spam");
-            messages.add("spam");
-            recentMessages.put(playerId, messages);
+            // 3 identical messages in history (maxDuplicate is 3)
+            recordCopies(player.getUniqueId(), "spam", 3);
+            config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "spam");
             assertThat(reason).isEqualTo("请不要发送重复消息！");
@@ -229,18 +191,11 @@ class AntiSpamServiceTest {
 
         @Test
         @DisplayName("should allow message when below duplicate threshold")
-        void shouldAllowBelowDuplicateThreshold() throws Exception {
+        void shouldAllowBelowDuplicateThreshold() {
             Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("spam");
-            messages.add("spam");
             // Only 2 duplicates, threshold is 3
-            recentMessages.put(playerId, messages);
+            recordCopies(player.getUniqueId(), "spam", 2);
+            config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "spam");
             assertThat(reason).isNull();
@@ -248,35 +203,15 @@ class AntiSpamServiceTest {
 
         @Test
         @DisplayName("should allow different messages")
-        void shouldAllowDifferentMessages() throws Exception {
+        void shouldAllowDifferentMessages() {
             Player player = createPlayer();
             UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("message1");
-            messages.add("message2");
-            messages.add("message3");
-            recentMessages.put(playerId, messages);
+            recordCopies(playerId, "message1", 1);
+            recordCopies(playerId, "message2", 1);
+            recordCopies(playerId, "message3", 1);
+            config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "message4");
-            assertThat(reason).isNull();
-        }
-
-        @Test
-        @DisplayName("should handle empty recent messages")
-        void shouldHandleEmptyRecentMessages() throws Exception {
-            Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            recentMessages.put(playerId, new LinkedList<String>());
-
-            String reason = service.checkSpam(player, "hello");
             assertThat(reason).isNull();
         }
 
@@ -290,23 +225,139 @@ class AntiSpamServiceTest {
 
         @Test
         @DisplayName("should handle maxDuplicate of zero")
-        void shouldHandleMaxDuplicateOfZero() throws Exception {
-            config.setAntiSpamMaxDuplicate(0);
+        void shouldHandleMaxDuplicateOfZero() {
             Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("spam");
-            messages.add("spam");
-            messages.add("spam");
-            recentMessages.put(playerId, messages);
+            recordCopies(player.getUniqueId(), "spam", 3);
+            config.setAntiSpamMaxDuplicate(0);
+            config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "spam");
             // maxDuplicate <= 0 means duplicate check is disabled
             assertThat(reason).isNull();
+        }
+
+        @Test
+        @DisplayName("only the last max-duplicate accepted messages are retained: an older copy pushed out no longer counts")
+        void oldestCopyIsPushedOut() {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            recordCopies(playerId, "spam", 3);
+            recordCopies(playerId, "other", 1);
+            config.setAntiSpamCooldown(0);
+
+            // Retained: spam, spam, other -- two copies, below the threshold of 3.
+            assertThat(service.checkSpam(player, "spam")).isNull();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Duplicate window (UltiKits/UltiChat#14)
+    // -------------------------------------------------------------------------
+
+    /**
+     * UltiKits/UltiChat#14. {@code anti-spam.duplicate-window} was declared and never read, so a
+     * repeat counted however long ago its earlier copies were sent. It is now wired: a retained copy
+     * older than the window stops counting. A window of 0 -- the declared default -- means no time
+     * limit, which is exactly the count-only detection of before. The tests that need time to pass
+     * replace the service's clock with a hand-set one (gate-1 IN-05: the earlier version slept 1.1 s
+     * against a 1-second window, and a JVM stall of over a second between the record and the control
+     * assertion would have failed it).
+     */
+    @Nested
+    @DisplayName("checkSpam - duplicate window (UltiKits/UltiChat#14)")
+    class DuplicateWindowTests {
+
+        @Test
+        @DisplayName("A repeat inside the window counts as a duplicate")
+        void repeatInsideTheWindowCounts() {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(60);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+        }
+
+        /** Replaces the service's clock with a hand-set one; returns the cell that holds "now". */
+        private long[] manualClock() throws Exception {
+            final long[] now = {1_000_000L};
+            ChatTestHelper.setField(service, "clock", (LongSupplier) () -> now[0]);
+            return now;
+        }
+
+        @Test
+        @DisplayName("Copies older than the window stop counting; copies inside it still count")
+        void copiesOutsideTheWindowStopCounting() throws Exception {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(1);
+
+            service.recordMessage(playerId, "spam");
+            now[0] += 1500L;
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+
+            // Three copies retained, but the first is 1.5 s old against a 1-second window: two
+            // count, below the threshold of 3, so the repeat is accepted.
+            assertThat(service.checkSpam(player, "spam")).isNull();
+
+            // Control on the same history: the two copies inside the window DO count -- with a
+            // threshold of 2 the same repeat is refused. Without this the null above could also
+            // mean "duplicate detection stopped working".
+            config.setAntiSpamMaxDuplicate(2);
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+
+            // Window 0, the declared default: no time limit, exactly the count-only rule of before --
+            // the same history, with its copy older than a second, trips the threshold of 3 again.
+            config.setAntiSpamMaxDuplicate(3);
+            config.setAntiSpamDuplicateWindow(0);
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+        }
+
+        @Test
+        @DisplayName("A copy exactly as old as the window still counts; one millisecond older does not")
+        void windowBoundaryIsInclusive() throws Exception {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(2);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+
+            now[0] += 2000L;
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+            now[0] += 1L;
+            assertThat(service.checkSpam(player, "spam")).isNull();
+        }
+
+        @Test
+        @DisplayName("Window 0 counts every retained copy, and still only identical ones")
+        void zeroWindowIsCountOnly() {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(0);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "other");
+
+            // Retained: spam, spam, other -- two identical copies, below the threshold of 3.
+            assertThat(service.checkSpam(player, "spam")).isNull();
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            // Retained: spam, spam, spam.
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
         }
     }
 
@@ -470,10 +521,7 @@ class AntiSpamServiceTest {
             UUID playerId = UUID.randomUUID();
             service.recordMessage(playerId, "hello");
 
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            assertThat(recentMessages.get(playerId)).containsExactly("hello");
+            assertThat(retained(playerId)).hasSize(1);
         }
 
         @Test
@@ -487,12 +535,8 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "msg3");
             service.recordMessage(playerId, "msg4");
 
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = recentMessages.get(playerId);
-            assertThat(messages).hasSize(3);
-            assertThat(messages).containsExactly("msg2", "msg3", "msg4");
+            // Which three are kept is pinned behaviourally by oldestCopyIsPushedOut.
+            assertThat(retained(playerId)).hasSize(3);
         }
 
         @Test
@@ -519,76 +563,8 @@ class AntiSpamServiceTest {
                 service.recordMessage(playerId, "msg" + i);
             }
 
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = recentMessages.get(playerId);
             // Default is 3 when config is 0
-            assertThat(messages).hasSize(3);
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // mutePlayer
-    // -------------------------------------------------------------------------
-
-    @Nested
-    @DisplayName("mutePlayer")
-    class MutePlayerTests {
-
-        @Test
-        @DisplayName("should mute player for configured duration")
-        void shouldMuteForConfiguredDuration() throws Exception {
-            UUID playerId = UUID.randomUUID();
-            config.setAntiSpamMuteDuration(30);
-            long before = System.currentTimeMillis();
-
-            service.mutePlayer(playerId);
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, Long> mutedUntil = (Map<UUID, Long>) ChatTestHelper.getField(service, "mutedUntil");
-            Long muteEnd = mutedUntil.get(playerId);
-            assertThat(muteEnd).isNotNull();
-            // Should be approximately now + 30 seconds
-            assertThat(muteEnd).isGreaterThanOrEqualTo(before + 30000);
-            assertThat(muteEnd).isLessThanOrEqualTo(before + 31000);
-        }
-
-        @Test
-        @DisplayName("should handle null playerId gracefully")
-        void shouldHandleNullPlayerId() {
-            // Should not throw
-            service.mutePlayer(null);
-        }
-
-        @Test
-        @DisplayName("should override existing mute")
-        void shouldOverrideExistingMute() throws Exception {
-            UUID playerId = UUID.randomUUID();
-            config.setAntiSpamMuteDuration(10);
-
-            service.mutePlayer(playerId);
-            long firstMute = ((Map<UUID, Long>) ChatTestHelper.getField(service, "mutedUntil")).get(playerId);
-
-            // Wait a tiny bit then re-mute
-            Thread.sleep(5);
-            config.setAntiSpamMuteDuration(60);
-            service.mutePlayer(playerId);
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, Long> mutedUntil = (Map<UUID, Long>) ChatTestHelper.getField(service, "mutedUntil");
-            Long secondMute = mutedUntil.get(playerId);
-            assertThat(secondMute).isGreaterThan(firstMute);
-        }
-
-        @Test
-        @DisplayName("muted player should be blocked by checkSpam")
-        void mutedPlayerShouldBeBlockedByCheckSpam() {
-            Player player = createPlayer();
-            service.mutePlayer(player.getUniqueId());
-
-            String reason = service.checkSpam(player, "hello");
-            assertThat(reason).isEqualTo("你已被临时禁言！");
+            assertThat(retained(playerId)).hasSize(3);
         }
     }
 
@@ -607,27 +583,21 @@ class AntiSpamServiceTest {
 
             // Add state
             service.recordMessage(playerId, "hello");
-            service.mutePlayer(playerId);
 
             // Verify state exists
             @SuppressWarnings("unchecked")
             Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
             @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            @SuppressWarnings("unchecked")
-            Map<UUID, Long> mutedUntil = (Map<UUID, Long>) ChatTestHelper.getField(service, "mutedUntil");
+            Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
 
             assertThat(lastMessageTime).containsKey(playerId);
             assertThat(recentMessages).containsKey(playerId);
-            assertThat(mutedUntil).containsKey(playerId);
 
             // Cleanup
             service.cleanup(playerId);
 
             assertThat(lastMessageTime).doesNotContainKey(playerId);
             assertThat(recentMessages).doesNotContainKey(playerId);
-            assertThat(mutedUntil).doesNotContainKey(playerId);
         }
 
         @Test
@@ -652,25 +622,18 @@ class AntiSpamServiceTest {
 
             service.recordMessage(player1, "msg1");
             service.recordMessage(player2, "msg2");
-            service.mutePlayer(player1);
-            service.mutePlayer(player2);
 
             service.cleanup(player1);
 
             @SuppressWarnings("unchecked")
             Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
             @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            @SuppressWarnings("unchecked")
-            Map<UUID, Long> mutedUntil = (Map<UUID, Long>) ChatTestHelper.getField(service, "mutedUntil");
+            Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
 
             assertThat(lastMessageTime).doesNotContainKey(player1);
             assertThat(lastMessageTime).containsKey(player2);
             assertThat(recentMessages).doesNotContainKey(player1);
             assertThat(recentMessages).containsKey(player2);
-            assertThat(mutedUntil).doesNotContainKey(player1);
-            assertThat(mutedUntil).containsKey(player2);
         }
     }
 
@@ -713,41 +676,22 @@ class AntiSpamServiceTest {
         }
 
         @Test
-        @DisplayName("mute then cleanup allows sending again")
-        void muteCleanupAllowsSending() {
+        @DisplayName("check order: cooldown before duplicate before caps")
+        void checkOrderCooldownFirst() {
             Player player = createPlayer();
             UUID playerId = player.getUniqueId();
 
-            service.mutePlayer(playerId);
-            assertThat(service.checkSpam(player, "hello")).isEqualTo("你已被临时禁言！");
+            // Duplicate history and an all-caps message, then a message still inside the cooldown:
+            // every check would refuse, and the cooldown's reason is the one reported.
+            service.recordMessage(playerId, "SPAMSPAM");
+            service.recordMessage(playerId, "SPAMSPAM");
+            service.recordMessage(playerId, "SPAMSPAM");
 
-            service.cleanup(playerId);
-            assertThat(service.checkSpam(player, "hello")).isNull();
-        }
+            assertThat(service.checkSpam(player, "SPAMSPAM")).isEqualTo("发送消息太快了！");
 
-        @Test
-        @DisplayName("check order: mute before cooldown before duplicate before caps")
-        void checkOrderMuteFirst() throws Exception {
-            Player player = createPlayer();
-            UUID playerId = player.getUniqueId();
-
-            // Set up ALL conditions: muted + cooldown + duplicate + caps
-            service.mutePlayer(playerId);
-            @SuppressWarnings("unchecked")
-            Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
-            lastMessageTime.put(playerId, System.currentTimeMillis());
-
-            @SuppressWarnings("unchecked")
-            Map<UUID, LinkedList<String>> recentMessages =
-                    (Map<UUID, LinkedList<String>>) ChatTestHelper.getField(service, "recentMessages");
-            LinkedList<String> messages = new LinkedList<String>();
-            messages.add("SPAM");
-            messages.add("SPAM");
-            messages.add("SPAM");
-            recentMessages.put(playerId, messages);
-
-            // Mute should be checked first
-            assertThat(service.checkSpam(player, "SPAM")).isEqualTo("你已被临时禁言！");
+            // Cooldown off: duplicate is reported before caps.
+            config.setAntiSpamCooldown(0);
+            assertThat(service.checkSpam(player, "SPAMSPAM")).isEqualTo("请不要发送重复消息！");
         }
 
         @Test
@@ -764,6 +708,65 @@ class AntiSpamServiceTest {
 
             // Player 2 should not be affected by player 1's cooldown
             assertThat(service.checkSpam(player2, "hello")).isNull();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // No automatic muting (UltiKits/UltiChat#15)
+    // -------------------------------------------------------------------------
+
+    /**
+     * UltiKits/UltiChat#15. Automatic muting was declared and never happened -- {@code mutePlayer}
+     * had no caller. The maintainer's ruling deletes the declaration, so a spam trip refuses exactly
+     * the offending message and nothing more, as it always did in practice.
+     */
+    @Nested
+    @DisplayName("A spam trip refuses only that message (UltiKits/UltiChat#15)")
+    class NoAutomaticMute {
+
+        @Test
+        @DisplayName("After a duplicate refusal, a different message is accepted once the cooldown has passed")
+        void duplicateTripDoesNotSilenceThePlayer() {
+            Player player = createPlayer();
+            UUID playerId = player.getUniqueId();
+            config.setAntiSpamCooldown(0);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+
+            assertThat(service.checkSpam(player, "something else")).isNull();
+        }
+
+        @Test
+        @DisplayName("After a caps refusal, a normal message is accepted once the cooldown has passed")
+        void capsTripDoesNotSilenceThePlayer() {
+            Player player = createPlayer();
+            config.setAntiSpamCooldown(0);
+
+            assertThat(service.checkSpam(player, "HELLOWORLD")).isEqualTo("消息中大写字母过多！");
+
+            assertThat(service.checkSpam(player, "hello world")).isNull();
+        }
+
+        @Test
+        @DisplayName("The service keeps no mute state and offers no way to mute")
+        void noMuteStateOrEntryPoint() {
+            List<String> fields = new ArrayList<String>();
+            for (Field field : AntiSpamService.class.getDeclaredFields()) {
+                fields.add(field.getName());
+            }
+            List<String> methods = new ArrayList<String>();
+            for (Method method : AntiSpamService.class.getDeclaredMethods()) {
+                methods.add(method.getName());
+            }
+
+            // Positive control: the reflection sees the state and entry points that do exist.
+            assertThat(fields).contains("lastMessageTime", "recentMessages");
+            assertThat(methods).contains("checkSpam", "recordMessage", "cleanup");
+            assertThat(fields).doesNotContain("mutedUntil");
+            assertThat(methods).doesNotContain("mutePlayer", "checkMute");
         }
     }
 }

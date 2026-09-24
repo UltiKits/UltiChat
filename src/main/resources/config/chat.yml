@@ -35,6 +35,5 @@ anti-spam:
   enabled: true
   cooldown: 2
   max-duplicate: 3
-  duplicate-window: 60
-  mute-duration: 30
+  duplicate-window: 0 # seconds; 0 = no time limit
   caps-limit: 70

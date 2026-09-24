@@ -201,26 +201,41 @@ class ChannelServiceTest {
     @DisplayName("getChannelFormat Tests")
     class GetChannelFormatTests {
 
+        // UltiKits/UltiChat#16: null means "no format of its own -- use today's line". The default
+        // channels here carry the three strings earlier versions shipped, as an upgraded server does.
+
         @Test
-        @DisplayName("Should return configured format")
+        @DisplayName("Should return a custom format as configured")
         void shouldReturnConfiguredFormat() {
-            assertThat(service.getChannelFormat("global")).isEqualTo("{display}&f: {message}");
+            Map<String, Map<String, Object>> channels = createDefaultChannels();
+            channels.get("global").put("format", "{display} {player}: {message}");
+            when(config.getChannels()).thenReturn(channels);
+
+            assertThat(service.getChannelFormat("global")).isEqualTo("{display} {player}: {message}");
         }
 
         @Test
-        @DisplayName("Should return default format for unknown channel")
-        void shouldReturnDefaultForUnknown() {
-            assertThat(service.getChannelFormat("unknown")).isEqualTo("{player}: {message}");
+        @DisplayName("Should treat each of the three formerly shipped formats as unset")
+        void shouldTreatLegacyShippedFormatsAsUnset() {
+            assertThat(service.getChannelFormat("global")).isNull();
+            assertThat(service.getChannelFormat("local")).isNull();
+            assertThat(service.getChannelFormat("staff")).isNull();
         }
 
         @Test
-        @DisplayName("Should return default format when format is null")
-        void shouldReturnDefaultWhenFormatNull() {
+        @DisplayName("Should return null for an unknown channel")
+        void shouldReturnNullForUnknown() {
+            assertThat(service.getChannelFormat("unknown")).isNull();
+        }
+
+        @Test
+        @DisplayName("Should return null when the channel sets no format")
+        void shouldReturnNullWhenFormatNull() {
             Map<String, Map<String, Object>> channels = createDefaultChannels();
             channels.get("global").remove("format");
             when(config.getChannels()).thenReturn(channels);
 
-            assertThat(service.getChannelFormat("global")).isEqualTo("{player}: {message}");
+            assertThat(service.getChannelFormat("global")).isNull();
         }
     }
 

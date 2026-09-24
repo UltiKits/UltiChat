@@ -1,7 +1,7 @@
 # UltiChat
 
 [![Java 8](https://img.shields.io/badge/Java-8-orange)](https://www.oracle.com/java/technologies/javase/javase8-archive-downloads.html)
-[![UltiTools-API](https://img.shields.io/badge/UltiTools--API-6.2.0-blue)](https://github.com/UltiKits/UltiTools-Reborn)
+[![UltiTools-API](https://img.shields.io/badge/UltiTools--API-6.3.0-blue)](https://github.com/UltiKits/UltiTools-Reborn)
 
 智能聊天管理模块 / Smart Chat Management Module
 
@@ -19,7 +19,7 @@ Standalone chat module extracted from UltiEssentials with 8 features: auto-reply
 | 定时广播 | Broadcasts | 聊天/Boss栏/标题三种广播，轮播消息 |
 | @提及 | Mentions | @玩家名高亮提示+音效 |
 | 聊天频道 | Channels | 全局/本地/自定义频道，范围限制，权限控制 |
-| 防刷屏 | Anti-Spam | 冷却时间/重复检测/禁言，按权限豁免 |
+| 防刷屏 | Anti-Spam | 冷却时间/重复检测/大写限制，按权限豁免 |
 | 自定义表情 | Emojis | `:shortcode:` 替换为自定义文本/颜色 |
 
 ## 命令 / Commands
@@ -31,6 +31,7 @@ Standalone chat module extracted from UltiEssentials with 8 features: auto-reply
 | `/uchat reload` | `ultichat.admin` | 重载配置 / Reload configs |
 | `/uchat autoreply list` | `ultichat.admin` | 列出自动回复规则 / List auto-reply rules |
 | `/uchat autoreply add <name> <response>` | `ultichat.admin` | 添加规则 / Add rule |
+| `/uchat autoreply setkeyword <name> <keyword>` | `ultichat.admin` | 修改规则关键词 / Change a rule's keyword |
 | `/uchat autoreply remove <name>` | `ultichat.admin` | 移除规则 / Remove rule |
 
 ### 频道命令 / Channel Commands
@@ -46,28 +47,27 @@ Standalone chat module extracted from UltiEssentials with 8 features: auto-reply
 
 | 文件 | 说明 |
 |------|------|
-| `config/chat.yml` | 聊天格式、@提及、入退消息、表情开关 |
+| `config/chat.yml` | 聊天格式、@提及、入退消息、反刷屏 |
 | `config/autoreply.yml` | 自动回复规则（关键词、匹配模式、回复内容、冷却） |
-| `config/channels.yml` | 频道定义（名称、范围、权限、颜色） |
-| `config/announcements.yml` | 定时广播（聊天/Boss栏/标题，消息列表，间隔） |
-| `config/emojis.yml` | 自定义表情映射 |
+| `config/channels.yml` | 频道定义（显示名、范围、权限、跨世界、可选的频道格式） |
+| `config/announcements.yml` | 定时广播（聊天/Boss栏/标题，消息列表，间隔秒数，默认 300 / 60 / 600；`/ul reload` 即生效） |
+| `config/emojis.yml` | 表情开关与自定义表情映射 |
 
 ### 自动回复示例 / Auto-Reply Example
 
 ```yaml
-auto-reply:
+autoreply:
   enabled: true
-  case-sensitive: false
-  cooldown: 5
+  cooldown: 5             # 全局冷却（秒）/ global cooldown (seconds)
   rules:
     greeting:
       keyword: "你好"
       mode: contains      # exact / contains / regex
+      case-sensitive: false
       response:
         - "&a欢迎来到服务器！"
         - "&7输入 /help 查看帮助"
       permission: ""
-      cooldown: 10
 ```
 
 ### 频道示例 / Channel Example
@@ -76,31 +76,38 @@ auto-reply:
 channels:
   enabled: true
   default-channel: global
-  definitions:
+  channels:
     global:
       display-name: "&f[全局]"
-      format: "{channel} {player}: {message}"
-      range: -1
       permission: ""
+      range: -1
+      cross-world: true
+      # 不设 format 时：chat.yml 的 chat.format 前加频道显示名
+      # Without format: chat.yml's chat.format with the display name in front
     local:
       display-name: "&a[本地]"
-      format: "{channel} {player}: {message}"
-      range: 100
+      # 可选：频道自己的格式，{display} = 频道显示名（需 chat.format-enabled: true）
+      # Optional: the channel's own format, {display} = display name (needs chat.format-enabled: true)
+      format: "{display} &f{player}&7: {message}"
       permission: ""
+      range: 100
+      cross-world: false
 ```
 
 ## 权限 / Permissions
 
 | 权限 | 说明 |
 |------|------|
-| `ultichat.admin` | 管理命令 |
-| `ultichat.channel` | 频道切换 |
-| `ultichat.chat.color` | 聊天中使用颜色代码 |
-| `ultichat.chat.emoji` | 使用自定义表情 |
-| `ultichat.mention` | @提及其他玩家 |
-| `ultichat.mention.self` | @提及自己 |
-| `ultichat.bypass.spam` | 豁免防刷屏 |
-| `ultichat.channel.<name>` | 使用指定频道 |
+| `ultichat.admin` | 管理命令 / Admin commands |
+| `ultichat.channel` | 频道命令 / Channel commands |
+| `ultichat.color` | 聊天中使用颜色代码 / Colour codes in chat |
+| `ultichat.emoji` | 使用自定义表情 / Emoji shortcodes |
+| `ultichat.spam.bypass` | 豁免防刷屏 / Bypass anti-spam |
+| `ultichat.autoreply.bypass` | 不触发自动回复 / Bypass auto-reply |
+| 频道的 `permission` 值 / a channel's `permission` value | 加入该频道（如出厂 staff 频道的 `ultichat.channel.staff`）/ Join that channel (e.g. `ultichat.channel.staff` for the shipped staff channel) |
+
+@提及没有权限节点，由 `config/chat.yml` 的 `mentions.enabled` 与 `mentions.self-mention` 控制。
+Mentions have no permission node; `mentions.enabled` and `mentions.self-mention` in `config/chat.yml` control them.
 
 ## 构建 / Build
 

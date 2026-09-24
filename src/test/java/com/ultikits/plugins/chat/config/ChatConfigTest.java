@@ -6,6 +6,11 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import com.ultikits.ultitools.annotations.ConfigEntry;
+import org.bukkit.configuration.file.YamlConfiguration;
+
+import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -163,15 +168,21 @@ class ChatConfigTest {
         }
 
         @Test
-        @DisplayName("Should have default duplicate window of 60 seconds")
-        void shouldHaveDefaultDuplicateWindow() {
-            assertThat(config.getAntiSpamDuplicateWindow()).isEqualTo(60);
-        }
-
-        @Test
-        @DisplayName("Should have default mute duration of 30 seconds")
-        void shouldHaveDefaultMuteDuration() {
-            assertThat(config.getAntiSpamMuteDuration()).isEqualTo(30);
+        @DisplayName("Should have default duplicate window of 0 = no time limit, today's count-only detection (UltiKits/UltiChat#14)")
+        void shouldHaveDefaultDuplicateWindow() throws Exception {
+            assertThat(config.getAntiSpamDuplicateWindow()).isEqualTo(0);
+            // 0 must be a valid value, not rejected by validation and reset: the declared range
+            // starts at 0, and still allows the old positive values up to 600.
+            com.ultikits.ultitools.annotations.config.Range range = ChatConfig.class
+                    .getDeclaredField("antiSpamDuplicateWindow")
+                    .getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
+            assertThat(range).isNotNull();
+            assertThat(range.min()).isEqualTo(0.0);
+            assertThat(range.max()).isEqualTo(600.0);
+            assertThat(AnnouncementConfigTest.shipped("config/chat.yml").contains("anti-spam.duplicate-window"))
+                    .isTrue();
+            assertThat(AnnouncementConfigTest.shipped("config/chat.yml").getInt("anti-spam.duplicate-window", -1))
+                    .isEqualTo(0);
         }
 
         @Test
@@ -328,17 +339,48 @@ class ChatConfigTest {
         }
 
         @Test
-        @DisplayName("Should update anti-spam mute duration")
-        void shouldUpdateAntiSpamMuteDuration() {
-            config.setAntiSpamMuteDuration(60);
-            assertThat(config.getAntiSpamMuteDuration()).isEqualTo(60);
-        }
-
-        @Test
         @DisplayName("Should update anti-spam caps limit")
         void shouldUpdateAntiSpamCapsLimit() {
             config.setAntiSpamCapsLimit(50);
             assertThat(config.getAntiSpamCapsLimit()).isEqualTo(50);
+        }
+    }
+
+    /**
+     * UltiKits/UltiChat#15. Automatic muting was declared -- {@code anti-spam.mute-duration} and
+     * {@code AntiSpamService#mutePlayer} -- and never happened: nothing called the method. The
+     * maintainer's ruling deletes the declaration rather than switching the feature on, so neither
+     * the class the framework writes a fresh file from nor the shipped file offers the setting.
+     */
+    @Nested
+    @DisplayName("There is no automatic-mute setting (UltiKits/UltiChat#15)")
+    class NoMuteDurationKey {
+
+        @Test
+        @DisplayName("A freshly written chat.yml gets no anti-spam.mute-duration")
+        void declaresNoMuteDuration() {
+            List<String> declared = new ArrayList<String>();
+            for (Field field : ChatConfig.class.getDeclaredFields()) {
+                ConfigEntry entry = field.getAnnotation(ConfigEntry.class);
+                if (entry != null) {
+                    declared.add(entry.path());
+                }
+            }
+
+            // Positive control: the reflection really reads the declared paths.
+            assertThat(declared).contains("anti-spam.enabled", "anti-spam.cooldown", "anti-spam.caps-limit");
+            assertThat(declared).doesNotContain("anti-spam.mute-duration");
+        }
+
+        @Test
+        @DisplayName("The shipped chat.yml carries no anti-spam.mute-duration")
+        void shippedFileCarriesNoMuteDuration() throws Exception {
+            YamlConfiguration shipped = AnnouncementConfigTest.shipped("config/chat.yml");
+
+            // Positive control: the file was found and parsed.
+            assertThat(shipped.contains("anti-spam.enabled")).isTrue();
+            assertThat(shipped.contains("anti-spam.caps-limit")).isTrue();
+            assertThat(shipped.contains("anti-spam.mute-duration")).isFalse();
         }
     }
 }

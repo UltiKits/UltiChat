@@ -38,7 +38,7 @@ public class AnnouncementService {
      * Broadcast a chat announcement rotating through configured messages.
      * 轮播聊天公告消息。
      */
-    @Scheduled(period = 6000, async = false)
+    @Scheduled(config = AnnouncementConfig.class, periodKey = "announcements.chat.interval")
     public void broadcastChat() {
         if (!config.isChatEnabled()) {
             return;
@@ -73,7 +73,7 @@ public class AnnouncementService {
      * Show a boss bar announcement rotating through configured messages.
      * 轮播Boss栏公告消息。
      */
-    @Scheduled(period = 1200, async = false)
+    @Scheduled(config = AnnouncementConfig.class, periodKey = "announcements.bossbar.interval")
     public void broadcastBossBar() {
         if (!config.isBossBarEnabled()) {
             return;
@@ -127,7 +127,7 @@ public class AnnouncementService {
      * Uses || separator for title and subtitle.
      * 轮播标题公告消息。使用 || 分隔主标题和副标题。
      */
-    @Scheduled(period = 12000, async = false)
+    @Scheduled(config = AnnouncementConfig.class, periodKey = "announcements.title.interval")
     public void broadcastTitle() {
         if (!config.isTitleEnabled()) {
             return;

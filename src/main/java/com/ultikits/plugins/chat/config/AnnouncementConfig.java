@@ -11,6 +11,20 @@ import lombok.Setter;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Announcement settings.
+ * <p>
+ * The three {@code announcements.*.interval} keys are each broadcast's period, in seconds. They
+ * were declared but never read before (UltiKits/UltiChat#13); they are now bound to the
+ * {@code @Scheduled} methods on {@code AnnouncementService} through the framework's config-bound
+ * periods (UltiKits/UltiTools-Reborn#531), so these fields hold the only copy of the defaults. A
+ * changed value takes effect at {@code /ul reload} (or {@code /uchat reload}), keeping the task's
+ * place in its cycle. The range -- at least 1 second, at most {@code Integer.MAX_VALUE / 20}
+ * seconds -- is enforced by the framework's binding, not by {@code @Range} here: an invalid value
+ * refuses the module at load and, on reload, is ignored with a warning while the running interval
+ * is kept. A {@code @Range} would abort the whole reload instead, because the configuration's own
+ * validation failure leaves {@code reloadSelf} before the binding step runs.
+ */
 @Getter
 @Setter
 @ConfigEntity("config/announcements.yml")
@@ -20,7 +34,6 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "announcements.chat.enabled", comment = "Enable chat announcements / 启用聊天公告")
     private boolean chatEnabled = true;
 
-    @Range(min = 10, max = 3600)
     @ConfigEntry(path = "announcements.chat.interval", comment = "Chat announcement interval (seconds) / 聊天公告间隔(秒)")
     private int chatInterval = 300;
 
@@ -38,7 +51,6 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "announcements.bossbar.enabled", comment = "Enable boss bar announcements / 启用Boss栏公告")
     private boolean bossBarEnabled = false;
 
-    @Range(min = 10, max = 3600)
     @ConfigEntry(path = "announcements.bossbar.interval", comment = "Boss bar interval (seconds) / Boss栏间隔(秒)")
     private int bossBarInterval = 60;
 
@@ -56,7 +68,6 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "announcements.title.enabled", comment = "Enable title announcements / 启用标题公告")
     private boolean titleEnabled = false;
 
-    @Range(min = 10, max = 3600)
     @ConfigEntry(path = "announcements.title.interval", comment = "Title interval (seconds) / 标题间隔(秒)")
     private int titleInterval = 600;
 

@@ -9,10 +9,13 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 
 /**
- * Anti-spam service that enforces cooldown, duplicate detection, caps limiting and temp muting.
- * 反垃圾消息服务，支持冷却、重复检测、大写字母限制和临时禁言。
+ * Anti-spam service that enforces cooldown, duplicate detection and caps limiting. A spam trip
+ * refuses the offending message only; there is no automatic muting (the never-called declaration
+ * of one was removed, UltiKits/UltiChat#15; the feature is requested in UltiKits/UltiChat#30).
+ * 反垃圾消息服务，支持冷却、重复检测和大写字母限制。触发时只拦截该条消息，不会自动禁言。
  */
 @Service
 public class AntiSpamService {
@@ -21,8 +24,27 @@ public class AntiSpamService {
     private ChatConfig config;
 
     private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
-    private final Map<UUID, LinkedList<String>> recentMessages = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> mutedUntil = new ConcurrentHashMap<>();
+
+    /**
+     * The one time source for the cooldown and the duplicate window, in epoch milliseconds.
+     * Package-private and non-final so a test can move time explicitly instead of sleeping.
+     */
+    LongSupplier clock = System::currentTimeMillis;
+    private final Map<UUID, LinkedList<RecentMessage>> recentMessages = new ConcurrentHashMap<>();
+
+    /**
+     * One accepted message kept for duplicate detection, with the time it was sent, so that a copy
+     * older than {@code anti-spam.duplicate-window} can stop counting (UltiKits/UltiChat#14).
+     */
+    private static final class RecentMessage {
+        private final String text;
+        private final long sentAt;
+
+        private RecentMessage(String text, long sentAt) {
+            this.text = text;
+            this.sentAt = sentAt;
+        }
+    }
 
     /**
      * Check whether a message should be considered spam.
@@ -41,11 +63,6 @@ public class AntiSpamService {
         }
         UUID playerId = player.getUniqueId();
 
-        String muteReason = checkMute(playerId);
-        if (muteReason != null) {
-            return muteReason;
-        }
-
         String cooldownReason = checkCooldown(playerId);
         if (cooldownReason != null) {
             return cooldownReason;
@@ -62,24 +79,12 @@ public class AntiSpamService {
         return null;
     }
 
-    private String checkMute(UUID playerId) {
-        Long muteExpiry = mutedUntil.get(playerId);
-        if (muteExpiry == null) {
-            return null;
-        }
-        if (System.currentTimeMillis() < muteExpiry) {
-            return "你已被临时禁言！";
-        }
-        mutedUntil.remove(playerId);
-        return null;
-    }
-
     private String checkCooldown(UUID playerId) {
         Long lastTime = lastMessageTime.get(playerId);
         if (lastTime == null) {
             return null;
         }
-        long elapsed = System.currentTimeMillis() - lastTime;
+        long elapsed = clock.getAsLong() - lastTime;
         long cooldownMs = config.getAntiSpamCooldown() * 1000L;
         if (elapsed < cooldownMs) {
             return "发送消息太快了！";
@@ -98,10 +103,12 @@ public class AntiSpamService {
         if (playerId == null || message == null) {
             return;
         }
-        lastMessageTime.put(playerId, System.currentTimeMillis());
+        long now = clock.getAsLong();
+        lastMessageTime.put(playerId, now);
 
-        LinkedList<String> messages = recentMessages.computeIfAbsent(playerId, k -> new LinkedList<String>());
-        messages.addLast(message);
+        LinkedList<RecentMessage> messages =
+                recentMessages.computeIfAbsent(playerId, k -> new LinkedList<RecentMessage>());
+        messages.addLast(new RecentMessage(message, now));
 
         int maxDuplicate = config.getAntiSpamMaxDuplicate();
         if (maxDuplicate <= 0) {
@@ -110,20 +117,6 @@ public class AntiSpamService {
         while (messages.size() > maxDuplicate) {
             messages.removeFirst();
         }
-    }
-
-    /**
-     * Temporarily mute a player for the configured duration.
-     * 将玩家临时禁言（持续配置的时长）。
-     *
-     * @param playerId the player UUID
-     */
-    public void mutePlayer(UUID playerId) {
-        if (playerId == null) {
-            return;
-        }
-        long durationMs = config.getAntiSpamMuteDuration() * 1000L;
-        mutedUntil.put(playerId, System.currentTimeMillis() + durationMs);
     }
 
     /**
@@ -171,14 +164,20 @@ public class AntiSpamService {
         }
         lastMessageTime.remove(playerId);
         recentMessages.remove(playerId);
-        mutedUntil.remove(playerId);
     }
 
     /**
      * Check if a message is a duplicate of recent messages within the configured window.
+     * <p>
+     * A message is a duplicate when at least {@code anti-spam.max-duplicate} of the player's
+     * retained messages (the last {@code max-duplicate} accepted ones) are identical to it. With a
+     * positive {@code anti-spam.duplicate-window}, a retained copy sent longer ago than that many
+     * seconds stops counting. A window of {@code 0} (the default) means no time limit: every retained
+     * copy counts however old, which is exactly the rule before UltiKits/UltiChat#14, when the window
+     * was never read.
      */
     private boolean isDuplicate(UUID playerId, String message) {
-        LinkedList<String> messages = recentMessages.get(playerId);
+        LinkedList<RecentMessage> messages = recentMessages.get(playerId);
         if (messages == null || messages.isEmpty()) {
             return false;
         }
@@ -188,10 +187,14 @@ public class AntiSpamService {
             return false;
         }
 
-        // Count how many of the recent messages match
+        // Count how many of the recent messages match and are still inside the window (if any)
+        long windowMs = config.getAntiSpamDuplicateWindow() * 1000L;
+        boolean timeLimited = windowMs > 0;
+        long now = clock.getAsLong();
         int duplicateCount = 0;
-        for (String recent : messages) {
-            if (message.equals(recent)) {
+        for (RecentMessage recent : messages) {
+            boolean inWindow = !timeLimited || now - recent.sentAt <= windowMs;
+            if (inWindow && message.equals(recent.text)) {
                 duplicateCount++;
             }
         }

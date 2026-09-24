@@ -1,4 +1,5 @@
 # UltiChat - Announcement Configuration
+# Each interval is in seconds; a changed value takes effect at /ul reload.
 
 announcements:
   chat:
