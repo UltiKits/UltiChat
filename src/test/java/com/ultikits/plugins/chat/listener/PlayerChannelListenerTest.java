@@ -211,5 +211,54 @@ class PlayerChannelListenerTest {
             // The existing channel cleanup still happens alongside it.
             verify(channelService).removePlayer(quitter);
         }
+
+        /**
+         * The quitter is still online for the rest of the quit event, so a chat record that lands
+         * after the cleanup above but before the server drops the player is not caught by
+         * {@code ChatListener}'s own after-write check. The handler therefore sweeps once more on
+         * the next tick, when the player is gone (Codex review on PR #33).
+         */
+        @Test
+        @DisplayName("A record landing after the quit cleanup is swept on the next tick once the player is gone")
+        void lateRecordIsSweptOnTheNextTick() throws Exception {
+            UUID quitter = UUID.randomUUID();
+            org.bukkit.plugin.Plugin host = mock(org.bukkit.plugin.Plugin.class);
+            when(org.bukkit.Bukkit.getPluginManager().getPlugin("UltiTools")).thenReturn(host);
+
+            listener.onPlayerQuit(new PlayerQuitEvent(
+                    ChatTestHelper.createMockPlayer("Quitter", quitter), "left"));
+            // The async chat thread writes after the handler above has already cleaned up.
+            antiSpam.recordMessage(quitter, "late");
+            // Control: the late record really re-created the entries the sweep must remove.
+            assertThat(map("lastMessageTime")).containsKey(quitter);
+            assertThat(map("recentMessages")).containsKey(quitter);
+
+            org.mockito.ArgumentCaptor<Runnable> sweep = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+            verify(org.bukkit.Bukkit.getScheduler()).runTask(eq(host), sweep.capture());
+            sweep.getValue().run(); // Bukkit.getPlayer(quitter) is null: the player has left
+
+            assertThat(map("lastMessageTime")).doesNotContainKey(quitter);
+            assertThat(map("recentMessages")).doesNotContainKey(quitter);
+        }
+
+        @Test
+        @DisplayName("The next-tick sweep leaves the entry of a player who is online again")
+        void sweepSparesAPlayerWhoIsOnlineAgain() throws Exception {
+            UUID quitter = UUID.randomUUID();
+            org.bukkit.plugin.Plugin host = mock(org.bukkit.plugin.Plugin.class);
+            when(org.bukkit.Bukkit.getPluginManager().getPlugin("UltiTools")).thenReturn(host);
+            Player back = ChatTestHelper.createMockPlayer("Quitter", quitter);
+
+            listener.onPlayerQuit(new PlayerQuitEvent(back, "left"));
+            antiSpam.recordMessage(quitter, "after rejoining");
+            doReturn(back).when(ChatTestHelper.getMockServer()).getPlayer(quitter);
+
+            org.mockito.ArgumentCaptor<Runnable> sweep = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+            verify(org.bukkit.Bukkit.getScheduler()).runTask(eq(host), sweep.capture());
+            sweep.getValue().run();
+
+            assertThat(map("lastMessageTime")).containsKey(quitter);
+            assertThat(map("recentMessages")).containsKey(quitter);
+        }
     }
 }

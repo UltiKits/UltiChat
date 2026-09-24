@@ -667,4 +667,56 @@ class ChatListenerTest {
             assertThat(lineWithGlobalFormat("{display} custom {message}")).isEqualTo(untouched.getFormat());
         }
     }
+
+    /**
+     * {@code onChat} runs off the main thread, so the record it writes after the spam check can land
+     * after the quit handler's {@code AntiSpamService#cleanup} and re-create the quitter's entries,
+     * undoing the eviction (UltiKits/UltiChat#20; Codex review on PR #33). The listener must leave no
+     * entry for a sender who is no longer online once it has written.
+     */
+    @Nested
+    @DisplayName("A record written after the sender left leaves no anti-spam entry (UltiKits/UltiChat#20)")
+    class RecordAfterQuit {
+
+        private AntiSpamService realAntiSpam;
+        private ChatListener realListener;
+
+        @BeforeEach
+        void useRealAntiSpamService() throws Exception {
+            chatConfig.setAntiSpamEnabled(true);
+            realAntiSpam = new AntiSpamService();
+            ChatTestHelper.setField(realAntiSpam, "config", chatConfig);
+            realListener = new ChatListener(chatConfig, channelConfig,
+                    realAntiSpam, channelService, emojiService);
+        }
+
+        @SuppressWarnings("unchecked")
+        private Map<UUID, ?> map(String name) throws Exception {
+            return (Map<UUID, ?>) ChatTestHelper.getField(realAntiSpam, name);
+        }
+
+        @Test
+        @DisplayName("Sender still online: the message is recorded (control)")
+        void onlineSenderIsRecorded() throws Exception {
+            when(player.isOnline()).thenReturn(true);
+
+            realListener.onChat(createChatEvent("hello"));
+
+            assertThat(map("lastMessageTime")).containsKey(playerUuid);
+            assertThat(map("recentMessages")).containsKey(playerUuid);
+        }
+
+        @Test
+        @DisplayName("Sender gone by the time the record is written: neither map holds them afterwards")
+        void offlineSenderLeavesNoEntry() throws Exception {
+            when(player.isOnline()).thenReturn(false);
+
+            AsyncPlayerChatEvent event = createChatEvent("hello");
+            realListener.onChat(event);
+
+            assertThat(event.isCancelled()).as("the message itself is not refused").isFalse();
+            assertThat(map("lastMessageTime")).doesNotContainKey(playerUuid);
+            assertThat(map("recentMessages")).doesNotContainKey(playerUuid);
+        }
+    }
 }
