@@ -279,6 +279,23 @@ class AnnouncementScheduleBindingTest {
                 .hasMessageContaining("630");
     }
 
+    @Test
+    @DisplayName("The README's UltiTools-API badge advertises at least the api-version plugin.yml declares (Codex review on PR #33)")
+    void readmeBadgeAdvertisesTheDeclaredFloor() throws Exception {
+        String readme = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("README.md")),
+                StandardCharsets.UTF_8);
+        java.util.regex.Matcher badge = java.util.regex.Pattern
+                .compile("UltiTools--API-(\\d+)\\.(\\d+)\\.(\\d+)-").matcher(readme);
+        // Control: the badge is really there and parsed, so the comparison below is not vacuous.
+        assertThat(badge.find()).as("README carries the UltiTools-API badge").isTrue();
+        int advertised = Integer.parseInt(badge.group(1)) * 100
+                + Integer.parseInt(badge.group(2)) * 10 + Integer.parseInt(badge.group(3));
+
+        // A server on an older framework refuses this module, so the badge a user reads first must
+        // not name one.
+        assertThat(advertised).as("advertised UltiTools-API level").isGreaterThanOrEqualTo(shippedApiVersion());
+    }
+
     private void validateConfigBindings(UltiToolsPlugin plugin) throws Throwable {
         SimpleContainer container = mock(SimpleContainer.class);
         lenient().when(container.getSingletonValues()).thenReturn(Collections.<Object>singletonList(service));
