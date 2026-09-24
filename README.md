@@ -1,7 +1,7 @@
 # UltiChat
 
 [![Java 8](https://img.shields.io/badge/Java-8-orange)](https://www.oracle.com/java/technologies/javase/javase8-archive-downloads.html)
-[![UltiTools-API](https://img.shields.io/badge/UltiTools--API-6.2.0-blue)](https://github.com/UltiKits/UltiTools-Reborn)
+[![UltiTools-API](https://img.shields.io/badge/UltiTools--API-6.3.0-blue)](https://github.com/UltiKits/UltiTools-Reborn)
 
 智能聊天管理模块 / Smart Chat Management Module
 
