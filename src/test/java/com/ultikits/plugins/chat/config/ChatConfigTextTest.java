@@ -239,6 +239,10 @@ class ChatConfigTextTest {
 
         start();
 
+        // Read from the files alone, before any catalogue lookup: none of them still holds English.
+        for (Setting s : SETTINGS) {
+            assertThat(String.valueOf(onDisk(s))).as(s.path + " holds Chinese text").matches("(?s).*" + CJK.pattern() + ".*");
+        }
         for (Setting s : SETTINGS) {
             assertThat(onDisk(s)).as(s.path).isEqualTo(s.text("zh"));
             assertThat(s.getter.apply(this)).as(s.path).isEqualTo(onDisk(s));
