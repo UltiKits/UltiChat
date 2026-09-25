@@ -686,8 +686,8 @@ class ChatListenerTest {
     /**
      * {@code onChat} runs off the main thread, so the record it writes after the spam check can land
      * after the quit handler's {@code AntiSpamService#cleanup} and re-create the quitter's entries,
-     * undoing the eviction (UltiKits/UltiChat#20; Codex review on PR #33). The listener must leave no
-     * entry for a sender who is no longer online once it has written.
+     * undoing the eviction (UltiKits/UltiChat#20). The listener must leave no entry for a sender who
+     * is no longer online once it has written.
      */
     @Nested
     @DisplayName("A record written after the sender left leaves no anti-spam entry (UltiKits/UltiChat#20)")

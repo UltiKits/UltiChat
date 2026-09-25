@@ -219,7 +219,7 @@ class UltiChatTest {
         }
 
         @Test
-        @DisplayName("A server path that contains a placeholder is named as written, not expanded (Codex P3)")
+        @DisplayName("A server path that contains a placeholder is named as written, not expanded")
         void pathIsNotReExpanded(@TempDir File parent) {
             File dir = new File(parent, "srv{SECONDS}{DEFAULT}");
             UltiChat plugin = pluginWithWindow(dir, 60);
@@ -335,7 +335,7 @@ class UltiChatTest {
         }
 
         @Test
-        @DisplayName("A channel ID that looks like a placeholder is named as written, not expanded (Codex P3)")
+        @DisplayName("A channel ID that looks like a placeholder is named as written, not expanded")
         void channelIdIsNotReExpanded(@TempDir File dir) {
             UltiChat plugin = pluginWithChannelFormats(dir, "a{FORMAT}b", "{display}&e: {message}");
             String template = com.ultikits.plugins.chat.i18n.CatalogueText.text("en", "log_channel_format_missing_sender");

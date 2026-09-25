@@ -468,11 +468,10 @@ class AutoReplyServiceTest {
         @Test
         @DisplayName("Adding a rule under a name that maps to null repairs it instead of refusing")
         void addingARuleUnderANullValuedNameRepairsIt() throws Exception {
-            // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
-            // leaves a name key mapped to null. findMatch already skips null rule maps
-            // and setKeyword already treats them as absent; addRule's containsKey guard
-            // did not, so it refused to repair an entry it could never have silently
-            // corrupted in the first place.
+            // Malformed YAML such as `broken:` leaves a name key mapped to null. findMatch already
+            // skips null rule maps and setKeyword already treats them as absent; addRule's
+            // containsKey guard did not, so it refused to repair an entry it could never have
+            // silently corrupted in the first place.
             config.getRules().put("broken", null);
 
             service.addRule("broken", "hi", "Repaired response");
@@ -560,11 +559,10 @@ class AutoReplyServiceTest {
         @Test
         @DisplayName("Is a no-op, not a throw, when the named rule's value is null")
         void isANoOpWhenTheNamedRulesValueIsNull() throws Exception {
-            // Codex review on PR #12: a null-valued entry (e.g. malformed YAML `broken:`)
-            // makes containsKey(name) true but get(name) null, so calling put() on the
-            // retrieved value directly throws instead of behaving like the documented
-            // no-op/not-found case. findMatch already tolerates null rule maps by
-            // skipping them; setKeyword must do the same.
+            // A null-valued entry (e.g. malformed YAML `broken:`) makes containsKey(name) true
+            // but get(name) null, so calling put() on the retrieved value directly throws
+            // instead of behaving like the documented no-op/not-found case. findMatch already
+            // tolerates null rule maps by skipping them; setKeyword must do the same.
             config.getRules().put("broken", null);
 
             service.setKeyword("broken", "anything");

@@ -87,7 +87,7 @@ class RemovedConfigKeysTest {
     }
 
     @Test
-    @DisplayName("A server path that contains a placeholder is named as written, not expanded (Codex P3)")
+    @DisplayName("A server path that contains a placeholder is named as written, not expanded")
     void pathIsNotReExpanded(@TempDir File parent) throws IOException {
         File dir = new File(parent, "srv{REASON}{KEY}");
         File file = write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);

@@ -185,10 +185,9 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("Should repair a null-valued rule entry instead of reporting it already exists")
         void shouldRepairANullValuedRuleEntry() throws Exception {
-            // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
-            // leaves a name mapped to null. The command layer's own containsKey guard
-            // mirrors the service's, so it must apply the same non-null check or it
-            // blocks the repair before addRule is ever called.
+            // Malformed YAML such as `broken:` leaves a name mapped to null. The command layer's own
+            // containsKey guard mirrors the service's, so it must apply the same non-null check or
+            // it blocks the repair before addRule is ever called.
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();
@@ -300,10 +299,10 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("Should send not-found, not a false success, for a null-valued rule entry")
         void shouldSendNotFoundForANullValuedRuleEntry() throws Exception {
-            // Codex review on PR #12 (commit 05901e6): malformed YAML such as `broken:`
-            // makes containsKey(name) true even though the value is null. This guard
-            // only checked key presence, so it would call the now-null-safe setKeyword
-            // no-op and still report success -- a false positive. Must check the value.
+            // Malformed YAML such as `broken:` makes containsKey(name) true even though the
+            // value is null. This guard only checked key presence, so it would call the
+            // now-null-safe setKeyword no-op and still report success -- a false positive. Must
+            // check the value.
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();

@@ -280,7 +280,7 @@ class AnnouncementScheduleBindingTest {
     }
 
     @Test
-    @DisplayName("The README's UltiTools-API badge advertises at least the api-version plugin.yml declares (Codex review on PR #33)")
+    @DisplayName("The README's UltiTools-API badge advertises at least the api-version plugin.yml declares")
     void readmeBadgeAdvertisesTheDeclaredFloor() throws Exception {
         String readme = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("README.md")),
                 StandardCharsets.UTF_8);
