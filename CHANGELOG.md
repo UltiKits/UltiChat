@@ -21,7 +21,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   language's built-in pair; a rule where either was edited is yours. Edit these settings in the
   config files: an edit of the extracted language file does not change them, and released versions
   never read them from it. A changed `language` is picked up at a restart or a full `/ul reload`,
-  not by a single-module reload (UltiKits/UltiChat#18).
+  not by a single-module reload such as `/uchat reload` or `/ul reload UltiChat`
+  (UltiKits/UltiChat#18).
 - The three channel formats earlier versions shipped (`{display}&f: {message}`,
   `{display}&7: {message}`, `&c[Staff] &f{player}&7: {message}`) are now removed from
   `config/channels.yml` when the module starts, so the file matches what the chat shows; the chat
@@ -32,7 +33,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   仍为内置文本（任一语言的内置文本，或旧版本的出厂默认值）的设置会跟随 `language`：模块启动或执行 `/ul reload` 后改写为当前语言的文本。你改过的设置保持不变。若想保留内置文本又不让它跟随语言，
   请至少改动一个字符。示例自动回复规则只有在关键词与回复合起来仍是同一语言的内置文本时才算内置；关键词或回复任一被改过，
   该规则即归你所有。请在配置文件中修改这些设置：修改解压出的语言文件不会改变它们，已发布的版本也从不从语言文件读取它们。
-  修改后的 `language` 在重启或完整的 `/ul reload` 后生效，单个模块的重载不会读取它（UltiKits/UltiChat#18）。
+  修改后的 `language` 在重启或完整的 `/ul reload` 后生效，单个模块的重载（如 `/uchat reload` 或 `/ul reload UltiChat`）不会读取它（UltiKits/UltiChat#18）。
 - 早期版本出厂的三条频道格式（`{display}&f: {message}`、`{display}&7: {message}`、
   `&c[Staff] &f{player}&7: {message}`）现在会在模块启动时从 `config/channels.yml` 中移除，
   使文件与聊天显示一致；聊天行保持不变（UltiKits/UltiChat#16、#18）。
