@@ -449,7 +449,7 @@ class AutoReplyServiceTest {
         @Test
         @DisplayName("Adding a rule under an existing name also preserves its mode and case-sensitivity")
         void addingARuleUnderAnExistingNamePreservesModeAndCaseSensitivity() throws Exception {
-            // WR-01: addRule(name, keyword, response) itself always hardcodes
+            // addRule(name, keyword, response) itself always hardcodes
             // mode="contains"/case-sensitive=false, so a rule built purely through the
             // service's own 3-arg addRule never puts those two fields in a state where
             // overwriting them would be observable. Seed the rule directly with
@@ -496,12 +496,12 @@ class AutoReplyServiceTest {
         @Test
         @DisplayName("A refused add does not disturb the other existing rules")
         void aRefusedAddDoesNotDisturbTheOtherExistingRules() throws Exception {
-            // WR-02: this replaces a `containsExactly("first", "second")` order
-            // assertion that could never fail independently of the response assertion
-            // already in this test. Map.put(existingKey, newValue) never changes
-            // iteration order in HashMap or LinkedHashMap -- only inserting a *new* key
-            // does -- and a refused add and an unguarded overwrite both call put() on
-            // the same already-present key, so the order came out identical either way.
+            // This replaces a `containsExactly("first", "second")` order assertion that could
+            // never fail independently of the response assertion already in this test.
+            // Map.put(existingKey, newValue) never changes iteration order in HashMap or
+            // LinkedHashMap -- only inserting a *new* key does -- and a refused add and an
+            // unguarded overwrite both call put() on the same already-present key, so the order
+            // came out identical either way.
             // Backing this test's map with a LinkedHashMap to make order assertions
             // meaningful was tried and reverted: it silently changed
             // RegexModeTests.shouldCacheSeparatePatterns' outcome, because that

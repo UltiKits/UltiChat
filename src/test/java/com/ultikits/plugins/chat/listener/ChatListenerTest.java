@@ -674,7 +674,7 @@ class ChatListenerTest {
         }
 
         @Test
-        @DisplayName("With chat.format-enabled false, a channel's format is not used either: no line format is set at all (gate-1 WR-03)")
+        @DisplayName("With chat.format-enabled false, a channel's format is not used either: no line format is set at all")
         void formattingDisabledIgnoresChannelFormat() {
             chatConfig.setChatFormatEnabled(false);
             AsyncPlayerChatEvent untouched = createChatEvent("hello");

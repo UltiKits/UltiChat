@@ -19,15 +19,15 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 
 /**
- * Gate-1 round 2, IN-09 on UltiKits/UltiChat#13. The interval fields carry no {@code @Range} because
- * the framework's binding owns their range (maintainer ruling, "绑定字段不带模块自己的范围校验"). The
- * reason is behavioural: {@code AbstractConfigEntity#init} -- the method {@code ConfigManager#reloadConfigs}
+ * UltiKits/UltiChat#13. The interval fields carry no {@code @Range} because the framework's binding
+ * owns their range: a bound field carries no range check of the module's own. The reason is
+ * behavioural: {@code AbstractConfigEntity#init} -- the method {@code ConfigManager#reloadConfigs}
  * calls for every entity on {@code /ul reload} -- throws on a {@code @Range} violation after writing the
  * file's values into the fields, and that exception aborts the whole reload. These tests drive the
  * real {@code init} on a real file, so a {@code @Range} put back on an interval field fails here on
  * behaviour, not only on the annotation check in {@code AnnouncementConfigTest}.
  */
-@DisplayName("AnnouncementConfig#init with an out-of-range interval (UltiKits/UltiChat#13, gate-1 IN-09)")
+@DisplayName("AnnouncementConfig#init with an out-of-range interval (UltiKits/UltiChat#13)")
 class AnnouncementConfigInitTest {
 
     private static final String WITH_ZERO_INTERVAL =

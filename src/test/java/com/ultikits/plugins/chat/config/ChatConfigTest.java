@@ -349,8 +349,8 @@ class ChatConfigTest {
     /**
      * UltiKits/UltiChat#15. Automatic muting was declared -- {@code anti-spam.mute-duration} and
      * {@code AntiSpamService#mutePlayer} -- and never happened: nothing called the method. The
-     * maintainer's ruling deletes the declaration rather than switching the feature on, so neither
-     * the class the framework writes a fresh file from nor the shipped file offers the setting.
+     * declaration is deleted rather than the feature switched on, so neither the class the
+     * framework writes a fresh file from nor the shipped file offers the setting.
      */
     @Nested
     @DisplayName("There is no automatic-mute setting (UltiKits/UltiChat#15)")

@@ -146,10 +146,9 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("Should include each rule's response in the listing")
         void shouldIncludeResponseInListing() {
-            // CR-01 problem 3: `autoreply list` used to render only name -> keyword
-            // [mode] and never the response, which also made silent-overwrite
-            // corruption harder to notice since the field that visibly changed was
-            // the keyword rather than the reply.
+            // `autoreply list` used to render only name -> keyword [mode] and never the
+            // response, which also made silent-overwrite corruption harder to notice since the
+            // field that visibly changed was the keyword rather than the reply.
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();
@@ -269,12 +268,11 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("Should set the keyword on an existing rule and send confirmation")
         void shouldSetKeywordOnExistingRule() throws Exception {
-            // CR-01 problem 1: `autoreply add` still forces keyword = name with no
-            // parameter to say otherwise. This closes that gap the smallest way that
-            // avoids an ambiguous overload against the existing 2-arg `add` format --
-            // a distinct `setkeyword` verb, unambiguous under the framework's scored
-            // format matching since its second literal token ("setkeyword") never
-            // matches "add"'s.
+            // `autoreply add` still forces keyword = name with no parameter to say otherwise.
+            // This closes that gap the smallest way that avoids an ambiguous overload against
+            // the existing 2-arg `add` format -- a distinct `setkeyword` verb, unambiguous
+            // under the framework's scored format matching since its second literal token
+            // ("setkeyword") never matches "add"'s.
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();

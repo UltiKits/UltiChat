@@ -149,9 +149,9 @@ class UltiChatTest {
     /**
      * UltiKits/UltiChat#14. The duplicate window used to be ignored, so a repeat counted however far
      * apart its copies were sent. Wiring it makes an upgraded server's on-disk value (60, written by
-     * earlier versions) take effect, which makes detection more permissive than before; the ruling
-     * is that the value takes effect and the operator is told so, loudly, at load. The new declared
-     * default is 0 -- no time limit, exactly the old behaviour -- so any positive window is announced.
+     * earlier versions) take effect, which makes detection more permissive than before; by design the
+     * value takes effect and the operator is told so, loudly, at load. The new declared default is 0
+     * -- no time limit, exactly the old behaviour -- so any positive window is announced.
      */
     @Nested
     @DisplayName("Any positive duplicate window is announced at load (UltiKits/UltiChat#14)")
@@ -279,16 +279,15 @@ class UltiChatTest {
     }
 
     /**
-     * Gate-1 WR-01 on UltiKits/UltiChat#16. Channel formats now apply, and an operator may have
-     * edited one before this version while it had no effect -- for example recoloured the shipped
-     * {@code {display}&f: {message}}, which names no player. That edit is no longer one of the three
-     * legacy strings, so it applies after the upgrade and the channel's lines lose their sender.
-     * The format still applies (the maintainer's ruling); the operator is told, once per channel, at
-     * load and on every reload, whenever a format that is in effect lacks a sender token or the
-     * message token.
+     * UltiKits/UltiChat#16. Channel formats now apply, and an operator may have edited one before
+     * this version while it had no effect -- for example recoloured the shipped {@code {display}&f:
+     * {message}}, which names no player. That edit is no longer one of the three legacy strings, so
+     * it applies after the upgrade and the channel's lines lose their sender.
+     * The format still applies, by design; the operator is told, once per channel, at load and on
+     * every reload, whenever a format that is in effect lacks a sender token or the message token.
      */
     @Nested
-    @DisplayName("A channel format in effect without a sender or message token is announced (gate-1 WR-01, UltiKits/UltiChat#16)")
+    @DisplayName("A channel format in effect without a sender or message token is announced (UltiKits/UltiChat#16)")
     class ChannelFormatTokenWarning {
 
         private PluginLogger logger;

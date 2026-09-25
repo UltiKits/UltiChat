@@ -294,8 +294,8 @@ class AntiSpamServiceTest {
      * repeat counted however long ago its earlier copies were sent. It is now wired: a retained copy
      * older than the window stops counting. A window of 0 -- the declared default -- means no time
      * limit, which is exactly the count-only detection of before. The tests that need time to pass
-     * replace the service's clock with a hand-set one (gate-1 IN-05: the earlier version slept 1.1 s
-     * against a 1-second window, and a JVM stall of over a second between the record and the control
+     * replace the service's clock with a hand-set one (the earlier version slept 1.1 s against a
+     * 1-second window, and a JVM stall of over a second between the record and the control
      * assertion would have failed it).
      */
     @Nested
@@ -752,8 +752,8 @@ class AntiSpamServiceTest {
 
     /**
      * UltiKits/UltiChat#15. Automatic muting was declared and never happened -- {@code mutePlayer}
-     * had no caller. The maintainer's ruling deletes the declaration, so a spam trip refuses exactly
-     * the offending message and nothing more, as it always did in practice.
+     * had no caller. The declaration is deleted, so a spam trip refuses exactly the offending
+     * message and nothing more, as it always did in practice.
      */
     @Nested
     @DisplayName("A spam trip refuses only that message (UltiKits/UltiChat#15)")

@@ -105,11 +105,11 @@ public class UltiChat extends UltiToolsPlugin {
     }
 
     /**
-     * Gate-1 WR-01 on UltiKits/UltiChat#16: channel formats now apply. A format an operator edited
-     * while it had no effect -- a recoloured copy of a shipped format that names no player, say --
-     * is not one of the legacy strings, so it now applies as written. For each channel whose format
-     * is in effect (channels enabled, {@code chat.format-enabled} true) and lacks a sender token or
-     * the message token, the operator is told once per load which channel and what to add.
+     * UltiKits/UltiChat#16: channel formats now apply. A format an operator edited while it had no
+     * effect -- a recoloured copy of a shipped format that names no player, say -- is not one of
+     * the legacy strings, so it now applies as written. For each channel whose format is in effect
+     * (channels enabled, {@code chat.format-enabled} true) and lacks a sender token or the message
+     * token, the operator is told once per load which channel and what to add.
      */
     private void warnAboutIncompleteChannelFormats() {
         ChannelConfig channels = getConfig(ChannelConfig.class);
