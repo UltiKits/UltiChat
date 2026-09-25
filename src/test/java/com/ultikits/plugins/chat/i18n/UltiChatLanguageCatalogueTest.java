@@ -77,6 +77,22 @@ class UltiChatLanguageCatalogueTest {
             //                 + "everything else to backup.reason.unknown",
             //         "backup.reason.manual", "backup.reason.auto", "backup.reason.death",
             //         "backup.reason.quit", "backup.reason.admin", "backup.reason.unknown")
+            new DynamicSite("src/main/java/com/ultikits/plugins/chat/UltiChat.java",
+                    "::getLocalizedText",
+                    "UltiChat#writeConfigTextInServerLanguage passes the jar catalogue's getLocalizedText "
+                            + "(ConfigTextDefaults#jarLanguage) to the materializeText method of AnnouncementConfig, "
+                            + "ChatConfig, ChannelConfig and AutoReplyConfig, which ask it for exactly these keys: the "
+                            + "announcement texts, the join/quit texts, the shipped channels' display names and the two "
+                            + "example auto-reply rules (maintainer decision 2026-09-25: config text written in the "
+                            + "server's language, from the module jar's own catalogue)",
+                    "config_announcement_chat_prefix", "config_announcement_chat_messages",
+                    "config_announcement_bossbar_messages", "config_announcement_title_messages",
+                    "config_join_message_format", "config_quit_message_format", "config_welcome_lines",
+                    "config_join_title_main", "config_first_join_message",
+                    "config_channel_global_display_name", "config_channel_local_display_name",
+                    "config_channel_staff_display_name",
+                    "config_autoreply_server_ip_keyword", "config_autoreply_server_ip_response",
+                    "config_autoreply_rules_info_keyword", "config_autoreply_rules_info_response")
     ));
 
     private static List<SourceFile> sources;
