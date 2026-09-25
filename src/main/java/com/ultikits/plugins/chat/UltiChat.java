@@ -130,10 +130,11 @@ public class UltiChat extends UltiToolsPlugin {
         if (window <= 0) {
             return;
         }
-        getLogger().warn(i18n("log_duplicate_window_applied")
-                .replace("{FILE}", operatorConfigFile("config/chat.yml").getPath())
-                .replace("{SECONDS}", String.valueOf(window))
-                .replace("{DEFAULT}", String.valueOf(ChatConfig.DEFAULT_DUPLICATE_WINDOW_SECONDS)));
+        // One pass: the server path is inserted as written, never re-read for {SECONDS}/{DEFAULT}.
+        getLogger().warn(fillOnce(i18n("log_duplicate_window_applied"),
+                "{FILE}", operatorConfigFile("config/chat.yml").getPath(),
+                "{SECONDS}", String.valueOf(window),
+                "{DEFAULT}", String.valueOf(ChatConfig.DEFAULT_DUPLICATE_WINDOW_SECONDS)));
     }
 
     /**

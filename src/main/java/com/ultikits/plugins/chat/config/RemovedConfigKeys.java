@@ -103,10 +103,12 @@ public final class RemovedConfigKeys {
             }
             for (Map.Entry<String, String> key : file.getValue().entrySet()) {
                 if (yaml.contains(key.getKey())) {
+                    // The server path last: it is inserted as written and never re-read for another
+                    // placeholder (the reason text and the key hold none).
                     warn.accept(plugin.i18n("removed_key_warning")
-                            .replace("{FILE}", configFile.getPath())
                             .replace("{REASON}", reasonFor(key.getKey(), plugin))
-                            .replace("{KEY}", key.getKey()));
+                            .replace("{KEY}", key.getKey())
+                            .replace("{FILE}", configFile.getPath()));
                 }
             }
         }
