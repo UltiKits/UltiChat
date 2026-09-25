@@ -449,7 +449,7 @@ class AutoReplyServiceTest {
         @Test
         @DisplayName("Adding a rule under an existing name also preserves its mode and case-sensitivity")
         void addingARuleUnderAnExistingNamePreservesModeAndCaseSensitivity() throws Exception {
-            // WR-01: addRule(name, keyword, response) itself always hardcodes
+            // addRule(name, keyword, response) itself always hardcodes
             // mode="contains"/case-sensitive=false, so a rule built purely through the
             // service's own 3-arg addRule never puts those two fields in a state where
             // overwriting them would be observable. Seed the rule directly with
@@ -468,11 +468,10 @@ class AutoReplyServiceTest {
         @Test
         @DisplayName("Adding a rule under a name that maps to null repairs it instead of refusing")
         void addingARuleUnderANullValuedNameRepairsIt() throws Exception {
-            // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
-            // leaves a name key mapped to null. findMatch already skips null rule maps
-            // and setKeyword already treats them as absent; addRule's containsKey guard
-            // did not, so it refused to repair an entry it could never have silently
-            // corrupted in the first place.
+            // Malformed YAML such as `broken:` leaves a name key mapped to null. findMatch already
+            // skips null rule maps and setKeyword already treats them as absent; addRule's
+            // containsKey guard did not, so it refused to repair an entry it could never have
+            // silently corrupted in the first place.
             config.getRules().put("broken", null);
 
             service.addRule("broken", "hi", "Repaired response");
@@ -496,12 +495,12 @@ class AutoReplyServiceTest {
         @Test
         @DisplayName("A refused add does not disturb the other existing rules")
         void aRefusedAddDoesNotDisturbTheOtherExistingRules() throws Exception {
-            // WR-02: this replaces a `containsExactly("first", "second")` order
-            // assertion that could never fail independently of the response assertion
-            // already in this test. Map.put(existingKey, newValue) never changes
-            // iteration order in HashMap or LinkedHashMap -- only inserting a *new* key
-            // does -- and a refused add and an unguarded overwrite both call put() on
-            // the same already-present key, so the order came out identical either way.
+            // This replaces a `containsExactly("first", "second")` order assertion that could
+            // never fail independently of the response assertion already in this test.
+            // Map.put(existingKey, newValue) never changes iteration order in HashMap or
+            // LinkedHashMap -- only inserting a *new* key does -- and a refused add and an
+            // unguarded overwrite both call put() on the same already-present key, so the order
+            // came out identical either way.
             // Backing this test's map with a LinkedHashMap to make order assertions
             // meaningful was tried and reverted: it silently changed
             // RegexModeTests.shouldCacheSeparatePatterns' outcome, because that
@@ -560,11 +559,10 @@ class AutoReplyServiceTest {
         @Test
         @DisplayName("Is a no-op, not a throw, when the named rule's value is null")
         void isANoOpWhenTheNamedRulesValueIsNull() throws Exception {
-            // Codex review on PR #12: a null-valued entry (e.g. malformed YAML `broken:`)
-            // makes containsKey(name) true but get(name) null, so calling put() on the
-            // retrieved value directly throws instead of behaving like the documented
-            // no-op/not-found case. findMatch already tolerates null rule maps by
-            // skipping them; setKeyword must do the same.
+            // A null-valued entry (e.g. malformed YAML `broken:`) makes containsKey(name) true
+            // but get(name) null, so calling put() on the retrieved value directly throws
+            // instead of behaving like the documented no-op/not-found case. findMatch already
+            // tolerates null rule maps by skipping them; setKeyword must do the same.
             config.getRules().put("broken", null);
 
             service.setKeyword("broken", "anything");

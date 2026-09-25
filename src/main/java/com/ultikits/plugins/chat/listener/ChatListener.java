@@ -96,7 +96,8 @@ public class ChatListener implements Listener {
         String spamReason = antiSpamService.checkSpam(player, message);
         if (spamReason != null) {
             event.setCancelled(true);
-            player.sendMessage(ChatColor.RED + spamReason);
+            // The refusal is the language file's text, which carries its own '&' colour code.
+            player.sendMessage(ChatColor.RED + ChatColor.translateAlternateColorCodes('&', spamReason));
             return true;
         }
         antiSpamService.recordMessage(player.getUniqueId(), message);

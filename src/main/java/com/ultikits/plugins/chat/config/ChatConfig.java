@@ -8,13 +8,42 @@ import com.ultikits.ultitools.annotations.config.NotEmpty;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 
+/**
+ * Main chat settings.
+ * <p>
+ * The join, quit, welcome, title and first-join texts are written in the server's language when the
+ * module starts and after {@code /ul reload} ({@link #materializeText}); see {@link ConfigTextDefaults}.
+ */
 @Getter
 @Setter
 @ConfigEntity("config/chat.yml")
 public class ChatConfig extends AbstractConfigEntity {
+
+    /** The join message every earlier version shipped. */
+    static final String SHIPPED_JOIN_MESSAGE_FORMAT = "&a[+] &e%player_name% &7joined the server";
+
+    /** The quit message every earlier version shipped. */
+    static final String SHIPPED_QUIT_MESSAGE_FORMAT = "&c[-] &e%player_name% &7left the server";
+
+    /** The welcome lines every earlier version shipped. */
+    static final List<String> SHIPPED_WELCOME_LINES = Collections.unmodifiableList(Arrays.asList(
+            "&7========================================",
+            "&6Welcome, &e%player_name%&6!",
+            "&7Online: &f%online_players%&7/&f%max_players%",
+            "&7========================================"));
+
+    /** The join title every earlier version shipped. */
+    static final String SHIPPED_TITLE_MAIN = "&6Welcome Back";
+
+    /** The first-join broadcast every earlier version shipped. */
+    static final String SHIPPED_FIRST_JOIN_MESSAGE = "&6Welcome new player &e%player_name%&6!";
 
     // Chat format
     @ConfigEntry(path = "chat.format-enabled", comment = "Enable chat formatting / 启用聊天格式化")
@@ -29,36 +58,31 @@ public class ChatConfig extends AbstractConfigEntity {
     private boolean joinMessageEnabled = true;
 
     @ConfigEntry(path = "join-quit.join-message-format", comment = "Join message format / 进入消息格式")
-    private String joinMessageFormat = "&a[+] &e%player_name% &7joined the server";
+    private String joinMessageFormat = SHIPPED_JOIN_MESSAGE_FORMAT;
 
     @ConfigEntry(path = "join-quit.quit-message-enabled", comment = "Enable custom quit message / 启用自定义离开消息")
     private boolean quitMessageEnabled = true;
 
     @ConfigEntry(path = "join-quit.quit-message-format", comment = "Quit message format / 离开消息格式")
-    private String quitMessageFormat = "&c[-] &e%player_name% &7left the server";
+    private String quitMessageFormat = SHIPPED_QUIT_MESSAGE_FORMAT;
 
     @ConfigEntry(path = "join-quit.welcome-enabled", comment = "Enable welcome message on join / 启用入服欢迎消息")
     private boolean welcomeEnabled = true;
 
     @ConfigEntry(path = "join-quit.welcome-lines", comment = "Welcome message lines / 欢迎消息内容")
-    private List<String> welcomeLines = Arrays.asList(
-            "&7========================================",
-            "&6Welcome, &e%player_name%&6!",
-            "&7Online: &f%online_players%&7/&f%max_players%",
-            "&7========================================"
-    );
+    private List<String> welcomeLines = new ArrayList<>(SHIPPED_WELCOME_LINES);
 
     @ConfigEntry(path = "join-quit.title.enabled", comment = "Show title on join / 显示进入标题")
     private boolean titleEnabled = true;
 
     @ConfigEntry(path = "join-quit.title.main", comment = "Title main text / 标题主文本")
-    private String titleMain = "&6Welcome Back";
+    private String titleMain = SHIPPED_TITLE_MAIN;
 
     @ConfigEntry(path = "join-quit.title.sub", comment = "Title subtitle / 标题副文本")
     private String titleSub = "&7%player_name%";
 
     @ConfigEntry(path = "join-quit.first-join-message", comment = "First join broadcast / 首次加入广播")
-    private String firstJoinMessage = "&6Welcome new player &e%player_name%&6!";
+    private String firstJoinMessage = SHIPPED_FIRST_JOIN_MESSAGE;
 
     // Mentions
     @ConfigEntry(path = "mentions.enabled", comment = "Enable @player mentions / 启用@提及")
@@ -104,5 +128,40 @@ public class ChatConfig extends AbstractConfigEntity {
 
     public ChatConfig() {
         super("config/chat.yml");
+    }
+
+    /**
+     * Replaces each join/quit text that is still built-in text with its text in the server's language
+     * (maintainer decision 2026-09-25, UltiKits/UltiChat#18). The welcome lines are compared whole.
+     *
+     * @param text the module jar's text for a catalogue key, in the language the framework loads
+     * @return whether any value changed, so the caller saves the file once
+     */
+    public boolean materializeText(Function<String, String> text) {
+        Map<String, Map<String, String>> jar = ConfigTextDefaults.jarCatalogues(ChatConfig.class);
+        String join = single(text, jar, "joinMessageFormat", joinMessageFormat,
+                "config_join_message_format", SHIPPED_JOIN_MESSAGE_FORMAT);
+        String quit = single(text, jar, "quitMessageFormat", quitMessageFormat,
+                "config_quit_message_format", SHIPPED_QUIT_MESSAGE_FORMAT);
+        List<String> welcome = ConfigTextDefaults.materializeLines(ChatConfig.class, "welcomeLines", welcomeLines,
+                ConfigTextDefaults.currentLines(text, "config_welcome_lines"),
+                ConfigTextDefaults.trackedLines(jar, "config_welcome_lines", SHIPPED_WELCOME_LINES));
+        String title = single(text, jar, "titleMain", titleMain, "config_join_title_main", SHIPPED_TITLE_MAIN);
+        String firstJoin = single(text, jar, "firstJoinMessage", firstJoinMessage,
+                "config_first_join_message", SHIPPED_FIRST_JOIN_MESSAGE);
+        boolean changed = join != joinMessageFormat || quit != quitMessageFormat || welcome != welcomeLines
+                || title != titleMain || firstJoin != firstJoinMessage;
+        joinMessageFormat = join;
+        quitMessageFormat = quit;
+        welcomeLines = welcome;
+        titleMain = title;
+        firstJoinMessage = firstJoin;
+        return changed;
+    }
+
+    private static String single(Function<String, String> text, Map<String, Map<String, String>> jar,
+                                 String field, String value, String key, String shipped) {
+        return ConfigTextDefaults.materialize(ChatConfig.class, field, value,
+                ConfigTextDefaults.currentText(text, "", key), ConfigTextDefaults.tracked(jar, "", key, shipped));
     }
 }

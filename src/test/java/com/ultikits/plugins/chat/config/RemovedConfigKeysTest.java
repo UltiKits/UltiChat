@@ -53,7 +53,62 @@ class RemovedConfigKeysTest {
     }
 
     private void check(final File dir) {
-        RemovedConfigKeys.warnAboutLeftovers(path -> new File(dir, path), warnings::add);
+        check(dir, "en");
+    }
+
+    /**
+     * Runs the check with a module whose language file is the real {@code language} catalogue. The
+     * check takes the module since its text moved to the language file (UltiKits/UltiChat#18); it is
+     * called by reflection, whichever signature this tree has, so this file compiles against both.
+     */
+    @SuppressWarnings("unchecked")
+    private void check(final File dir, String language) {
+        com.ultikits.ultitools.abstracts.UltiToolsPlugin plugin =
+                org.mockito.Mockito.mock(com.ultikits.ultitools.abstracts.UltiToolsPlugin.class);
+        org.mockito.Mockito.when(plugin.i18n(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer(language));
+        java.util.function.Function<String, File> fileFor = path -> new File(dir, path);
+        java.util.function.Consumer<String> warn = warnings::add;
+        try {
+            for (java.lang.reflect.Method m : RemovedConfigKeys.class.getMethods()) {
+                if (m.getName().equals("warnAboutLeftovers")) {
+                    if (m.getParameterCount() == 3) {
+                        m.invoke(null, fileFor, warn, plugin);
+                    } else {
+                        m.invoke(null, fileFor, warn);
+                    }
+                    return;
+                }
+            }
+            throw new AssertionError("no warnAboutLeftovers method");
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Test
+    @DisplayName("A server path that contains a placeholder is named as written, not expanded")
+    void pathIsNotReExpanded(@TempDir File parent) throws IOException {
+        File dir = new File(parent, "srv{REASON}{KEY}");
+        File file = write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);
+
+        check(dir);
+
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains(file.getPath()).contains("'anti-spam.mute-duration'");
+    }
+
+    @Test
+    @DisplayName("Under language: zh the warning is the Chinese catalogue text, naming the file and the key")
+    void warningFollowsTheLanguageSetting(@TempDir File dir) throws IOException {
+        File file = write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);
+        String expected = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "removed_key_warning").replace("{FILE}", file.getPath())
+                .replace("{REASON}", com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "removed_key_reason_mute_duration"))
+                .replace("{KEY}", "anti-spam.mute-duration");
+
+        check(dir, "zh");
+
+        assertThat(warnings).containsExactly(expected);
     }
 
     @Test

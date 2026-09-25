@@ -344,11 +344,8 @@ public class AutoReplyService {
     private void warnOperatorEditOverwritten() {
         UltiToolsPlugin plugin = config.getUltiToolsPlugin();
         File file = new File(plugin.getResourceFolderPath(), config.getConfigFilePath());
-        plugin.getLogger().warn("Configuration file " + file.getAbsolutePath()
-                + " was changed or removed on disk while the server was running, but an auto-reply"
-                + " command also changed this configuration in memory. The in-memory configuration"
-                + " was saved, so the changes made to the file while the server ran were"
-                + " overwritten.");
+        plugin.getLogger().warn(plugin.i18n("log_autoreply_file_overwritten")
+                .replace("{FILE}", file.getAbsolutePath()));
     }
 
     /**

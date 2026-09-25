@@ -24,7 +24,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -92,6 +94,8 @@ class UltiChatTest {
             UltiChat plugin = mock(UltiChat.class);
             logger = mock(PluginLogger.class);
             when(plugin.getLogger()).thenReturn(logger);
+            // The warnings come from the language file; the assertions quote its English text.
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
             when(plugin.operatorConfigFile(anyString()))
                     .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
             return plugin;
@@ -145,9 +149,9 @@ class UltiChatTest {
     /**
      * UltiKits/UltiChat#14. The duplicate window used to be ignored, so a repeat counted however far
      * apart its copies were sent. Wiring it makes an upgraded server's on-disk value (60, written by
-     * earlier versions) take effect, which makes detection more permissive than before; the ruling
-     * is that the value takes effect and the operator is told so, loudly, at load. The new declared
-     * default is 0 -- no time limit, exactly the old behaviour -- so any positive window is announced.
+     * earlier versions) take effect, which makes detection more permissive than before; by design the
+     * value takes effect and the operator is told so, loudly, at load. The new declared default is 0
+     * -- no time limit, exactly the old behaviour -- so any positive window is announced.
      */
     @Nested
     @DisplayName("Any positive duplicate window is announced at load (UltiKits/UltiChat#14)")
@@ -159,6 +163,8 @@ class UltiChatTest {
             UltiChat plugin = mock(UltiChat.class);
             logger = mock(PluginLogger.class);
             when(plugin.getLogger()).thenReturn(logger);
+            // The warnings come from the language file; the assertions quote its English text.
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
             when(plugin.operatorConfigFile(anyString()))
                     .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
             ChatConfig config = null;
@@ -196,6 +202,33 @@ class UltiChatTest {
                     .contains("no time limit")
                     .contains("/uchat reload")
                     .contains("UltiKits/UltiChat#14");
+        }
+
+        @Test
+        @DisplayName("Under language: zh the warning is the Chinese catalogue text")
+        void warningFollowsTheLanguageSetting(@TempDir File dir) {
+            UltiChat plugin = pluginWithWindow(dir, 60);
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh"));
+            String expected = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "log_duplicate_window_applied")
+                    .replace("{FILE}", new File(dir, "config/chat.yml").getPath())
+                    .replace("{SECONDS}", "60").replace("{DEFAULT}", "0");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).containsExactly(expected);
+        }
+
+        @Test
+        @DisplayName("A server path that contains a placeholder is named as written, not expanded")
+        void pathIsNotReExpanded(@TempDir File parent) {
+            File dir = new File(parent, "srv{SECONDS}{DEFAULT}");
+            UltiChat plugin = pluginWithWindow(dir, 60);
+            String path = new File(dir, "config/chat.yml").getPath();
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains(path).contains("to 60 seconds");
         }
 
         @Test
@@ -246,16 +279,15 @@ class UltiChatTest {
     }
 
     /**
-     * Gate-1 WR-01 on UltiKits/UltiChat#16. Channel formats now apply, and an operator may have
-     * edited one before this version while it had no effect -- for example recoloured the shipped
-     * {@code {display}&f: {message}}, which names no player. That edit is no longer one of the three
-     * legacy strings, so it applies after the upgrade and the channel's lines lose their sender.
-     * The format still applies (the maintainer's ruling); the operator is told, once per channel, at
-     * load and on every reload, whenever a format that is in effect lacks a sender token or the
-     * message token.
+     * UltiKits/UltiChat#16. Channel formats now apply, and an operator may have edited one before
+     * this version while it had no effect -- for example recoloured the shipped {@code {display}&f:
+     * {message}}, which names no player. That edit is no longer one of the three legacy strings, so
+     * it applies after the upgrade and the channel's lines lose their sender.
+     * The format still applies, by design; the operator is told, once per channel, at load and on
+     * every reload, whenever a format that is in effect lacks a sender token or the message token.
      */
     @Nested
-    @DisplayName("A channel format in effect without a sender or message token is announced (gate-1 WR-01, UltiKits/UltiChat#16)")
+    @DisplayName("A channel format in effect without a sender or message token is announced (UltiKits/UltiChat#16)")
     class ChannelFormatTokenWarning {
 
         private PluginLogger logger;
@@ -266,10 +298,19 @@ class UltiChatTest {
             UltiChat plugin = mock(UltiChat.class);
             logger = mock(PluginLogger.class);
             when(plugin.getLogger()).thenReturn(logger);
+            // The warnings come from the language file; the assertions quote its English text.
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
             when(plugin.operatorConfigFile(anyString()))
                     .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
             chat = new ChatConfig();
-            channels = new ChannelConfig();
+            // A spy whose save writes nothing: the start may save channels.yml (it removes a formerly
+            // shipped format from it, UltiKits/UltiChat#18), and this entity was never read from a file.
+            channels = spy(new ChannelConfig());
+            try {
+                doNothing().when(channels).save();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
             Map<String, Map<String, Object>> defs = new LinkedHashMap<String, Map<String, Object>>();
             for (int i = 0; i < nameThenFormat.length; i += 2) {
                 Map<String, Object> def = new HashMap<String, Object>();
@@ -291,6 +332,38 @@ class UltiChatTest {
             ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
             verify(logger, atLeast(0)).warn(captor.capture());
             return captor.getAllValues();
+        }
+
+        @Test
+        @DisplayName("A channel ID that looks like a placeholder is named as written, not expanded")
+        void channelIdIsNotReExpanded(@TempDir File dir) {
+            UltiChat plugin = pluginWithChannelFormats(dir, "a{FORMAT}b", "{display}&e: {message}");
+            String template = com.ultikits.plugins.chat.i18n.CatalogueText.text("en", "log_channel_format_missing_sender");
+            String expected = template.substring(0, template.indexOf("{FILE}"))
+                    + new File(dir, "config/channels.yml").getPath()
+                    + template.substring(template.indexOf("{FILE}") + 6, template.indexOf("{CHANNEL}"))
+                    + "a{FORMAT}b"
+                    + template.substring(template.indexOf("{CHANNEL}") + 9, template.indexOf("{FORMAT}"))
+                    + "{display}&e: {message}"
+                    + template.substring(template.indexOf("{FORMAT}") + 8);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).containsExactly(expected);
+        }
+
+        @Test
+        @DisplayName("Under language: zh the channel-format warning is the Chinese catalogue text")
+        void channelFormatWarningFollowsTheLanguageSetting(@TempDir File dir) {
+            UltiChat plugin = pluginWithChannelFormats(dir, "global", "{display}&e: {message}");
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh"));
+            String expected = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "log_channel_format_missing_sender")
+                    .replace("{FILE}", new File(dir, "config/channels.yml").getPath())
+                    .replace("{CHANNEL}", "global").replace("{FORMAT}", "{display}&e: {message}");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).containsExactly(expected);
         }
 
         @Test

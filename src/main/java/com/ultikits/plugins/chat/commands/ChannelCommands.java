@@ -24,7 +24,7 @@ import java.util.Map;
  * @version 1.0.0
  */
 @CmdTarget(CmdTarget.CmdTargetType.BOTH)
-@CmdExecutor(permission = "ultichat.channel", description = "Channel commands", alias = {"ch", "channel"})
+@CmdExecutor(permission = "ultichat.channel", description = "command_description_channel", alias = {"ch", "channel"})
 @ConditionalOnConfig(value = "config/channels.yml", path = "channels.enabled")
 public class ChannelCommands extends BaseCommandExecutor {
 
@@ -43,7 +43,7 @@ public class ChannelCommands extends BaseCommandExecutor {
     @CmdMapping(format = "list")
     public void onList(@CmdSender CommandSender sender) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage(ChatColor.RED + "This command can only be used by players.");
+            sender.sendMessage(ChatColor.RED + plugin.i18n("player_only"));
             return;
         }
         Player player = (Player) sender;
@@ -88,7 +88,7 @@ public class ChannelCommands extends BaseCommandExecutor {
         }
 
         if (!(sender instanceof Player)) {
-            sender.sendMessage(ChatColor.RED + "This command can only be used by players.");
+            sender.sendMessage(ChatColor.RED + plugin.i18n("player_only"));
             return;
         }
         Player player = (Player) sender;
@@ -116,9 +116,9 @@ public class ChannelCommands extends BaseCommandExecutor {
 
     @Override
     protected void handleHelp(CommandSender sender) {
-        sender.sendMessage(ChatColor.GOLD + "=== Channel Commands ===");
-        sender.sendMessage(ChatColor.AQUA + "/ch list" + ChatColor.WHITE + " - List available channels");
-        sender.sendMessage(ChatColor.AQUA + "/ch <name>" + ChatColor.WHITE + " - Switch to a channel");
+        sender.sendMessage(ChatColor.GOLD + plugin.i18n("help_channel_header"));
+        sender.sendMessage(ChatColor.AQUA + "/ch list" + ChatColor.WHITE + " - " + plugin.i18n("help_channel_list"));
+        sender.sendMessage(ChatColor.AQUA + "/ch <name>" + ChatColor.WHITE + " - " + plugin.i18n("help_channel_switch"));
     }
 
     @SuppressWarnings("unused")
