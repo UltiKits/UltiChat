@@ -463,6 +463,10 @@ class ChatConfigTextTest {
         values.put("channels.channels.trade.cross-world", false);
         values.put("channels.channels.trade.format", "{display} {player}: {message}");
         values.put("channels.channels.trade.unknown", "anything");
+        // An operator's own channel whose name happens to be a shipped channel's built-in text: the
+        // display name is recognised per shipped channel id, so this one is never rewritten.
+        values.put("channels.channels.global2.display-name", "&f[Global]");
+        values.put("channels.channels.global2.permission", "");
         values.put("autoreply.rules.discord.keyword", "discord");
         values.put("autoreply.rules.discord.response", Arrays.asList("&bJoin us:", "&fexample.invalid"));
         values.put("autoreply.rules.discord.mode", "regex");
@@ -488,8 +492,12 @@ class ChatConfigTextTest {
             assertThat(channelsAfter.get(key)).as(key).isEqualTo(channelsBefore.get(key));
         }
         assertThat(channelsAfter.getString("channels.channels.trade.display-name")).isEqualTo("&6[Trade]");
+        assertThat(channelsAfter.getString("channels.channels.global2.display-name")).as("operator channel, not a shipped id")
+                .isEqualTo("&f[Global]");
+        assertThat(channelsAfter.getString("channels.channels.global.display-name")).as("shipped id, control")
+                .isEqualTo(setting("channels.channels.global.display-name").text("zh"));
         assertThat(channelsAfter.getConfigurationSection("channels.channels").getKeys(false))
-                .containsExactly("global", "local", "staff", "trade");
+                .containsExactly("global", "local", "staff", "trade", "global2");
         YamlConfiguration rulesAfter = yaml(AUTOREPLY);
         for (String key : rulesBefore.getKeys(true)) {
             if (rulesBefore.isConfigurationSection(key) || key.endsWith("server-ip.keyword") || key.endsWith("server-ip.response")
