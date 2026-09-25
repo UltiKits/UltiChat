@@ -76,13 +76,41 @@ public class UltiChat extends UltiToolsPlugin {
             String line = !sender && !text ? i18n("log_channel_format_missing_both")
                     : !sender ? i18n("log_channel_format_missing_sender")
                     : i18n("log_channel_format_missing_message");
-            // The format is the operator's own text, so it is filled in last: whatever it contains
-            // is shown as written.
-            getLogger().warn(line
-                    .replace("{FILE}", operatorConfigFile("config/channels.yml").getPath())
-                    .replace("{CHANNEL}", channel.getKey())
-                    .replace("{FORMAT}", format));
+            // The channel ID and the format are the operator's own text, so the three placeholders
+            // are filled in one pass: a value that happens to contain a placeholder is shown as
+            // written, never expanded by a later substitution.
+            getLogger().warn(fillOnce(line,
+                    "{FILE}", operatorConfigFile("config/channels.yml").getPath(),
+                    "{CHANNEL}", channel.getKey(),
+                    "{FORMAT}", format));
         }
+    }
+
+    /**
+     * {@code template} with each placeholder replaced by its value in a single left-to-right pass, so
+     * text inserted for one placeholder is never scanned for another.
+     *
+     * @param template          the language file's text
+     * @param placeholdersValues placeholder, value, placeholder, value, ...
+     * @return the filled text
+     */
+    static String fillOnce(String template, String... placeholdersValues) {
+        StringBuilder out = new StringBuilder(template.length());
+        int i = 0;
+        outer:
+        while (i < template.length()) {
+            for (int p = 0; p + 1 < placeholdersValues.length; p += 2) {
+                String placeholder = placeholdersValues[p];
+                if (template.startsWith(placeholder, i)) {
+                    out.append(placeholdersValues[p + 1]);
+                    i += placeholder.length();
+                    continue outer;
+                }
+            }
+            out.append(template.charAt(i));
+            i++;
+        }
+        return out.toString();
     }
 
     /**
