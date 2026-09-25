@@ -217,6 +217,19 @@ class UltiChatTest {
         }
 
         @Test
+        @DisplayName("A server path that contains a placeholder is named as written, not expanded (Codex P3)")
+        void pathIsNotReExpanded(@TempDir File parent) {
+            File dir = new File(parent, "srv{SECONDS}{DEFAULT}");
+            UltiChat plugin = pluginWithWindow(dir, 60);
+            String path = new File(dir, "config/chat.yml").getPath();
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains(path).contains("to 60 seconds");
+        }
+
+        @Test
         @DisplayName("POSITIVE CONTROL: the same warning on reload")
         void sixtyOnReloadWarns(@TempDir File dir) {
             UltiChat plugin = pluginWithWindow(dir, 60);

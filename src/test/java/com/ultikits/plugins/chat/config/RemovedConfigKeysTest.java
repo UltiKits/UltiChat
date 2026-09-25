@@ -87,6 +87,18 @@ class RemovedConfigKeysTest {
     }
 
     @Test
+    @DisplayName("A server path that contains a placeholder is named as written, not expanded (Codex P3)")
+    void pathIsNotReExpanded(@TempDir File parent) throws IOException {
+        File dir = new File(parent, "srv{REASON}{KEY}");
+        File file = write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);
+
+        check(dir);
+
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains(file.getPath()).contains("'anti-spam.mute-duration'");
+    }
+
+    @Test
     @DisplayName("Under language: zh the warning is the Chinese catalogue text, naming the file and the key")
     void warningFollowsTheLanguageSetting(@TempDir File dir) throws IOException {
         File file = write(dir, "config/chat.yml", CHAT_WITH_MUTE_DURATION);
