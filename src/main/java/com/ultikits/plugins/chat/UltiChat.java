@@ -43,7 +43,7 @@ public class UltiChat extends UltiToolsPlugin {
      * version now honours for the first time in a way that loosens detection.
      */
     private void warnAboutConfiguration() {
-        RemovedConfigKeys.warnAboutLeftovers(this::operatorConfigFile, getLogger()::warn);
+        RemovedConfigKeys.warnAboutLeftovers(this::operatorConfigFile, getLogger()::warn, this);
         warnIfDuplicateWindowShortened();
         warnAboutIncompleteChannelFormats();
     }
@@ -73,15 +73,15 @@ public class UltiChat extends UltiToolsPlugin {
             if (sender && text) {
                 continue;
             }
-            String missing = !sender && !text ? "no sender name and no message text"
-                    : !sender ? "no sender name" : "no message text";
-            String add = !sender && !text ? "add {player} or {displayname}, and add {message}"
-                    : !sender ? "add {player} or {displayname}" : "add {message}";
-            getLogger().warn("UltiChat: " + operatorConfigFile("config/channels.yml").getPath()
-                    + " gives channel '" + channel.getKey() + "' the format \"" + format + "\", "
-                    + "which this version applies, so that channel's chat lines show " + missing
-                    + ". To fix it, " + add + " to the format, or remove the format to use the "
-                    + "global chat format (UltiKits/UltiChat#16).");
+            String line = !sender && !text ? i18n("log_channel_format_missing_both")
+                    : !sender ? i18n("log_channel_format_missing_sender")
+                    : i18n("log_channel_format_missing_message");
+            // The format is the operator's own text, so it is filled in last: whatever it contains
+            // is shown as written.
+            getLogger().warn(line
+                    .replace("{FILE}", operatorConfigFile("config/channels.yml").getPath())
+                    .replace("{CHANNEL}", channel.getKey())
+                    .replace("{FORMAT}", format));
         }
     }
 
@@ -102,14 +102,10 @@ public class UltiChat extends UltiToolsPlugin {
         if (window <= 0) {
             return;
         }
-        getLogger().warn("UltiChat: " + operatorConfigFile("config/chat.yml").getPath()
-                + " sets 'anti-spam.duplicate-window' to " + window + " seconds, and this version "
-                + "applies it: a repeated message now counts as a duplicate only while its earlier "
-                + "copies are at most " + window + " seconds old. Before this version the setting "
-                + "was ignored and repeats counted however far apart they were sent, so duplicate "
-                + "detection is now more permissive than before the upgrade. To restore the previous "
-                + "behaviour exactly, set it to " + ChatConfig.DEFAULT_DUPLICATE_WINDOW_SECONDS
-                + " (no time limit, the new default) and run /uchat reload (UltiKits/UltiChat#14).");
+        getLogger().warn(i18n("log_duplicate_window_applied")
+                .replace("{FILE}", operatorConfigFile("config/chat.yml").getPath())
+                .replace("{SECONDS}", String.valueOf(window))
+                .replace("{DEFAULT}", String.valueOf(ChatConfig.DEFAULT_DUPLICATE_WINDOW_SECONDS)));
     }
 
     /**

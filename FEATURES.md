@@ -110,7 +110,8 @@ deliberately not separate rows here).
 ## Administration
 
 `ChatAdminCommands` — class-level `@CmdExecutor(permission = "ultichat.admin", description =
-"UltiChat admin commands", alias = {"uchat"})`, `@CmdTarget(BOTH)`. This section covers the one
+"command_description_admin", alias = {"uchat"})` (a language-file key: `UltiChat admin commands` under
+`language: en`), `@CmdTarget(BOTH)`. This section covers the one
 `@CmdMapping` site (`reload`) that is not part of the Auto-Reply sub-namespace; the other four
 sites on this same class are catalogued under `## Auto-Reply` below, all sourced to this same
 class.
@@ -146,7 +147,8 @@ cooldown, multi-line responses, and console command execution on trigger.
 ## Channels
 
 `ChannelCommands` — class-level `@CmdExecutor(permission = "ultichat.channel", description =
-"Channel commands", alias = {"ch", "channel"})`, `@CmdTarget(BOTH)`, gated by
+"command_description_channel", alias = {"ch", "channel"})` (a language-file key: `Channel commands`
+under `language: en`), `@CmdTarget(BOTH)`, gated by
 `@ConditionalOnConfig(value = "config/channels.yml", path = "channels.enabled")`. Both mapped
 methods carry `@CmdTarget(BOTH)` at the class level but each manually refuses a non-player sender
 with a red "players only" chat message before doing any work — the class's own code comment

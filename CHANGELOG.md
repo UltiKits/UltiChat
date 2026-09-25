@@ -46,6 +46,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+- The language-file entries `spam_muted` and `no_permission` from `lang/en.json` and
+  `lang/zh.json`: no code ever displayed them. Players are never muted automatically (automatic
+  muting is requested as a feature in UltiKits/UltiChat#30), and a permission refusal comes from
+  UltiTools' own translated message.
+- 从 `lang/en.json` 与 `lang/zh.json` 中移除语言文件条目 `spam_muted` 与 `no_permission`：从未有任何代码显示它们。
+  玩家从不会被自动禁言（自动禁言已作为功能请求记录在 UltiKits/UltiChat#30），权限拒绝消息来自 UltiTools 自身已翻译的消息。
+
 - Removed the automatic-mute setting `anti-spam.mute-duration` from `config/chat.yml`. Automatic
   muting was documented but never happened: the code that would have muted a player was never
   called, so no player was ever muted, whatever the setting said. Anti-spam behaves exactly as
@@ -62,6 +69,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   （UltiKits/UltiChat#15）。
 
 ### Fixed
+
+- The anti-spam refusals now follow the `language` setting. The cooldown, duplicate and
+  too-many-capitals refusals were fixed Chinese text in every language although the language files
+  already carried them; they now come from `spam_cooldown`, `spam_duplicate` and `spam_caps`
+  (`Please wait before sending another message.`, `Stop sending duplicate messages!`,
+  `Please reduce the amount of uppercase letters.` under `language: en`), shown in red. Under
+  `language: zh` the wording is the language file's, which differs slightly from the old fixed text
+  (UltiKits/UltiChat#18).
+- `language: zh` now applies to what was fixed English text: the `/ch` and `/uchat` help, the
+  players-only refusal of `/ch` from the console, the two commands' descriptions (shown by `/help`),
+  and the console lines about a channel format missing a sender or message token, an applied
+  `anti-spam.duplicate-window`, a key this version no longer reads, a failed `config/autoreply.yml`
+  save and an overwritten `config/autoreply.yml`. Their English wording is unchanged.
+- 反垃圾消息的拒绝提示现在跟随 `language` 设置。冷却、重复与大写字母过多三种拒绝提示原先在任何语言下都是写死的中文，
+  而语言文件里其实已有它们；现在分别来自 `spam_cooldown`、`spam_duplicate` 与 `spam_caps`（`language: en` 下为
+  `Please wait before sending another message.`、`Stop sending duplicate messages!`、
+  `Please reduce the amount of uppercase letters.`），以红色显示。`language: zh` 下的措辞取自语言文件，与原先写死的文本
+  略有不同（UltiKits/UltiChat#18）。
+- `language: zh` 现在也对原先写死为英文的内容生效：`/ch` 与 `/uchat` 的帮助、从控制台执行 `/ch` 时的「仅限玩家」提示、
+  两个命令的描述（由 `/help` 显示），以及关于频道格式缺少发送者或消息占位符、已应用的 `anti-spam.duplicate-window`、
+  本版本不再读取的配置键、`config/autoreply.yml` 保存失败与被覆盖的控制台日志。它们的英文措辞不变。
 
 - The announcement interval settings `announcements.chat.interval`, `announcements.bossbar.interval`
   and `announcements.title.interval` in `config/announcements.yml` now take effect. They were
