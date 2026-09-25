@@ -92,6 +92,8 @@ class UltiChatTest {
             UltiChat plugin = mock(UltiChat.class);
             logger = mock(PluginLogger.class);
             when(plugin.getLogger()).thenReturn(logger);
+            // The warnings come from the language file; the assertions quote its English text.
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
             when(plugin.operatorConfigFile(anyString()))
                     .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
             return plugin;
@@ -159,6 +161,8 @@ class UltiChatTest {
             UltiChat plugin = mock(UltiChat.class);
             logger = mock(PluginLogger.class);
             when(plugin.getLogger()).thenReturn(logger);
+            // The warnings come from the language file; the assertions quote its English text.
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
             when(plugin.operatorConfigFile(anyString()))
                     .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
             ChatConfig config = null;
@@ -196,6 +200,20 @@ class UltiChatTest {
                     .contains("no time limit")
                     .contains("/uchat reload")
                     .contains("UltiKits/UltiChat#14");
+        }
+
+        @Test
+        @DisplayName("Under language: zh the warning is the Chinese catalogue text")
+        void warningFollowsTheLanguageSetting(@TempDir File dir) {
+            UltiChat plugin = pluginWithWindow(dir, 60);
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh"));
+            String expected = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "log_duplicate_window_applied")
+                    .replace("{FILE}", new File(dir, "config/chat.yml").getPath())
+                    .replace("{SECONDS}", "60").replace("{DEFAULT}", "0");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).containsExactly(expected);
         }
 
         @Test
@@ -266,6 +284,8 @@ class UltiChatTest {
             UltiChat plugin = mock(UltiChat.class);
             logger = mock(PluginLogger.class);
             when(plugin.getLogger()).thenReturn(logger);
+            // The warnings come from the language file; the assertions quote its English text.
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
             when(plugin.operatorConfigFile(anyString()))
                     .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
             chat = new ChatConfig();
@@ -291,6 +311,20 @@ class UltiChatTest {
             ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
             verify(logger, atLeast(0)).warn(captor.capture());
             return captor.getAllValues();
+        }
+
+        @Test
+        @DisplayName("Under language: zh the channel-format warning is the Chinese catalogue text")
+        void channelFormatWarningFollowsTheLanguageSetting(@TempDir File dir) {
+            UltiChat plugin = pluginWithChannelFormats(dir, "global", "{display}&e: {message}");
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh"));
+            String expected = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "log_channel_format_missing_sender")
+                    .replace("{FILE}", new File(dir, "config/channels.yml").getPath())
+                    .replace("{CHANNEL}", "global").replace("{FORMAT}", "{display}&e: {message}");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).containsExactly(expected);
         }
 
         @Test

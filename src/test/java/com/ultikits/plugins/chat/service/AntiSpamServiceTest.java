@@ -36,6 +36,41 @@ class AntiSpamServiceTest {
 
         service = new AntiSpamService();
         ChatTestHelper.setField(service, "config", config);
+        // The refusals come from the language file (UltiKits/UltiChat#18): the module answers from
+        // the real zh catalogue. A tree whose service has no plugin field yet is left as it is, so the
+        // same tests run before and after the change.
+        plugin = org.mockito.Mockito.mock(com.ultikits.ultitools.abstracts.UltiToolsPlugin.class);
+        org.mockito.Mockito.when(plugin.i18n(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh"));
+        try {
+            ChatTestHelper.setField(service, "plugin", plugin);
+        } catch (NoSuchFieldException absent) {
+            // the service does not read the language file yet
+        }
+    }
+
+    /** The refusal texts under language: zh, as the language file gives them. */
+    private static final String ZH_COOLDOWN = catalogueOrMissing("spam_cooldown");
+    private static final String ZH_DUPLICATE = catalogueOrMissing("spam_duplicate");
+    private static final String ZH_CAPS = catalogueOrMissing("spam_caps");
+
+    private static String catalogueOrMissing(String key) {
+        String text = com.ultikits.plugins.chat.i18n.CatalogueText.entries("zh").get(key);
+        return text == null ? "<lang/zh has no " + key + ">" : text;
+    }
+
+    private com.ultikits.ultitools.abstracts.UltiToolsPlugin plugin;
+
+    @Test
+    @DisplayName("Under language: en each refusal is the English catalogue text (UltiKits/UltiChat#18)")
+    void refusalsFollowTheLanguageSetting() throws Exception {
+        org.mockito.Mockito.when(plugin.i18n(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+        Player player = createPlayer();
+        service.recordMessage(player.getUniqueId(), "hello");
+
+        assertThat(service.checkSpam(player, "hello again"))
+                .isEqualTo(com.ultikits.plugins.chat.i18n.CatalogueText.text("en", "spam_cooldown"));
     }
 
     @AfterEach
@@ -116,7 +151,7 @@ class AntiSpamServiceTest {
             lastMessageTime.put(playerId, System.currentTimeMillis());
 
             String reason = service.checkSpam(player, "too fast");
-            assertThat(reason).isEqualTo("发送消息太快了！");
+            assertThat(reason).isEqualTo(ZH_COOLDOWN);
         }
 
         @Test
@@ -186,7 +221,7 @@ class AntiSpamServiceTest {
             config.setAntiSpamCooldown(0);
 
             String reason = service.checkSpam(player, "spam");
-            assertThat(reason).isEqualTo("请不要发送重复消息！");
+            assertThat(reason).isEqualTo(ZH_DUPLICATE);
         }
 
         @Test
@@ -279,7 +314,7 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
 
-            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+            assertThat(service.checkSpam(player, "spam")).isEqualTo(ZH_DUPLICATE);
         }
 
         /** Replaces the service's clock with a hand-set one; returns the cell that holds "now". */
@@ -311,13 +346,13 @@ class AntiSpamServiceTest {
             // threshold of 2 the same repeat is refused. Without this the null above could also
             // mean "duplicate detection stopped working".
             config.setAntiSpamMaxDuplicate(2);
-            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+            assertThat(service.checkSpam(player, "spam")).isEqualTo(ZH_DUPLICATE);
 
             // Window 0, the declared default: no time limit, exactly the count-only rule of before --
             // the same history, with its copy older than a second, trips the threshold of 3 again.
             config.setAntiSpamMaxDuplicate(3);
             config.setAntiSpamDuplicateWindow(0);
-            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+            assertThat(service.checkSpam(player, "spam")).isEqualTo(ZH_DUPLICATE);
         }
 
         @Test
@@ -334,7 +369,7 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "spam");
 
             now[0] += 2000L;
-            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+            assertThat(service.checkSpam(player, "spam")).isEqualTo(ZH_DUPLICATE);
             now[0] += 1L;
             assertThat(service.checkSpam(player, "spam")).isNull();
         }
@@ -357,7 +392,7 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
             // Retained: spam, spam, spam.
-            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+            assertThat(service.checkSpam(player, "spam")).isEqualTo(ZH_DUPLICATE);
         }
     }
 
@@ -375,7 +410,7 @@ class AntiSpamServiceTest {
             // 70% limit, 100% caps in a 10-char message
             Player player = createPlayer();
             String reason = service.checkSpam(player, "HELLOWORLD");
-            assertThat(reason).isEqualTo("消息中大写字母过多！");
+            assertThat(reason).isEqualTo(ZH_CAPS);
         }
 
         @Test
@@ -655,7 +690,7 @@ class AntiSpamServiceTest {
             service.recordMessage(player.getUniqueId(), "hello");
 
             // Immediate second message should trigger cooldown
-            assertThat(service.checkSpam(player, "world")).isEqualTo("发送消息太快了！");
+            assertThat(service.checkSpam(player, "world")).isEqualTo(ZH_COOLDOWN);
         }
 
         @Test
@@ -672,7 +707,7 @@ class AntiSpamServiceTest {
 
             // 4th "spam" should be detected as duplicate
             String reason = service.checkSpam(player, "spam");
-            assertThat(reason).isEqualTo("请不要发送重复消息！");
+            assertThat(reason).isEqualTo(ZH_DUPLICATE);
         }
 
         @Test
@@ -687,11 +722,11 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "SPAMSPAM");
             service.recordMessage(playerId, "SPAMSPAM");
 
-            assertThat(service.checkSpam(player, "SPAMSPAM")).isEqualTo("发送消息太快了！");
+            assertThat(service.checkSpam(player, "SPAMSPAM")).isEqualTo(ZH_COOLDOWN);
 
             // Cooldown off: duplicate is reported before caps.
             config.setAntiSpamCooldown(0);
-            assertThat(service.checkSpam(player, "SPAMSPAM")).isEqualTo("请不要发送重复消息！");
+            assertThat(service.checkSpam(player, "SPAMSPAM")).isEqualTo(ZH_DUPLICATE);
         }
 
         @Test
@@ -734,7 +769,7 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
-            assertThat(service.checkSpam(player, "spam")).isEqualTo("请不要发送重复消息！");
+            assertThat(service.checkSpam(player, "spam")).isEqualTo(ZH_DUPLICATE);
 
             assertThat(service.checkSpam(player, "something else")).isNull();
         }
@@ -745,7 +780,7 @@ class AntiSpamServiceTest {
             Player player = createPlayer();
             config.setAntiSpamCooldown(0);
 
-            assertThat(service.checkSpam(player, "HELLOWORLD")).isEqualTo("消息中大写字母过多！");
+            assertThat(service.checkSpam(player, "HELLOWORLD")).isEqualTo(ZH_CAPS);
 
             assertThat(service.checkSpam(player, "hello world")).isNull();
         }

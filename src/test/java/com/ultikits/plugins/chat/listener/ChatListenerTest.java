@@ -109,6 +109,21 @@ class ChatListenerTest {
         }
 
         @Test
+        @DisplayName("The refusal's own '&' colour code is shown as colour, not as two characters (UltiKits/UltiChat#18)")
+        void refusalColourCodeIsTranslated() {
+            chatConfig.setAntiSpamEnabled(true);
+            when(antiSpamService.checkSpam(player, "fast")).thenReturn("&cPlease wait before sending another message.");
+
+            AsyncPlayerChatEvent event = createChatEvent("fast");
+            listener.onChat(event);
+
+            ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+            verify(player).sendMessage(captor.capture());
+            assertThat(captor.getValue()).endsWith("\u00a7cPlease wait before sending another message.")
+                    .doesNotContain("&c");
+        }
+
+        @Test
         @DisplayName("Should record message when not spam")
         void shouldRecordMessageWhenNotSpam() {
             chatConfig.setAntiSpamEnabled(true);

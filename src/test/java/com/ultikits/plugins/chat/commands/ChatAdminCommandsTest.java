@@ -331,6 +331,9 @@ class ChatAdminCommandsTest {
         void stubFailureMessageAndLogger() {
             logger = mock(PluginLogger.class);
             when(mockPlugin.i18n("autoreply_save_failed")).thenReturn("Rule '{0}' was NOT saved.");
+            // The console line comes from the language file; the assertions quote its English text.
+            when(mockPlugin.i18n("log_autoreply_save_failed"))
+                    .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
             when(mockPlugin.getLogger()).thenReturn(logger);
         }
 

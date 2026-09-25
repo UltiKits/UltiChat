@@ -258,6 +258,8 @@ class AutoReplyPersistenceTest {
     void savingOverAnOperatorEditIsNotSilent() throws Exception {
         PluginLogger logger = mock(PluginLogger.class);
         doReturn(logger).when(plugin).getLogger();
+        // The warning comes from the language file; the assertions quote its English text.
+        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
         editTheFileBehindTheFrameworksBack();
 
         service.addRule("greeting", "hi", "Hello there!");
@@ -272,10 +274,30 @@ class AutoReplyPersistenceTest {
     }
 
     @Test
+    @DisplayName("Under language: zh the overwrite warning is the Chinese catalogue text")
+    void overwriteWarningFollowsTheLanguageSetting() throws Exception {
+        PluginLogger logger = mock(PluginLogger.class);
+        doReturn(logger).when(plugin).getLogger();
+        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh")).when(plugin).i18n(anyString());
+        String template = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "log_autoreply_file_overwritten");
+        editTheFileBehindTheFrameworksBack();
+
+        service.addRule("greeting", "hi", "Hello there!");
+
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(logger).warn(captor.capture());
+        String prefix = template.substring(0, template.indexOf("{FILE}"));
+        String suffix = template.substring(template.indexOf("{FILE}") + "{FILE}".length());
+        assertThat(captor.getValue()).startsWith(prefix).endsWith(suffix).contains("autoreply.yml");
+    }
+
+    @Test
     @DisplayName("Saving over an untouched file logs nothing -- and the same logger does see a warning once the file is touched")
     void savingOverAnUntouchedFileIsQuiet() throws Exception {
         PluginLogger logger = mock(PluginLogger.class);
         doReturn(logger).when(plugin).getLogger();
+        // The warning comes from the language file; the assertions quote its English text.
+        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
 
         service.addRule("greeting", "hi", "Hello there!");
 
