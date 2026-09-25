@@ -580,12 +580,13 @@ class ChatListenerTest {
      * UltiKits/UltiChat#16. A channel's {@code format:} was declared and never applied. It is now
      * wired, with the maintainer's rule for upgraded servers: a format byte-for-byte equal to one of
      * the three strings earlier versions shipped (and wrote into every server's {@code channels.yml})
-     * counts as unset, so those servers keep today's line; any other format applies, with
-     * {@code {display}} standing for the channel's display name.
+     * is removed from the file when the module starts, so those servers keep today's line
+     * (UltiKits/UltiChat#18, pinned in {@code ChatConfigTextTest}); any format still in the file
+     * applies, with {@code {display}} standing for the channel's display name.
      * <p>
-     * These tests use a real {@link ChannelService} and {@link ChannelConfig}, so the legacy
-     * recognition and the substitution are exercised together with the listener. Every sender is in
-     * {@code global}, whose shipped display name is {@code &f[Global]}.
+     * These tests use a real {@link ChannelService} and {@link ChannelConfig}, so the substitution is
+     * exercised together with the listener. Every sender is in {@code global}, whose shipped display
+     * name is {@code &f[Global]}.
      */
     @Nested
     @DisplayName("Per-channel format (UltiKits/UltiChat#16)")
@@ -637,11 +638,10 @@ class ChatListenerTest {
         }
 
         @Test
-        @DisplayName("Each of the three formats earlier versions shipped counts as unset")
-        void legacyShippedFormatsAreUnset() {
-            assertThat(lineWithGlobalFormat("{display}&f: {message}")).isEqualTo(TODAYS_GLOBAL_LINE);
-            assertThat(lineWithGlobalFormat("{display}&7: {message}")).isEqualTo(TODAYS_GLOBAL_LINE);
-            assertThat(lineWithGlobalFormat("&c[Staff] &f{player}&7: {message}")).isEqualTo(TODAYS_GLOBAL_LINE);
+        @DisplayName("A format still in the configuration applies as written, a formerly shipped one included (the start removes those from the file)")
+        void formatInTheConfigurationApplies() {
+            assertThat(lineWithGlobalFormat("{display}&f: {message}")).isEqualTo("§f[Global]§f: %2$s");
+            assertThat(lineWithGlobalFormat("&c[Staff] &f{player}&7: {message}")).isEqualTo("§c[Staff] §f%1$s§7: %2$s");
         }
 
         @Test

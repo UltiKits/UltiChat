@@ -24,7 +24,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -302,7 +304,14 @@ class UltiChatTest {
             when(plugin.operatorConfigFile(anyString()))
                     .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
             chat = new ChatConfig();
-            channels = new ChannelConfig();
+            // A spy whose save writes nothing: the start may save channels.yml (it removes a formerly
+            // shipped format from it, UltiKits/UltiChat#18), and this entity was never read from a file.
+            channels = spy(new ChannelConfig());
+            try {
+                doNothing().when(channels).save();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
             Map<String, Map<String, Object>> defs = new LinkedHashMap<String, Map<String, Object>>();
             for (int i = 0; i < nameThenFormat.length; i += 2) {
                 Map<String, Object> def = new HashMap<String, Object>();
