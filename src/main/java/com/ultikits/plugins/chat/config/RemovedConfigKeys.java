@@ -32,7 +32,9 @@ public final class RemovedConfigKeys {
     /**
      * Configuration file (relative to this module's configuration folder) to the keys removed from
      * it, each mapped to the language-file key of what an operator should be told about it. Insertion
-     * order is the order the warnings are emitted in.
+     * order is the order the warnings are emitted in. The values are informational: the text is read by
+     * {@link #reasonFor}, whose literal lookups the language guard checks, so a key added here needs a
+     * case there too (a missing case fails loudly).
      */
     private static final Map<String, Map<String, String>> REMOVED;
 
