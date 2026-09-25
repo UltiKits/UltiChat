@@ -314,6 +314,24 @@ class UltiChatTest {
         }
 
         @Test
+        @DisplayName("A channel ID that looks like a placeholder is named as written, not expanded (Codex P3)")
+        void channelIdIsNotReExpanded(@TempDir File dir) {
+            UltiChat plugin = pluginWithChannelFormats(dir, "a{FORMAT}b", "{display}&e: {message}");
+            String template = com.ultikits.plugins.chat.i18n.CatalogueText.text("en", "log_channel_format_missing_sender");
+            String expected = template.substring(0, template.indexOf("{FILE}"))
+                    + new File(dir, "config/channels.yml").getPath()
+                    + template.substring(template.indexOf("{FILE}") + 6, template.indexOf("{CHANNEL}"))
+                    + "a{FORMAT}b"
+                    + template.substring(template.indexOf("{CHANNEL}") + 9, template.indexOf("{FORMAT}"))
+                    + "{display}&e: {message}"
+                    + template.substring(template.indexOf("{FORMAT}") + 8);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).containsExactly(expected);
+        }
+
+        @Test
         @DisplayName("Under language: zh the channel-format warning is the Chinese catalogue text")
         void channelFormatWarningFollowsTheLanguageSetting(@TempDir File dir) {
             UltiChat plugin = pluginWithChannelFormats(dir, "global", "{display}&e: {message}");
