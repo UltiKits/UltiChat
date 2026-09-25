@@ -23,7 +23,7 @@ for real-machine verification, not user-facing documentation.
 - **Human-authenticated-session rows:** a row whose Steps can only be exercised through
   the maintainer's own authenticated UltiCloud panel session — because the real inbound WebSocket
   route requires a valid cloud token issued solely by a personal magic-link login, not by any
-  credential or route the executing agent could construct itself — carries the fixed
+  credential or route the tester could construct themselves — carries the fixed
   Preconditions phrase `maintainer-authenticated UltiCloud panel session (personal credentials)`
   (appended to, not replacing, the row's own preconditions) and Layer `human`. Such a row ends at
   `human-uat-pending` by design — the second legitimate exit named in the header blockquote — not
