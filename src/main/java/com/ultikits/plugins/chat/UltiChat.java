@@ -1,34 +1,90 @@
 package com.ultikits.plugins.chat;
 
+import com.ultikits.plugins.chat.config.AnnouncementConfig;
+import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.config.ChatConfig;
+import com.ultikits.plugins.chat.config.ConfigTextDefaults;
 import com.ultikits.plugins.chat.config.RemovedConfigKeys;
 import com.ultikits.plugins.chat.service.ChannelService;
+import com.ultikits.ultitools.abstracts.AbstractConfigEntity;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.UltiToolsModule;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 @UltiToolsModule
 public class UltiChat extends UltiToolsPlugin {
     @Override
     public boolean registerSelf() {
+        writeConfigTextInServerLanguage();
         warnAboutConfiguration();
         return true;
     }
 
     /**
-     * Runs after the framework has reloaded this module's configuration files, so an operator who
-     * edits a file and reloads ({@code /uchat reload} or {@code /ul reload}) is told about it again.
+     * Runs after the framework has reloaded this module's configuration files and rebuilt its
+     * language, so the built-in text follows a changed {@code language}, and an operator who edits a
+     * file and reloads ({@code /uchat reload} or {@code /ul reload}) is told about it again.
      * Nothing is rescheduled here: the announcement periods are config-bound, and the framework's
      * own reload step reschedules a changed one before this hook runs (UltiTools-Reborn#531).
      */
     @Override
     protected void onReload() {
+        writeConfigTextInServerLanguage();
         warnAboutConfiguration();
+    }
+
+    /**
+     * Writes each setting that is still built-in text into its file in the server's language, so the
+     * files show what the module does (maintainer decision 2026-09-25, UltiKits/UltiChat#18): the
+     * announcement texts, the join/quit texts, the shipped channels' display names and the two example
+     * auto-reply rules. A channel format earlier versions shipped is removed from {@code channels.yml}.
+     * <p>
+     * The text comes from this module's own jar ({@link ConfigTextDefaults#jarLanguage}), not from
+     * {@code i18n}, which reads the operator's extracted language file first: these settings are
+     * customised in the config files. Runs before anything reads them -- at start and in
+     * {@link #onReload()}, after the framework rebuilt the language -- and never from a configuration
+     * change listener, which the framework fires before it rebuilds the language. Each file that
+     * changed is saved once; a file that cannot be saved is reported and the new text is still used.
+     */
+    private void writeConfigTextInServerLanguage() {
+        Function<String, String> text = ConfigTextDefaults.jarLanguage(ChatConfig.class, getLanguageCode())::getLocalizedText;
+        AnnouncementConfig announcements = getConfig(AnnouncementConfig.class);
+        if (announcements != null) {
+            saveWrittenText(announcements, announcements.materializeText(text));
+        }
+        ChatConfig chat = getConfig(ChatConfig.class);
+        if (chat != null) {
+            saveWrittenText(chat, chat.materializeText(text));
+        }
+        ChannelConfig channels = getConfig(ChannelConfig.class);
+        if (channels != null) {
+            saveWrittenText(channels, channels.materializeText(text));
+        }
+        AutoReplyConfig autoReply = getConfig(AutoReplyConfig.class);
+        if (autoReply != null) {
+            saveWrittenText(autoReply, autoReply.materializeText(text));
+        }
+    }
+
+    private void saveWrittenText(AbstractConfigEntity config, boolean changed) {
+        if (!changed) {
+            return;
+        }
+        try {
+            config.save();
+        } catch (IOException e) {
+            // One pass: the server path is inserted as written, never re-read for {ERROR}.
+            getLogger().warn(fillOnce(i18n("log_config_text_save_failed"),
+                    "{FILE}", operatorConfigFile(config.getConfigFilePath()).getPath(),
+                    "{ERROR}", String.valueOf(e.getMessage())));
+        }
     }
 
     @Override

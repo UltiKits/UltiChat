@@ -9,6 +9,34 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Message and title settings in `config/announcements.yml`, `config/chat.yml`,
+  `config/channels.yml` and `config/autoreply.yml` -- the announcements, the join/quit messages,
+  the shipped channels' display names and the two example auto-reply rules -- are written in the
+  server's language when the module starts, and the file is what the module shows; previously they
+  were fixed English text, so `language: zh` had no effect on them. A setting that is still
+  built-in text -- in any language, or a default an earlier version shipped -- follows
+  `language`: it is rewritten when the module starts or after `/ul reload`. A setting you edited is
+  kept. To keep a built-in text but stop it following `language`, change at least one character. An
+  example auto-reply rule counts as built-in only while its keyword and response together are one
+  language's built-in pair; a rule where either was edited is yours. Edit these settings in the
+  config files: an edit of the extracted language file does not change them, and released versions
+  never read them from it. A changed `language` is picked up at a restart or a full `/ul reload`,
+  not by a single-module reload (UltiKits/UltiChat#18).
+- The three channel formats earlier versions shipped (`{display}&f: {message}`,
+  `{display}&7: {message}`, `&c[Staff] &f{player}&7: {message}`) are now removed from
+  `config/channels.yml` when the module starts, so the file matches what the chat shows; the chat
+  line is unchanged (UltiKits/UltiChat#16, #18).
+- `config/announcements.yml`、`config/chat.yml`、`config/channels.yml` 与 `config/autoreply.yml`
+  中的消息与标题设置（公告、进出服消息、出厂频道的显示名与两条示例自动回复规则）在模块启动时按服务器语言写入，
+  文件内容即模块显示的内容；此前它们是写死的英文，`language: zh` 对它们不起作用。
+  仍为内置文本（任一语言的内置文本，或旧版本的出厂默认值）的设置会跟随 `language`：模块启动或执行 `/ul reload` 后改写为当前语言的文本。你改过的设置保持不变。若想保留内置文本又不让它跟随语言，
+  请至少改动一个字符。示例自动回复规则只有在关键词与回复合起来仍是同一语言的内置文本时才算内置；关键词或回复任一被改过，
+  该规则即归你所有。请在配置文件中修改这些设置：修改解压出的语言文件不会改变它们，已发布的版本也从不从语言文件读取它们。
+  修改后的 `language` 在重启或完整的 `/ul reload` 后生效，单个模块的重载不会读取它（UltiKits/UltiChat#18）。
+- 早期版本出厂的三条频道格式（`{display}&f: {message}`、`{display}&7: {message}`、
+  `&c[Staff] &f{player}&7: {message}`）现在会在模块启动时从 `config/channels.yml` 中移除，
+  使文件与聊天显示一致；聊天行保持不变（UltiKits/UltiChat#16、#18）。
+
 - `anti-spam.duplicate-window` in `config/chat.yml` now takes effect. It was documented as the
   duplicate-detection time window but never read: a message counted as a duplicate when the
   player's last `anti-spam.max-duplicate` accepted messages were all the same text, however long
@@ -131,10 +159,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   **Upgraded servers:** earlier versions wrote three formats into every server's `channels.yml`
   (`{display}&f: {message}` for global, `{display}&7: {message}` for local,
   `&c[Staff] &f{player}&7: {message}` for staff); two of them contain no player name. A format
-  exactly equal to one of those three strings is treated as not set, so an upgraded server's chat
-  looks exactly as before. The cost: none of those three exact strings can be chosen on purpose --
-  change any single character (for example, add a space) and the format counts as your own and
-  takes effect (UltiKits/UltiChat#16).
+  exactly equal to one of those three strings is removed from `channels.yml` when the module
+  starts, so an upgraded server's chat looks exactly as before and its file says so. The cost: none
+  of those three exact strings can be chosen on purpose -- change any single character (for
+  example, add a space) and the format counts as your own and takes effect (UltiKits/UltiChat#16,
+  #18).
 - `config/channels.yml` 中频道自己的 `format:` 现在会作用于该频道成员的聊天行，前提是 `channels.enabled`
   与（`config/chat.yml` 中的）`chat.format-enabled` 均为 true（默认如此）；任一关闭时不使用任何频道格式，与之前相同。
   它此前有文档说明却从未被使用：
@@ -143,8 +172,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   本模块出厂的频道不再设置格式。**升级的服务器：**早期版本曾把三条格式写入每台服务器的 `channels.yml`
   （global 为 `{display}&f: {message}`，local 为 `{display}&7: {message}`，
   staff 为 `&c[Staff] &f{player}&7: {message}`），其中两条不含玩家名。与这三条字符串之一完全相同的格式
-  会被视为未设置，因此升级后服务器的聊天显示与之前完全相同。代价是：无法刻意选用这三条字符串本身——
-  只要改动任意一个字符（例如加一个空格），该格式就会被视为您自己的格式并生效（UltiKits/UltiChat#16）。
+  会在模块启动时从 `channels.yml` 中移除，因此升级后服务器的聊天显示与之前完全相同，文件也如实反映这一点。
+  代价是：无法刻意选用这三条字符串本身——只要改动任意一个字符（例如加一个空格），该格式就会被视为您自己的格式并生效
+  （UltiKits/UltiChat#16、#18）。
 - A player who leaves the server now has their anti-spam history cleared -- the time of their last
   message and the recent messages kept for duplicate detection. Previously this was never done,
   so the module kept an entry for every player who had chatted since the server started, for as
