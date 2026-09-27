@@ -202,7 +202,9 @@ class ChannelServiceTest {
     class GetChannelFormatTests {
 
         // UltiKits/UltiChat#16: null means "no format of its own -- use today's line". The default
-        // channels here carry the three strings earlier versions shipped, as an upgraded server does.
+        // channels here carry the three strings earlier versions shipped. The module removes them from
+        // channels.yml when it starts (UltiKits/UltiChat#18), so the service no longer recognises them
+        // itself: a format it is given is the format it returns.
 
         @Test
         @DisplayName("Should return a custom format as configured")
@@ -215,11 +217,11 @@ class ChannelServiceTest {
         }
 
         @Test
-        @DisplayName("Should treat each of the three formerly shipped formats as unset")
-        void shouldTreatLegacyShippedFormatsAsUnset() {
-            assertThat(service.getChannelFormat("global")).isNull();
-            assertThat(service.getChannelFormat("local")).isNull();
-            assertThat(service.getChannelFormat("staff")).isNull();
+        @DisplayName("Should return a formerly shipped format as written: the start removes those from the file, not the reader")
+        void shouldReturnFormerlyShippedFormatsAsWritten() {
+            assertThat(service.getChannelFormat("global")).isEqualTo("{display}&f: {message}");
+            assertThat(service.getChannelFormat("local")).isEqualTo("{display}&7: {message}");
+            assertThat(service.getChannelFormat("staff")).isEqualTo("&c[Staff] &f{player}&7: {message}");
         }
 
         @Test

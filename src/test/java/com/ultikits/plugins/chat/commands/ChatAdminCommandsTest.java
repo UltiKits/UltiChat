@@ -146,10 +146,9 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("Should include each rule's response in the listing")
         void shouldIncludeResponseInListing() {
-            // CR-01 problem 3: `autoreply list` used to render only name -> keyword
-            // [mode] and never the response, which also made silent-overwrite
-            // corruption harder to notice since the field that visibly changed was
-            // the keyword rather than the reply.
+            // `autoreply list` used to render only name -> keyword [mode] and never the
+            // response, which also made silent-overwrite corruption harder to notice since the
+            // field that visibly changed was the keyword rather than the reply.
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();
@@ -186,10 +185,9 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("Should repair a null-valued rule entry instead of reporting it already exists")
         void shouldRepairANullValuedRuleEntry() throws Exception {
-            // Codex review on PR #12 (commit 630d1c9): malformed YAML such as `broken:`
-            // leaves a name mapped to null. The command layer's own containsKey guard
-            // mirrors the service's, so it must apply the same non-null check or it
-            // blocks the repair before addRule is ever called.
+            // Malformed YAML such as `broken:` leaves a name mapped to null. The command layer's own
+            // containsKey guard mirrors the service's, so it must apply the same non-null check or
+            // it blocks the repair before addRule is ever called.
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();
@@ -269,12 +267,11 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("Should set the keyword on an existing rule and send confirmation")
         void shouldSetKeywordOnExistingRule() throws Exception {
-            // CR-01 problem 1: `autoreply add` still forces keyword = name with no
-            // parameter to say otherwise. This closes that gap the smallest way that
-            // avoids an ambiguous overload against the existing 2-arg `add` format --
-            // a distinct `setkeyword` verb, unambiguous under the framework's scored
-            // format matching since its second literal token ("setkeyword") never
-            // matches "add"'s.
+            // `autoreply add` still forces keyword = name with no parameter to say otherwise.
+            // This closes that gap the smallest way that avoids an ambiguous overload against
+            // the existing 2-arg `add` format -- a distinct `setkeyword` verb, unambiguous
+            // under the framework's scored format matching since its second literal token
+            // ("setkeyword") never matches "add"'s.
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();
@@ -302,10 +299,10 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("Should send not-found, not a false success, for a null-valued rule entry")
         void shouldSendNotFoundForANullValuedRuleEntry() throws Exception {
-            // Codex review on PR #12 (commit 05901e6): malformed YAML such as `broken:`
-            // makes containsKey(name) true even though the value is null. This guard
-            // only checked key presence, so it would call the now-null-safe setKeyword
-            // no-op and still report success -- a false positive. Must check the value.
+            // Malformed YAML such as `broken:` makes containsKey(name) true even though the
+            // value is null. This guard only checked key presence, so it would call the
+            // now-null-safe setKeyword no-op and still report success -- a false positive. Must
+            // check the value.
             CommandSender sender = mock(CommandSender.class);
 
             Map<String, Map<String, Object>> rules = new HashMap<>();
@@ -331,6 +328,9 @@ class ChatAdminCommandsTest {
         void stubFailureMessageAndLogger() {
             logger = mock(PluginLogger.class);
             when(mockPlugin.i18n("autoreply_save_failed")).thenReturn("Rule '{0}' was NOT saved.");
+            // The console line comes from the language file; the assertions quote its English text.
+            when(mockPlugin.i18n("log_autoreply_save_failed"))
+                    .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
             when(mockPlugin.getLogger()).thenReturn(logger);
         }
 

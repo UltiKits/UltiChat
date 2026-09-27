@@ -216,7 +216,7 @@ class PlayerChannelListenerTest {
          * The quitter is still online for the rest of the quit event, so a chat record that lands
          * after the cleanup above but before the server drops the player is not caught by
          * {@code ChatListener}'s own after-write check. The handler therefore sweeps once more on
-         * the next tick, when the player is gone (Codex review on PR #33).
+         * the next tick, when the player is gone.
          */
         @Test
         @DisplayName("A record landing after the quit cleanup is swept on the next tick once the player is gone")

@@ -3,6 +3,8 @@ package com.ultikits.plugins.chat.config;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 
+import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
@@ -29,18 +31,16 @@ public final class RemovedConfigKeys {
 
     /**
      * Configuration file (relative to this module's configuration folder) to the keys removed from
-     * it, each mapped to what an operator should be told about it. Insertion order is the order the
-     * warnings are emitted in.
+     * it, each mapped to the language-file key of what an operator should be told about it. Insertion
+     * order is the order the warnings are emitted in. The values are informational: the text is read by
+     * {@link #reasonFor}, whose literal lookups the language guard checks, so a key added here needs a
+     * case there too (a missing case fails loudly).
      */
     private static final Map<String, Map<String, String>> REMOVED;
 
     static {
         Map<String, String> chat = new LinkedHashMap<String, String>();
-        chat.put("anti-spam.mute-duration",
-                "Nothing ever used it: players were never muted automatically, whatever it said, "
-                        + "and a spam trip still refuses only the offending message "
-                        + "(UltiKits/UltiChat#15). Automatic muting is requested as a feature in "
-                        + "UltiKits/UltiChat#30.");
+        chat.put("anti-spam.mute-duration", "removed_key_reason_mute_duration");
 
         Map<String, Map<String, String>> removed = new LinkedHashMap<String, Map<String, String>>();
         removed.put("config/chat.yml", Collections.unmodifiableMap(chat));
@@ -52,9 +52,24 @@ public final class RemovedConfigKeys {
     }
 
     /**
+     * The guidance printed for one removed key, from the language file. Each removed key names its
+     * own entry here, so a key added to {@link #REMOVED} without a case fails loudly instead of being
+     * given another key's explanation.
+     */
+    private static String reasonFor(String removedKey, UltiToolsPlugin plugin) {
+        switch (removedKey) {
+            case "anti-spam.mute-duration":
+                return plugin.i18n("removed_key_reason_mute_duration");
+            default:
+                throw new IllegalStateException("No guidance for removed key " + removedKey);
+        }
+    }
+
+    /**
      * The keys this class knows about, per file, in the order it reports them.
      *
-     * @return an unmodifiable map of configuration file to (removed key path to guidance)
+     * @return an unmodifiable map of configuration file to (removed key path to the language-file key
+     *         of its guidance)
      */
     public static Map<String, Map<String, String>> removedKeys() {
         return REMOVED;
@@ -71,8 +86,10 @@ public final class RemovedConfigKeys {
      * @param fileFor resolves a configuration path such as {@code config/chat.yml} to the
      *                operator's own copy of that file
      * @param warn    where to send each warning, normally the module logger's warn method
+     * @param plugin  the module, whose language file gives the warning its text
      */
-    public static void warnAboutLeftovers(Function<String, File> fileFor, Consumer<String> warn) {
+    public static void warnAboutLeftovers(Function<String, File> fileFor, Consumer<String> warn,
+                                          UltiToolsPlugin plugin) {
         for (Map.Entry<String, Map<String, String>> file : REMOVED.entrySet()) {
             File configFile = fileFor.apply(file.getKey());
             if (configFile == null || !configFile.isFile()) {
@@ -86,10 +103,12 @@ public final class RemovedConfigKeys {
             }
             for (Map.Entry<String, String> key : file.getValue().entrySet()) {
                 if (yaml.contains(key.getKey())) {
-                    warn.accept("UltiChat: " + configFile.getPath() + " still contains '"
-                            + key.getKey() + "', which this version no longer reads. "
-                            + key.getValue()
-                            + " Delete the key from the file to silence this warning.");
+                    // The server path last: it is inserted as written and never re-read for another
+                    // placeholder (the reason text and the key hold none).
+                    warn.accept(plugin.i18n("removed_key_warning")
+                            .replace("{REASON}", reasonFor(key.getKey(), plugin))
+                            .replace("{KEY}", key.getKey())
+                            .replace("{FILE}", configFile.getPath()));
                 }
             }
         }

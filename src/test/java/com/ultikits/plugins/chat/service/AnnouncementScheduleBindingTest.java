@@ -237,13 +237,13 @@ class AnnouncementScheduleBindingTest {
     }
 
     @Test
-    @DisplayName("A panel-style write of 0 to a bound interval is refused once the binding is resolved; 30 is accepted (gate-1 round-2 WR-06)")
+    @DisplayName("A panel-style write of 0 to a bound interval is refused once the binding is resolved; 30 is accepted")
     void panelWriteOutsideTheBindingRangeIsRefused() {
         com.google.gson.JsonObject zero = new com.google.gson.JsonObject();
         zero.addProperty("announcements.chat.interval", 0);
 
         // Control: before the binding is resolved nothing restricts the key (the field has no
-        // @Range, by ruling), so the same write passes -- the refusal below comes from the binding.
+        // @Range, by design), so the same write passes -- the refusal below comes from the binding.
         config.validateProposedProperties(zero);
 
         taskManager.registerScheduledMethods(module, service);
@@ -280,7 +280,7 @@ class AnnouncementScheduleBindingTest {
     }
 
     @Test
-    @DisplayName("The README's UltiTools-API badge advertises at least the api-version plugin.yml declares (Codex review on PR #33)")
+    @DisplayName("The README's UltiTools-API badge advertises at least the api-version plugin.yml declares")
     void readmeBadgeAdvertisesTheDeclaredFloor() throws Exception {
         String readme = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("README.md")),
                 StandardCharsets.UTF_8);

@@ -1,6 +1,7 @@
 package com.ultikits.plugins.chat.service;
 
 import com.ultikits.plugins.chat.config.ChatConfig;
+import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.Service;
 import org.bukkit.entity.Player;
@@ -22,6 +23,10 @@ public class AntiSpamService {
 
     @Autowired
     private ChatConfig config;
+
+    /** The module, whose language file gives each refusal its text (UltiKits/UltiChat#18). */
+    @Autowired
+    private UltiToolsPlugin plugin;
 
     private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
 
@@ -52,7 +57,9 @@ public class AntiSpamService {
      *
      * @param player  the sending player
      * @param message the chat message
-     * @return an i18n key describing the spam reason, or null if the message is not spam
+     * @return the refusal to show the player, in the server's language (the language file's
+     *         {@code spam_cooldown}, {@code spam_duplicate} or {@code spam_caps}, colour codes not yet
+     *         translated), or null if the message is not spam
      */
     public String checkSpam(Player player, String message) {
         if (!config.isAntiSpamEnabled()) {
@@ -69,11 +76,11 @@ public class AntiSpamService {
         }
 
         if (isDuplicate(playerId, message)) {
-            return "请不要发送重复消息！";
+            return plugin.i18n("spam_duplicate");
         }
 
         if (isExcessiveCaps(message)) {
-            return "消息中大写字母过多！";
+            return plugin.i18n("spam_caps");
         }
 
         return null;
@@ -87,7 +94,7 @@ public class AntiSpamService {
         long elapsed = clock.getAsLong() - lastTime;
         long cooldownMs = config.getAntiSpamCooldown() * 1000L;
         if (elapsed < cooldownMs) {
-            return "发送消息太快了！";
+            return plugin.i18n("spam_cooldown");
         }
         return null;
     }

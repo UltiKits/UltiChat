@@ -23,21 +23,6 @@ public class ChannelService {
     private final Map<UUID, String> playerChannels = new ConcurrentHashMap<>();
 
     /**
-     * The three channel formats earlier versions shipped, and wrote into every server's
-     * {@code channels.yml} (taken from the shipped file and the default map at the module's initial
-     * commit, the only version either ever had). They were never applied, so an upgraded server
-     * holding one of them has never seen it; treating them as unset keeps that server's chat line
-     * exactly as it was (UltiKits/UltiChat#16). Two of them name no player at all. The cost, accepted
-     * by the maintainer: an operator cannot deliberately choose one of these exact strings -- any
-     * change, even one character, makes a format count as custom.
-     */
-    private static final Set<String> LEGACY_SHIPPED_FORMATS = Collections.unmodifiableSet(
-            new HashSet<String>(Arrays.asList(
-                    "{display}&f: {message}",
-                    "{display}&7: {message}",
-                    "&c[Staff] &f{player}&7: {message}")));
-
-    /**
      * Get the channel a player is currently in.
      * Returns the default channel if the player has no assignment.
      */
@@ -83,9 +68,10 @@ public class ChannelService {
      * Get a channel's own chat format, if it has one.
      * <p>
      * Returns {@code null} -- "use the global format with the display name in front" -- when the
-     * channel does not exist, sets no {@code format:}, or sets one of the three formats earlier
-     * versions shipped (see {@link #LEGACY_SHIPPED_FORMATS}). Otherwise returns the format as
-     * written; {@code {display}} in it stands for the channel's display name.
+     * channel does not exist or sets no {@code format:}. Otherwise returns the format as written;
+     * {@code {display}} in it stands for the channel's display name. A format earlier versions shipped
+     * is removed from the file when the module starts ({@code ChannelConfig#materializeText}), so the
+     * file and the chat line agree (UltiKits/UltiChat#18).
      *
      * @param channel the channel name
      * @return the channel's own format, or {@code null}
@@ -96,9 +82,8 @@ public class ChannelService {
 
     /**
      * A channel definition's own chat format, by the same rule as {@link #getChannelFormat}:
-     * {@code null} for a missing definition, no {@code format:}, or one of the formerly shipped
-     * formats. Static so the module's load-time checks can apply the rule to the configuration
-     * directly.
+     * {@code null} for a missing definition or no {@code format:}. Static so the module's load-time
+     * checks can apply the rule to the configuration directly.
      *
      * @param def a channel definition from {@code channels.channels}, or {@code null}
      * @return the channel's own format, or {@code null}
@@ -111,11 +96,7 @@ public class ChannelService {
         if (format == null) {
             return null;
         }
-        String text = format.toString();
-        if (LEGACY_SHIPPED_FORMATS.contains(text)) {
-            return null;
-        }
-        return text;
+        return format.toString();
     }
 
     /**

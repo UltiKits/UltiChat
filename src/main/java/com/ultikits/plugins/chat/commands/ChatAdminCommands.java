@@ -22,7 +22,7 @@ import java.util.Map;
  * @version 1.0.0
  */
 @CmdTarget(CmdTarget.CmdTargetType.BOTH)
-@CmdExecutor(permission = "ultichat.admin", description = "UltiChat admin commands", alias = {"uchat"})
+@CmdExecutor(permission = "ultichat.admin", description = "command_description_admin", alias = {"uchat"})
 public class ChatAdminCommands extends BaseCommandExecutor {
 
     private final UltiToolsPlugin plugin;
@@ -177,19 +177,18 @@ public class ChatAdminCommands extends BaseCommandExecutor {
      * @param cause  the write failure
      */
     private void reportSaveFailure(CommandSender sender, String name, IOException cause) {
-        plugin.getLogger().error(cause, "Could not save config/autoreply.yml after changing"
-                + " auto-reply rule '" + name + "'; the change has been rolled back");
+        plugin.getLogger().error(cause, plugin.i18n("log_autoreply_save_failed").replace("{RULE}", name));
         String msg = plugin.i18n("autoreply_save_failed").replace("{0}", name);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
     }
 
     @Override
     protected void handleHelp(CommandSender sender) {
-        sender.sendMessage(ChatColor.GOLD + "=== UltiChat Admin Commands ===");
-        sender.sendMessage(ChatColor.AQUA + "/uchat reload" + ChatColor.WHITE + " - Reload configs");
-        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply list" + ChatColor.WHITE + " - List auto-reply rules");
-        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply add <name> <response>" + ChatColor.WHITE + " - Add rule");
-        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply setkeyword <name> <keyword>" + ChatColor.WHITE + " - Set a rule's keyword");
-        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply remove <name>" + ChatColor.WHITE + " - Remove rule");
+        sender.sendMessage(ChatColor.GOLD + plugin.i18n("help_admin_header"));
+        sender.sendMessage(ChatColor.AQUA + "/uchat reload" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_reload"));
+        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply list" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_list"));
+        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply add <name> <response>" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_add"));
+        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply setkeyword <name> <keyword>" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_setkeyword"));
+        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply remove <name>" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_remove"));
     }
 }
