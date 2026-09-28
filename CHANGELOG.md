@@ -107,6 +107,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A chat format using `{displayname}` inserts the player's display name as written. The name was put
+  into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
+  `{message}` repeated the message, and one containing a PlaceholderAPI placeholder such as
+  `%server_name%` was expanded as if the operator had written it. Colour codes in the name still show
+  as colour. The shipped `chat.format` uses `{player}` and was not affected (UltiKits/UltiChat#32).
+- 使用 `{displayname}` 的聊天格式现在按原样插入玩家显示名。此前显示名在填入 `{message}` 与 PlaceholderAPI 之前就放进了格式，
+  因此含有 `{message}` 的昵称会让消息重复出现，含有 PlaceholderAPI 占位符（如 `%server_name%`）的昵称会像管理员写入的一样被展开。
+  显示名中的颜色代码仍显示为颜色。出厂的 `chat.format` 使用 `{player}`，不受影响（UltiKits/UltiChat#32）。
+
 - Messages show an apostrophe once: `Auto-reply rule 'greet' added.`, `You don't have permission for
   channel staff.` Language entries wrote every apostrophe doubled, and players saw both. The jar's
   text is corrected, and a doubled apostrophe in a language file an earlier version extracted onto

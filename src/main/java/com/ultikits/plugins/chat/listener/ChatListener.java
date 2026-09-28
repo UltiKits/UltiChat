@@ -131,9 +131,11 @@ public class ChatListener implements Listener {
             }
         }
 
-        // Replace placeholders
+        // Replace placeholders. The display name is text the player may control (a nickname), so
+        // it holds only a marker until every template step has run, and then goes in as literal
+        // text: a "{message}" or a "%placeholder%" in it is shown as written (UltiKits/UltiChat#32).
         format = format.replace("{player}", "%1$s");
-        format = format.replace("{displayname}", player.getDisplayName());
+        format = format.replace("{displayname}", DISPLAY_NAME_MARKER);
         format = format.replace("{message}", "%2$s");
 
         // Translate color codes in format
@@ -147,7 +149,23 @@ public class ChatListener implements Listener {
         // Escape stray % chars that aren't format specifiers
         format = escapeFormatString(format);
 
-        event.setFormat(format);
+        event.setFormat(format.replace(DISPLAY_NAME_MARKER, literalDisplayName(player)));
+    }
+
+    /**
+     * Stands in for {@code {displayname}} while the format is filled. It holds no '%', '{', '}' or
+     * '&', so no template step changes it, and no operator writes it.
+     */
+    private static final String DISPLAY_NAME_MARKER = "\u0000displayname\u0000";
+
+    /**
+     * The player's display name as it goes into the finished format: its '&' colour codes are
+     * translated, as they were when the name was part of the template, and every '%' is doubled so
+     * the chat line's own formatting shows it as a single '%' and treats nothing in it as a
+     * specifier.
+     */
+    private static String literalDisplayName(Player player) {
+        return ChatColor.translateAlternateColorCodes('&', player.getDisplayName()).replace("%", "%%");
     }
 
     /**
