@@ -712,9 +712,9 @@ class ChatListenerTest {
         }
 
         @Test
-        @DisplayName("Sender still online: the message is recorded (control)")
-        void onlineSenderIsRecorded() throws Exception {
-            when(player.isOnline()).thenReturn(true);
+        @DisplayName("Sender still connected: the message is recorded (control)")
+        void connectedSenderIsRecorded() throws Exception {
+            when(player.isConnected()).thenReturn(true);
 
             realListener.onChat(createChatEvent("hello"));
 
@@ -724,13 +724,30 @@ class ChatListenerTest {
 
         @Test
         @DisplayName("Sender gone by the time the record is written: neither map holds them afterwards")
-        void offlineSenderLeavesNoEntry() throws Exception {
-            when(player.isOnline()).thenReturn(false);
+        void disconnectedSenderLeavesNoEntry() throws Exception {
+            when(player.isConnected()).thenReturn(false);
 
             AsyncPlayerChatEvent event = createChatEvent("hello");
             realListener.onChat(event);
 
             assertThat(event.isCancelled()).as("the message itself is not refused").isFalse();
+            assertThat(map("lastMessageTime")).doesNotContainKey(playerUuid);
+            assertThat(map("recentMessages")).doesNotContainKey(playerUuid);
+        }
+
+        /**
+         * The check is per session (UltiKits/UltiChat#35): a chat task from a session that has
+         * ended writes nothing that survives, even when the same player has already joined again
+         * and so is online under the same UUID.
+         */
+        @Test
+        @DisplayName("A record from an ended session leaves no entry even when the player has rejoined")
+        void endedSessionLeavesNoEntryAfterRejoin() throws Exception {
+            when(player.isConnected()).thenReturn(false);
+            when(player.isOnline()).thenReturn(true);
+
+            realListener.onChat(createChatEvent("from the old session"));
+
             assertThat(map("lastMessageTime")).doesNotContainKey(playerUuid);
             assertThat(map("recentMessages")).doesNotContainKey(playerUuid);
         }
