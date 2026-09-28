@@ -150,7 +150,7 @@ public class UltiChat extends UltiToolsPlugin {
      * @param placeholdersValues placeholder, value, placeholder, value, ...
      * @return the filled text
      */
-    static String fillOnce(String template, String... placeholdersValues) {
+    public static String fillOnce(String template, String... placeholdersValues) {
         StringBuilder out = new StringBuilder(template.length());
         int i = 0;
         outer:

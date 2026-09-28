@@ -1,5 +1,6 @@
 package com.ultikits.plugins.chat.commands;
 
+import com.ultikits.plugins.chat.UltiChat;
 import com.ultikits.plugins.chat.service.AutoReplyService;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.abstracts.command.BaseCommandExecutor;
@@ -68,11 +69,10 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             String modeStr = mode != null ? mode.toString() : "contains";
             String responseStr = response != null ? response.toString() : "";
 
-            String line = plugin.i18n("autoreply_list_entry");
-            line = line.replace("{0}", name);
-            line = line.replace("{1}", keywordStr);
-            line = line.replace("{2}", modeStr);
-            line = line.replace("{3}", responseStr);
+            // One pass: a rule name, keyword or response that itself contains {1}, {2} or {3} is
+            // shown as written, never rewritten by a later placeholder (UltiKits/UltiChat#39)
+            String line = UltiChat.fillOnce(plugin.i18n("autoreply_list_entry"),
+                    "{0}", name, "{1}", keywordStr, "{2}", modeStr, "{3}", responseStr);
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', line));
         }
     }
@@ -171,7 +171,8 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             reportReplacedByPanel(sender, name);
             return;
         }
-        String msg = plugin.i18n("autoreply_keyword_set").replace("{0}", name).replace("{1}", keyword);
+        // One pass, so a rule name containing {1} is shown as written (UltiKits/UltiChat#39)
+        String msg = UltiChat.fillOnce(plugin.i18n("autoreply_keyword_set"), "{0}", name, "{1}", keyword);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
     }
 

@@ -107,6 +107,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `/uchat autoreply list` and `/uchat autoreply setkeyword` show a rule name, keyword or response
+  exactly as written. A value containing `{1}`, `{2}` or `{3}` was rewritten by the placeholders
+  filled after it, so the line showed text the rule does not have (UltiKits/UltiChat#39).
+- `/uchat autoreply list` 与 `/uchat autoreply setkeyword` 现在按原样显示规则名、关键词和回复。此前值中若含有 `{1}`、`{2}`
+  或 `{3}`，会被随后填入的占位符改写，显示出规则并不具有的内容（UltiKits/UltiChat#39）。
+
 - A `/uchat autoreply add`, `setkeyword` or `remove` whose save coincides with a panel update of the
   auto-reply rules now says the change did not take effect ("...the panel replaced the auto-reply rules
   while it was being saved. Run the command again."). The panel's update replaces the whole rule set,
