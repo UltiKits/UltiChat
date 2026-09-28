@@ -137,7 +137,7 @@ cooldown, multi-line responses, and console command execution on trigger.
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
-| ultichat.autoreply.add | Add a new contains-mode auto-reply rule; refuses rather than overwrites if the name already exists | command | `/uchat autoreply add <name> <response>` | ultichat.admin | both | admin | brief | ChatAdminCommands#onAutoReplyAdd |
+| ultichat.autoreply.add | Add a new contains-mode auto-reply rule; refuses rather than overwrites if the name already exists; refuses a name containing `.` with `autoreply_invalid_name`, which names the character — the configuration file stores a rule under its name as a path, so a dotted name was split into two keys and the rule silently renamed and disabled (fixed, `UltiKits/UltiChat#25`) | command | `/uchat autoreply add <name> <response>` | ultichat.admin | both | admin | brief | ChatAdminCommands#onAutoReplyAdd |
 | ultichat.autoreply.list | List every configured auto-reply rule with its keyword, match mode, and response | command | `/uchat autoreply list` | ultichat.admin | both | admin | brief | ChatAdminCommands#onAutoReplyList |
 | ultichat.autoreply.remove | Remove an existing auto-reply rule by name | command | `/uchat autoreply remove <name>` | ultichat.admin | both | admin | brief | ChatAdminCommands#onAutoReplyRemove |
 | ultichat.autoreply.setkeyword | Change an existing rule's keyword, leaving its response, mode, and case-sensitivity untouched | command | `/uchat autoreply setkeyword <name> <keyword>` | ultichat.admin | both | admin | brief | ChatAdminCommands#onAutoReplySetKeyword |

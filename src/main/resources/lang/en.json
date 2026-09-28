@@ -3,6 +3,7 @@
   "autoreply_removed": "&aAuto-reply rule ''{0}'' removed.",
   "autoreply_not_found": "&cRule ''{0}'' not found.",
   "autoreply_exists": "&cRule ''{0}'' already exists.",
+  "autoreply_invalid_name": "&cA rule name cannot contain '.': the configuration file would split '{0}' into two keys, and the rule would stop working. Choose a name without '.'.",
   "autoreply_keyword_set": "&aRule ''{0}'' keyword set to ''{1}''.",
   "autoreply_save_failed": "&cRule ''{0}'' could not be saved; the change was rolled back. See the server log.",
   "autoreply_list_header": "&6===== Auto-Reply Rules =====",

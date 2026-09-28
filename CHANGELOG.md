@@ -99,6 +99,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `/uchat autoreply add` refuses a rule name containing `.` and says why. The configuration file
+  stores a rule under its name as a path, so `my.rule` was split into two keys when the file was
+  written: the rule was renamed to `my` and never fired, while the command reported it added
+  (UltiKits/UltiChat#25).
+- `/uchat autoreply add` 现在拒绝包含 `.` 的规则名并说明原因。配置文件以规则名作为路径保存规则，`my.rule` 写入文件时会被拆成两个键：
+  规则被改名为 `my` 且永远不会触发，而命令却报告已添加（UltiKits/UltiChat#25）。
+
 - The anti-spam refusals now follow the `language` setting. The cooldown, duplicate and
   too-many-capitals refusals were fixed Chinese text in every language although the language files
   already carried them; they now come from `spam_cooldown`, `spam_duplicate` and `spam_caps`

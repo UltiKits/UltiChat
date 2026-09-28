@@ -85,6 +85,13 @@ public class ChatAdminCommands extends BaseCommandExecutor {
     public void onAutoReplyAdd(@CmdSender CommandSender sender,
                                @CmdParam("name") String name,
                                @CmdParam("response") String response) {
+        if (name.indexOf(AutoReplyService.UNUSABLE_NAME_CHARACTER) >= 0) {
+            // The configuration file stores the rule under its name as a path, so a '.' splits it
+            // into two keys and the rule is renamed and disabled on the next read (UltiKits/UltiChat#25)
+            String msg = plugin.i18n("autoreply_invalid_name").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
+        }
         Map<String, Map<String, Object>> rules = autoReplyService.getRules();
         if (rules.get(name) != null) {
             String msg = plugin.i18n("autoreply_exists").replace("{0}", name);

@@ -30,6 +30,14 @@ public class AutoReplyService {
     private final Map<String, Pattern> patternCache = new ConcurrentHashMap<>();
 
     /**
+     * The one character a rule name may not contain. {@code config/autoreply.yml} stores each rule
+     * under its name as a configuration path, so a name containing it is split into nested keys when
+     * the file is written, and the next read finds a different rule, which never fires
+     * (UltiKits/UltiChat#25).
+     */
+    public static final char UNUSABLE_NAME_CHARACTER = '.';
+
+    /**
      * Guards {@link #findMatch(String)}'s iteration and every mutation and rollback in this class.
      * <p>
      * Not every reader of the rule map: {@link #getRules()} hands the live map out unguarded and
@@ -149,12 +157,18 @@ public class AutoReplyService {
      * cannot report success for a change that is not on disk. A call that changes nothing writes
      * nothing.
      *
-     * @param name     the rule name (key)
+     * @param name     the rule name (key); must not contain {@link #UNUSABLE_NAME_CHARACTER}
      * @param keyword  the keyword to match
      * @param response the response text
      * @throws IOException if the configuration could not be written; the rule set is left unchanged
+     * @throws IllegalArgumentException if {@code name} contains {@link #UNUSABLE_NAME_CHARACTER};
+     *                                  nothing is changed or written
      */
     public void addRule(String name, String keyword, String response) throws IOException {
+        if (name.indexOf(UNUSABLE_NAME_CHARACTER) >= 0) {
+            throw new IllegalArgumentException("Auto-reply rule name must not contain '"
+                    + UNUSABLE_NAME_CHARACTER + "': " + name);
+        }
         final Map<String, Map<String, Object>> rules;
         final Map<String, Map<String, Object>> rulesBefore;
         final boolean rulesWereAbsent;
