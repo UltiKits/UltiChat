@@ -107,6 +107,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A player who quits and joins again starts with an empty anti-spam history in every case. A chat
+  message from the earlier session that was still being processed when the player rejoined could
+  record itself into the new session (UltiKits/UltiChat#35).
+- 玩家退出后重新加入时，反刷屏历史在任何情况下都从空开始。此前玩家重新加入时仍在处理中的上一次会话的聊天消息，可能被记入新的会话
+  （UltiKits/UltiChat#35）。
+
 - A chat format using `{displayname}` inserts the player's display name as written. The name was put
   into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
   `{message}` repeated the message, and one containing a PlaceholderAPI placeholder such as

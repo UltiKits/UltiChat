@@ -103,10 +103,12 @@ public class ChatListener implements Listener {
         antiSpamService.recordMessage(player.getUniqueId(), message);
         // This runs off the main thread, so the record above can land after the quit handler's
         // AntiSpamService#cleanup and re-create the quitter's entries (UltiKits/UltiChat#20).
-        // Observe after writing: a sender who has left keeps no entry. A record written while the
-        // quitter is still online for the rest of the quit event is swept by
-        // PlayerChannelListener#onPlayerQuit on the next tick.
-        if (!player.isOnline()) {
+        // Observe after writing, per session (UltiKits/UltiChat#35): Player#isConnected() belongs
+        // to this player object, and Paper clears it before PlayerQuitEvent fires. A record written
+        // before that comes before the quit cleanup, which removes it; one written after it sees a
+        // disconnected sender and removes itself here, even if the same player has joined again
+        // (isOnline() is per UUID and would say yes).
+        if (!player.isConnected()) {
             antiSpamService.cleanup(player.getUniqueId());
         }
         return false;
