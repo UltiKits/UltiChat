@@ -1,5 +1,7 @@
 package com.ultikits.plugins.chat;
 
+import com.ultikits.plugins.chat.config.AnnouncementConfig;
+import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
@@ -436,6 +438,136 @@ class UltiChatTest {
             UltiChat formattingOff = pluginWithChannelFormats(dir, "global", "{display}&e: {message}");
             chat.setChatFormatEnabled(false);
             formattingOff.registerSelf();
+            assertThat(warnings()).isEmpty();
+        }
+    }
+
+    /**
+     * An operator value this module cannot use as written is named, with the default used in its
+     * place (maintainer decision 2026-09-27: refuse and name, the setting falls back to its default
+     * with a warning). Before, a boss-bar colour or a mention sound that is not one silently became
+     * blue or silence, an auto-reply mode that is not one silently matched as "contains", and a
+     * regular expression that does not compile silently never fired.
+     */
+    @Nested
+    @DisplayName("A configuration value the module cannot use is named at load")
+    class UnusableValueWarning {
+
+        private PluginLogger logger;
+        private ChatConfig chat;
+        private AnnouncementConfig announcements;
+        private AutoReplyConfig autoReply;
+        private UltiChat plugin;
+
+        private void load(File dir) throws IOException {
+            plugin = mock(UltiChat.class);
+            logger = mock(PluginLogger.class);
+            when(plugin.getLogger()).thenReturn(logger);
+            // The warnings come from the language file; the assertions quote its English text.
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+            when(plugin.operatorConfigFile(anyString()))
+                    .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
+            when(plugin.getConfig(ChatConfig.class)).thenReturn(chat);
+            when(plugin.getConfig(AnnouncementConfig.class)).thenReturn(announcements);
+            when(plugin.getConfig(AutoReplyConfig.class)).thenReturn(autoReply);
+            doNothing().when(announcements).save();
+            doNothing().when(autoReply).save();
+            doCallRealMethod().when(plugin).onReload();
+            plugin.onReload();
+        }
+
+        private void freshConfigs() {
+            chat = new ChatConfig();
+            announcements = spy(new AnnouncementConfig());
+            autoReply = spy(new AutoReplyConfig());
+        }
+
+        private List<String> warnings() {
+            ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+            verify(logger, atLeast(0)).warn(captor.capture());
+            return captor.getAllValues();
+        }
+
+        private void rule(String name, String keyword, String mode) {
+            Map<String, Map<String, Object>> rules = new LinkedHashMap<String, Map<String, Object>>();
+            Map<String, Object> rule = new HashMap<String, Object>();
+            rule.put("keyword", keyword);
+            rule.put("response", "hi");
+            rule.put("mode", mode);
+            rules.put(name, rule);
+            autoReply.setRules(rules);
+        }
+
+        @Test
+        @DisplayName("control: the shipped values produce none of these warnings")
+        void shippedValuesAreQuiet(@TempDir File dir) throws IOException {
+            freshConfigs();
+            load(dir);
+            assertThat(warnings()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a boss-bar colour that is not one is named, and blue is used")
+        void unknownBossBarColour(@TempDir File dir) throws IOException {
+            freshConfigs();
+            announcements.setBossBarColor("PURPLEISH");
+            load(dir);
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0))
+                    .contains(new File(dir, "config/announcements.yml").getPath())
+                    .contains("'announcements.bossbar.color'")
+                    .contains("\"PURPLEISH\"")
+                    .contains("BLUE");
+        }
+
+        @Test
+        @DisplayName("a mention sound that is not one is named, and the default sound is used; an empty one is silence, not a warning")
+        void unknownMentionSound(@TempDir File dir) throws IOException {
+            freshConfigs();
+            chat.setMentionSound("NOT_A_SOUND");
+            load(dir);
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0))
+                    .contains(new File(dir, "config/chat.yml").getPath())
+                    .contains("'mentions.sound'")
+                    .contains("\"NOT_A_SOUND\"")
+                    .contains("ENTITY_EXPERIENCE_ORB_PICKUP");
+
+            freshConfigs();
+            chat.setMentionSound("");
+            load(dir);
+            assertThat(warnings()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("an auto-reply mode that is not contains, exact or regex is named with its rule")
+        void unknownRuleMode(@TempDir File dir) throws IOException {
+            freshConfigs();
+            rule("greet", "hello", "startswith");
+            load(dir);
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0))
+                    .contains(new File(dir, "config/autoreply.yml").getPath())
+                    .contains("'greet'")
+                    .contains("\"startswith\"")
+                    .contains("contains");
+        }
+
+        @Test
+        @DisplayName("an auto-reply regular expression that does not compile is named with its rule; a valid one is not")
+        void invalidRuleRegex(@TempDir File dir) throws IOException {
+            freshConfigs();
+            rule("broken", "[unclosed", "regex");
+            load(dir);
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0))
+                    .contains(new File(dir, "config/autoreply.yml").getPath())
+                    .contains("'broken'")
+                    .contains("\"[unclosed\"");
+
+            freshConfigs();
+            rule("fine", "^hel+o$", "REGEX");
+            load(dir);
             assertThat(warnings()).isEmpty();
         }
     }

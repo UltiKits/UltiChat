@@ -492,7 +492,7 @@ class ChatListenerTest {
         }
 
         @Test
-        @DisplayName("Should handle invalid sound name gracefully")
+        @DisplayName("A mention sound that is not one plays the default sound, which the load warning names")
         void shouldHandleInvalidSound() {
             chatConfig.setChatFormatEnabled(false);
             chatConfig.setAntiSpamEnabled(false);
@@ -507,11 +507,10 @@ class ChatListenerTest {
             List<Player> onlinePlayers = Arrays.asList(player, mentioned);
             doReturn(onlinePlayers).when(ChatTestHelper.getMockServer()).getOnlinePlayers();
 
-            // Should not throw
             AsyncPlayerChatEvent event = createChatEvent("@Alice hi");
             listener.onChat(event);
 
-            verify(mentioned, never()).playSound(any(org.bukkit.Location.class), any(org.bukkit.Sound.class), anyFloat(), anyFloat());
+            verify(mentioned).playSound(any(org.bukkit.Location.class), eq(com.cryptomorin.xseries.XSound.ENTITY_EXPERIENCE_ORB_PICKUP.get()), anyFloat(), anyFloat());
         }
 
         @Test
