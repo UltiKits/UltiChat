@@ -9,6 +9,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `/uchat autoreply add <name> <response...>` takes the rest of the line as the response, and
+  `/uchat autoreply setkeyword <name> <keyword...>` the rest of the line as the keyword, so a rule
+  created by command can answer with a sentence and match a phrase. Both took a single word, and a
+  longer line was refused with the usage text (UltiKits/UltiChat#26).
+- `/uchat autoreply add <名称> <回复...>` 现在把该行剩余内容作为回复，`/uchat autoreply setkeyword <名称> <关键词...>`
+  把该行剩余内容作为关键词，因此通过命令创建的规则可以用一句话回复、匹配词组。此前两者都只接受一个词，更长的内容会被当作用法错误拒绝
+  （UltiKits/UltiChat#26）。
+
 - Message and title settings in `config/announcements.yml`, `config/chat.yml`,
   `config/channels.yml` and `config/autoreply.yml` -- the announcements, the join/quit messages,
   the shipped channels' display names and the two example auto-reply rules -- are written in the

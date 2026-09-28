@@ -78,13 +78,27 @@ public class ChatAdminCommands extends BaseCommandExecutor {
     }
 
     /**
-     * Add a new auto-reply rule.
-     * 添加新的自动回复规则。
+     * Add a new auto-reply rule. The response is the rest of the line, so it can be a sentence: a
+     * single-word parameter made every rule created by command answer with one word, and the rules
+     * the module ships could not have been created by it (UltiKits/UltiChat#26).
+     * 添加新的自动回复规则；回复为该行剩余的全部内容，可以是一句话。
      */
-    @CmdMapping(format = "autoreply add <name> <response>")
+    @CmdMapping(format = "autoreply add <name> <response...>")
     public void onAutoReplyAdd(@CmdSender CommandSender sender,
                                @CmdParam("name") String name,
-                               @CmdParam("response") String response) {
+                               @CmdParam("response") String[] response) {
+        onAutoReplyAdd(sender, name, String.join(" ", response));
+    }
+
+    /**
+     * Adds the rule {@code name} answering {@code response}: the body of {@code autoreply add}, with
+     * the response already joined into one line.
+     *
+     * @param sender   the sender to answer
+     * @param name     the rule name
+     * @param response the whole response
+     */
+    void onAutoReplyAdd(CommandSender sender, String name, String response) {
         if (name.indexOf(AutoReplyService.UNUSABLE_NAME_CHARACTER) >= 0) {
             // The configuration file stores the rule under its name as a path, so a '.' splits it
             // into two keys and the rule is renamed and disabled on the next read (UltiKits/UltiChat#25)
@@ -120,10 +134,24 @@ public class ChatAdminCommands extends BaseCommandExecutor {
      * (see {@code BaseCommandExecutor.calculateMatchScore}). A distinct literal
      * ("setkeyword") at the same position "add" occupies is unambiguous instead.
      */
-    @CmdMapping(format = "autoreply setkeyword <name> <keyword>")
+    @CmdMapping(format = "autoreply setkeyword <name> <keyword...>")
     public void onAutoReplySetKeyword(@CmdSender CommandSender sender,
                                       @CmdParam("name") String name,
-                                      @CmdParam("keyword") String keyword) {
+                                      @CmdParam("keyword") String[] keyword) {
+        // The keyword is the rest of the line, so it can be a phrase such as the shipped rule's
+        // "server IP" (UltiKits/UltiChat#26)
+        onAutoReplySetKeyword(sender, name, String.join(" ", keyword));
+    }
+
+    /**
+     * Sets rule {@code name}'s keyword: the body of {@code autoreply setkeyword}, with the keyword
+     * already joined into one phrase.
+     *
+     * @param sender  the sender to answer
+     * @param name    the rule name
+     * @param keyword the whole keyword
+     */
+    void onAutoReplySetKeyword(CommandSender sender, String name, String keyword) {
         Map<String, Map<String, Object>> rules = autoReplyService.getRules();
         if (rules.get(name) == null) {
             String msg = plugin.i18n("autoreply_not_found").replace("{0}", name);
@@ -194,8 +222,8 @@ public class ChatAdminCommands extends BaseCommandExecutor {
         sender.sendMessage(ChatColor.GOLD + plugin.i18n("help_admin_header"));
         sender.sendMessage(ChatColor.AQUA + "/uchat reload" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_reload"));
         sender.sendMessage(ChatColor.AQUA + "/uchat autoreply list" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_list"));
-        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply add <name> <response>" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_add"));
-        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply setkeyword <name> <keyword>" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_setkeyword"));
+        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply add <name> <response...>" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_add"));
+        sender.sendMessage(ChatColor.AQUA + "/uchat autoreply setkeyword <name> <keyword...>" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_setkeyword"));
         sender.sendMessage(ChatColor.AQUA + "/uchat autoreply remove <name>" + ChatColor.WHITE + " - " + plugin.i18n("help_admin_autoreply_remove"));
     }
 }
