@@ -11,11 +11,17 @@ import com.ultikits.ultitools.abstracts.AbstractConfigEntity;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.UltiToolsModule;
 
+import com.cryptomorin.xseries.XSound;
+import org.bukkit.boss.BarColor;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.function.Function;
 
 @UltiToolsModule
@@ -122,6 +128,76 @@ public class UltiChat extends UltiToolsPlugin {
         RemovedConfigKeys.warnAboutLeftovers(this::operatorConfigFile, getLogger()::warn, this);
         warnIfDuplicateWindowShortened();
         warnAboutIncompleteChannelFormats();
+        warnAboutUnusableValues();
+    }
+
+    /**
+     * Names every configuration value this module cannot use as written, with what it does instead
+     * (maintainer decision 2026-09-27: refuse and name; a setting falls back to its default with a
+     * warning). A boss-bar colour or mention sound that names none is replaced by the shipped one;
+     * an auto-reply mode other than contains, exact or regex matches as contains; a regular
+     * expression that does not compile makes its rule never fire. Before, each happened silently.
+     * Every value is the operator's own text, so each line is filled in one pass.
+     */
+    private void warnAboutUnusableValues() {
+        AnnouncementConfig announcements = getConfig(AnnouncementConfig.class);
+        if (announcements != null && !isBarColor(announcements.getBossBarColor())) {
+            warnUnusable("config/announcements.yml", "announcements.bossbar.color",
+                    announcements.getBossBarColor(), AnnouncementConfig.DEFAULT_BOSS_BAR_COLOR);
+        }
+        ChatConfig chat = getConfig(ChatConfig.class);
+        if (chat != null) {
+            String sound = chat.getMentionSound();
+            if (sound != null && !sound.isEmpty() && !XSound.matchXSound(sound).isPresent()) {
+                warnUnusable("config/chat.yml", "mentions.sound", sound, ChatConfig.DEFAULT_MENTION_SOUND);
+            }
+        }
+        AutoReplyConfig autoReply = getConfig(AutoReplyConfig.class);
+        if (autoReply == null || autoReply.getRules() == null) {
+            return;
+        }
+        String file = operatorConfigFile("config/autoreply.yml").getPath();
+        for (Map.Entry<String, Map<String, Object>> rule : autoReply.getRules().entrySet()) {
+            Map<String, Object> def = rule.getValue();
+            if (def == null || def.get("mode") == null) {
+                continue;
+            }
+            String mode = def.get("mode").toString();
+            String normalised = mode.toLowerCase(Locale.ROOT);
+            if (!"contains".equals(normalised) && !"exact".equals(normalised) && !"regex".equals(normalised)) {
+                getLogger().warn(fillOnce(i18n("log_autoreply_unknown_mode"),
+                        "{FILE}", file, "{RULE}", rule.getKey(), "{VALUE}", mode));
+            } else if ("regex".equals(normalised) && def.get("keyword") != null) {
+                String keyword = def.get("keyword").toString();
+                try {
+                    Pattern.compile(keyword);
+                } catch (PatternSyntaxException e) {
+                    getLogger().warn(fillOnce(i18n("log_autoreply_invalid_regex"),
+                            "{FILE}", file, "{RULE}", rule.getKey(), "{VALUE}", keyword,
+                            "{ERROR}", e.getDescription()));
+                }
+            }
+        }
+    }
+
+    private static boolean isBarColor(String value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            BarColor.valueOf(value);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private void warnUnusable(String path, String key, String value, String fallback) {
+        getLogger().warn(fillOnce(i18n("log_unusable_value"),
+                "{FILE}", operatorConfigFile(path).getPath(),
+                "{KEY}", key,
+                "{VALUE}", String.valueOf(value),
+                "{DEFAULT}", fallback));
     }
 
     /**

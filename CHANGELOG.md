@@ -107,6 +107,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A configuration value UltiChat cannot use is now named in the console when the module starts and
+  on every reload, with what it does instead: an `announcements.bossbar.color` that is no boss-bar
+  colour (blue is used), a `mentions.sound` that is no sound (the default sound now plays; it played
+  nothing), an auto-reply rule `mode` other than `contains`, `exact` or `regex` (the rule matches as
+  `contains`), and an auto-reply regular expression that does not compile (the rule never fires).
+  Each of these used to happen silently.
+- UltiChat 无法使用的配置值现在会在模块启动和每次重载时于控制台点名，并说明实际做法：不是 Boss 栏颜色的
+  `announcements.bossbar.color`（使用蓝色）、不是音效的 `mentions.sound`（现在播放默认音效，此前不播放）、
+  不是 `contains`、`exact` 或 `regex` 的自动回复规则 `mode`（按 `contains` 匹配），以及无法编译的自动回复正则表达式（该规则永远不会触发）。
+  此前这些情况都不会有任何提示。
+
 - A player who quits and joins again starts with an empty anti-spam history in every case. A chat
   message from the earlier session that was still being processed when the player rejoined could
   record itself into the new session (UltiKits/UltiChat#35).

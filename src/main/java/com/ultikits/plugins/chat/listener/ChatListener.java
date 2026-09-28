@@ -206,9 +206,13 @@ public class ChatListener implements Listener {
         if (soundName == null || soundName.isEmpty()) {
             return;
         }
-        // Invalid sound name — silently ignore (empty Optional short-circuits, nothing is played)
-        XSound.matchXSound(soundName).ifPresent(xSound ->
-                player.playSound(player.getLocation(), xSound.get(), 1.0f, 1.0f));
+        // A name that is no sound plays the shipped sound instead; the operator is told at load
+        // (UltiChat#warnAboutUnusableValues). An empty value, above, is silence by choice.
+        XSound sound = XSound.matchXSound(soundName)
+                .orElseGet(() -> XSound.matchXSound(ChatConfig.DEFAULT_MENTION_SOUND).orElse(null));
+        if (sound != null) {
+            player.playSound(player.getLocation(), sound.get(), 1.0f, 1.0f);
+        }
     }
 
     /**

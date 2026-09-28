@@ -91,8 +91,13 @@ public class ChatConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "mentions.format", comment = "Mention highlight format / 提及高亮格式")
     private String mentionFormat = "&e@{player}&r";
 
+    /**
+     * The shipped {@code mentions.sound}, also played when the configured value names no sound.
+     */
+    public static final String DEFAULT_MENTION_SOUND = "ENTITY_EXPERIENCE_ORB_PICKUP";
+
     @ConfigEntry(path = "mentions.sound", comment = "Sound when mentioned / 被提及时的音效")
-    private String mentionSound = "ENTITY_EXPERIENCE_ORB_PICKUP";
+    private String mentionSound = DEFAULT_MENTION_SOUND;
 
     @ConfigEntry(path = "mentions.self-mention", comment = "Allow self-mention / 允许自我提及")
     private boolean selfMention = false;

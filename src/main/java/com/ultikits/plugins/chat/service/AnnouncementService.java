@@ -95,8 +95,9 @@ public class AnnouncementService {
         BarColor barColor;
         try {
             barColor = BarColor.valueOf(config.getBossBarColor());
-        } catch (IllegalArgumentException e) {
-            barColor = BarColor.BLUE;
+        } catch (IllegalArgumentException | NullPointerException e) {
+            // Named to the operator at load (UltiChat#warnAboutUnusableValues).
+            barColor = BarColor.valueOf(AnnouncementConfig.DEFAULT_BOSS_BAR_COLOR);
         }
 
         final BossBar bossBar = Bukkit.createBossBar(formatted, barColor, BarStyle.SOLID);
