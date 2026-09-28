@@ -462,4 +462,91 @@ class ChatAdminCommandsTest {
             verify(mockAutoReplyService).addRule("my-rule", "my-rule", "hi");
         }
     }
+
+    // ==================== UltiKits/UltiChat#26 ====================
+
+    /**
+     * Driven through the framework's own {@code BaseCommandExecutor#onCommand} dispatch, so the
+     * command's format decides how the arguments are bound -- a direct method call would bypass it.
+     */
+    @Nested
+    @DisplayName("A response and a keyword can be sentences (UltiKits/UltiChat#26)")
+    class SentenceArguments {
+
+        private org.bukkit.command.ConsoleCommandSender console;
+        private com.ultikits.ultitools.UltiTools ultiTools;
+
+        @BeforeEach
+        void liveServer() throws Exception {
+            com.ultikits.plugins.chat.utils.ChatTestHelper.setUp();
+            console = mock(org.bukkit.command.ConsoleCommandSender.class);
+            when(console.hasPermission(anyString())).thenReturn(true);
+            when(console.isOp()).thenReturn(true);
+            when(console.getName()).thenReturn("CONSOLE");
+            ultiTools = mock(com.ultikits.ultitools.UltiTools.class);
+            when(ultiTools.i18n(anyString())).thenAnswer(inv -> inv.getArgument(0));
+        }
+
+        @AfterEach
+        void stopServer() throws Exception {
+            com.ultikits.plugins.chat.utils.ChatTestHelper.tearDown();
+        }
+
+        /**
+         * Dispatches {@code /uchat <args>} through {@code onCommand}. The matched method, its
+         * parameters as the framework built them from the format, and the validators all run for
+         * real; only the final hand-off to the scheduler is replaced by calling the matched method
+         * on the spot, since the scheduler's one-tick deferral is not what is under test.
+         */
+        private void run(String... args) throws Exception {
+            ChatAdminCommands dispatched = spy(commands);
+            java.lang.reflect.Method execute = com.ultikits.ultitools.abstracts.command.BaseCommandExecutor.class
+                    .getDeclaredMethod("executeCommand",
+                            com.ultikits.ultitools.abstracts.command.CommandContext.class,
+                            java.lang.reflect.Method.class, Object[].class,
+                            com.ultikits.ultitools.abstracts.command.validation.ValidatorChain.ChainValidationResult.class);
+            execute.setAccessible(true);
+            execute.invoke(doAnswer(invocation -> {
+                java.lang.reflect.Method matched = invocation.getArgument(1);
+                Object[] params = invocation.getArgument(2);
+                return matched.invoke(dispatched, params);
+            }).when(dispatched), any(), any(), any(), any());
+
+            org.bukkit.command.Command bukkitCommand = mock(org.bukkit.command.Command.class);
+            when(bukkitCommand.getName()).thenReturn("uchat");
+            try (org.mockito.MockedStatic<com.ultikits.ultitools.UltiTools> ut =
+                         mockStatic(com.ultikits.ultitools.UltiTools.class)) {
+                ut.when(com.ultikits.ultitools.UltiTools::getInstance).thenReturn(ultiTools);
+                dispatched.onCommand(console, bukkitCommand, "uchat", args);
+            }
+        }
+
+        @Test
+        @DisplayName("autoreply add welcome Welcome to the server stores the whole sentence")
+        void addTakesTheRestOfTheLine() throws Exception {
+            run("autoreply", "add", "welcome", "Welcome", "to", "the", "server");
+
+            verify(mockAutoReplyService).addRule("welcome", "welcome", "Welcome to the server");
+        }
+
+        @Test
+        @DisplayName("control: a one-word response is stored as before")
+        void oneWordResponse() throws Exception {
+            run("autoreply", "add", "greet", "hello");
+
+            verify(mockAutoReplyService).addRule("greet", "greet", "hello");
+        }
+
+        @Test
+        @DisplayName("autoreply setkeyword server-ip server IP sets the phrase")
+        void setKeywordTakesAPhrase() throws Exception {
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("server-ip", new HashMap<String, Object>());
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            run("autoreply", "setkeyword", "server-ip", "server", "IP");
+
+            verify(mockAutoReplyService).setKeyword("server-ip", "server IP");
+        }
+    }
 }
