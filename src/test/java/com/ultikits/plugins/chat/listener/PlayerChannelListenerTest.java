@@ -223,7 +223,8 @@ class PlayerChannelListenerTest {
             UUID quitter = UUID.randomUUID();
             org.bukkit.plugin.Plugin host = mock(org.bukkit.plugin.Plugin.class);
             org.bukkit.plugin.PluginManager pluginManager = org.bukkit.Bukkit.getPluginManager();
-            when(pluginManager.getPlugin("UltiTools")).thenReturn(host);
+            // lenient: once no sweep is scheduled, nothing looks the host up
+            lenient().when(pluginManager.getPlugin("UltiTools")).thenReturn(host);
             antiSpam.recordMessage(quitter, "hello");
 
             listener.onPlayerQuit(new PlayerQuitEvent(
