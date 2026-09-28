@@ -658,4 +658,45 @@ class ChatAdminCommandsTest {
             assertThat(config.getRules()).containsKey("greet");
         }
     }
+
+    // ==================== UltiKits/UltiChat#39 ====================
+
+    @Nested
+    @DisplayName("A rule name or keyword is shown as written, even when it contains a placeholder (UltiKits/UltiChat#39)")
+    class PlaceholdersFilledOnce {
+
+        @Test
+        @DisplayName("autoreply list: a name containing {1} and a keyword containing {3} stay literal")
+        void listLineIsFilledInOnePass() {
+            CommandSender sender = mock(CommandSender.class);
+            Map<String, Map<String, Object>> rules = new LinkedHashMap<>();
+            Map<String, Object> rule = new HashMap<>();
+            rule.put("keyword", "kw{3}");
+            rule.put("mode", "contains");
+            rule.put("response", "resp");
+            rules.put("a{1}b", rule);
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            commands.onAutoReplyList(sender);
+
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender, atLeastOnce()).sendMessage(sent.capture());
+            assertThat(sent.getAllValues()).contains("a{1}b: kw{3} [contains] -> resp");
+        }
+
+        @Test
+        @DisplayName("autoreply setkeyword: a name containing {1} stays literal")
+        void keywordSetLineIsFilledInOnePass() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("r{1}", new HashMap<String, Object>());
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            commands.onAutoReplySetKeyword(sender, "r{1}", "k");
+
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender).sendMessage(sent.capture());
+            assertThat(sent.getValue()).isEqualTo("Rule 'r{1}' keyword set to 'k'.");
+        }
+    }
 }

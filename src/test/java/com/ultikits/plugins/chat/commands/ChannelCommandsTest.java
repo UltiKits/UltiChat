@@ -263,4 +263,25 @@ class ChannelCommandsTest {
             assertThat(result).isEmpty();
         }
     }
+
+    // ==================== placeholder sweep ====================
+
+    @Nested
+    @DisplayName("A channel's display name is shown as written, even when it contains a placeholder")
+    class PlaceholdersFilledOnce {
+
+        @Test
+        @DisplayName("the list line keeps a display name containing {1} literal")
+        void listLineIsFilledInOnePass() {
+            org.bukkit.entity.Player player = mock(org.bukkit.entity.Player.class);
+            when(player.getUniqueId()).thenReturn(java.util.UUID.randomUUID());
+            when(mockChannelService.getAvailableChannels(player)).thenReturn(java.util.Collections.singletonList("staff"));
+            when(mockChannelService.getChannelDisplayName("staff")).thenReturn("Staff {1}");
+            when(mockChannelService.getPlayerChannel(any())).thenReturn("staff");
+
+            commands.onList(player);
+
+            assertSentMessageContaining(player, "Staff {1} (staff)");
+        }
+    }
 }
