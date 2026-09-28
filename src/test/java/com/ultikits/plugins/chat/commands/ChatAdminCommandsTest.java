@@ -429,4 +429,37 @@ class ChatAdminCommandsTest {
             assertThat(captor.getAllValues()).anyMatch(msg -> msg.contains("reload"));
         }
     }
+
+    // ==================== UltiKits/UltiChat#25 ====================
+
+    @Nested
+    @DisplayName("A rule name containing '.' is refused, naming the character (UltiKits/UltiChat#25)")
+    class DottedRuleName {
+
+        @Test
+        @DisplayName("add refuses my.rule, says why, and never reaches the service")
+        void addRefusesADottedName() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+            when(mockPlugin.i18n("autoreply_invalid_name"))
+                    .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+
+            commands.onAutoReplyAdd(sender, "my.rule", "hi");
+
+            verify(mockAutoReplyService, never()).addRule(anyString(), anyString(), anyString());
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender).sendMessage(sent.capture());
+            assertThat(sent.getValue()).contains("my.rule").contains("'.'");
+            assertThat(sent.getValue()).doesNotContain("added");
+        }
+
+        @Test
+        @DisplayName("control: a name without a dot is added")
+        void undottedNameIsAdded() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onAutoReplyAdd(sender, "my-rule", "hi");
+
+            verify(mockAutoReplyService).addRule("my-rule", "my-rule", "hi");
+        }
+    }
 }
