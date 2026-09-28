@@ -32,9 +32,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AutoReplyListener implements Listener {
 
     /**
-     * Records the last time each player triggered an auto-reply for cooldown.
+     * Records the last time each player triggered an auto-reply for cooldown. An entry older than
+     * the longest cooldown the setting accepts can no longer block anyone, so it is dropped when it
+     * is read and whenever a reply is recorded; the table holds only players who triggered a reply
+     * within that window (UltiKits/UltiChat#34). An entry past the current cooldown but inside that
+     * window is kept, so raising the cooldown and reloading still counts it.
      */
     static final Map<UUID, Long> LAST_REPLY_TIME = new ConcurrentHashMap<>();
+
+    private static final long KEEP_MS = AutoReplyConfig.MAX_COOLDOWN_SECONDS * 1000L;
 
     @Autowired
     private AutoReplyConfig config;
@@ -72,7 +78,9 @@ public class AutoReplyListener implements Listener {
         sendResponse(player, rule);
         executeCommands(player, autoReplyService.getCommands(rule));
 
-        LAST_REPLY_TIME.put(player.getUniqueId(), System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        LAST_REPLY_TIME.values().removeIf(time -> now - time >= KEEP_MS);
+        LAST_REPLY_TIME.put(player.getUniqueId(), now);
     }
 
     private boolean isOnCooldown(UUID playerId) {
@@ -80,8 +88,13 @@ public class AutoReplyListener implements Listener {
         if (lastTime == null) {
             return false;
         }
+        long elapsed = System.currentTimeMillis() - lastTime;
+        if (elapsed >= KEEP_MS) {
+            LAST_REPLY_TIME.remove(playerId, lastTime);
+            return false;
+        }
         long cooldownMs = config.getCooldown() * 1000L;
-        return (System.currentTimeMillis() - lastTime) < cooldownMs;
+        return elapsed < cooldownMs;
     }
 
     private boolean hasRulePermission(Player player, Map<String, Object> rule) {
