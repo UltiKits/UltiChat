@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.junit.jupiter.api.*;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.util.*;
 
@@ -732,6 +733,72 @@ class ChatListenerTest {
             assertThat(event.isCancelled()).as("the message itself is not refused").isFalse();
             assertThat(map("lastMessageTime")).doesNotContainKey(playerUuid);
             assertThat(map("recentMessages")).doesNotContainKey(playerUuid);
+        }
+    }
+
+    // ==================== UltiKits/UltiChat#32 ====================
+
+    /**
+     * The line a player sees is {@code String.format(format, displayName, message)}; these tests
+     * apply that last step themselves, so they read what is shown, not an intermediate string.
+     */
+    @Nested
+    @DisplayName("A display name is inserted as literal text, never as part of the template (UltiKits/UltiChat#32)")
+    class DisplayNameIsLiteral {
+
+        private String shownLine(String displayName, String format) {
+            chatConfig.setChatFormatEnabled(true);
+            chatConfig.setChatFormat(format);
+            chatConfig.setAntiSpamEnabled(false);
+            chatConfig.setMentionsEnabled(false);
+            channelConfig.setEnabled(false);
+            when(player.getDisplayName()).thenReturn(displayName);
+
+            AsyncPlayerChatEvent event = createChatEvent("hello");
+            listener.onChat(event);
+            return String.format(event.getFormat(), displayName, event.getMessage());
+        }
+
+        @Test
+        @DisplayName("a display name containing {message} does not repeat the message")
+        void messageTokenStaysLiteral() {
+            assertThat(shownLine("Evil {message}", "{displayname} says: {message}"))
+                    .isEqualTo("Evil {message} says: hello");
+        }
+
+        @Test
+        @DisplayName("a display name containing a format specifier or a percent sign is shown as written")
+        void formatSpecifierStaysLiteral() {
+            assertThat(shownLine("Nick %2$s 100%", "{displayname} says: {message}"))
+                    .isEqualTo("Nick %2$s 100% says: hello");
+        }
+
+        @Test
+        @DisplayName("with PlaceholderAPI installed, a placeholder in a display name is not expanded")
+        void placeholderStaysLiteral() {
+            org.bukkit.plugin.PluginManager pluginManager = Bukkit.getPluginManager();
+            when(pluginManager.getPlugin("PlaceholderAPI")).thenReturn(mock(org.bukkit.plugin.Plugin.class));
+            try (MockedStatic<me.clip.placeholderapi.PlaceholderAPI> papi =
+                         mockStatic(me.clip.placeholderapi.PlaceholderAPI.class)) {
+                papi.when(() -> me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(any(Player.class), anyString()))
+                        .thenAnswer(inv -> ((String) inv.getArgument(1)).replace("%server_name%", "SECRET"));
+
+                assertThat(shownLine("Nick %server_name%", "[%server_name%] {displayname}: {message}"))
+                        .as("the operator's own placeholder expands; the player's does not")
+                        .isEqualTo("[SECRET] Nick %server_name%: hello");
+            }
+        }
+
+        @Test
+        @DisplayName("control: '&' colour codes in a display name are still shown as colour")
+        void colourCodesStillTranslate() {
+            assertThat(shownLine("&cRed", "{displayname}: {message}")).isEqualTo("\u00a7cRed: hello");
+        }
+
+        @Test
+        @DisplayName("control: an ordinary display name shows as before")
+        void ordinaryDisplayName() {
+            assertThat(shownLine("Fancy", "{displayname} says: {message}")).isEqualTo("Fancy says: hello");
         }
     }
 }
