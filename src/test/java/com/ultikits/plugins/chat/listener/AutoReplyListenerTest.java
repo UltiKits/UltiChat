@@ -508,4 +508,77 @@ class AutoReplyListenerTest {
             verify(player, never()).sendMessage(anyString());
         }
     }
+
+    // ==================== UltiKits/UltiChat#34 ====================
+
+    /**
+     * The cooldown table keeps an entry only while some allowed {@code autoreply.cooldown} (at most
+     * 300 seconds) could still block its player. An entry past the current cooldown but younger
+     * than that is kept, so raising the cooldown and reloading still counts it.
+     */
+    @Nested
+    @DisplayName("Cooldown entries no allowed cooldown can reach are dropped (UltiKits/UltiChat#34)")
+    class ExpiredEntries {
+
+        private static final long LONGEST_ALLOWED_MS = 300_000L;
+
+        private void matchEverything() {
+            Map<String, Object> rule = createSimpleRule("Response");
+            when(autoReplyService.findMatch(anyString())).thenReturn(createMatchEntry("r1", rule));
+            when(autoReplyService.getResponse(rule)).thenReturn("Response");
+            when(autoReplyService.getCommands(rule)).thenReturn(Collections.<String>emptyList());
+        }
+
+        @Test
+        @DisplayName("a reply drops other players' entries older than the longest allowed cooldown")
+        void replySweepsExpiredEntries() {
+            matchEverything();
+            UUID gone = UUID.randomUUID();
+            UUID recent = UUID.randomUUID();
+            long now = System.currentTimeMillis();
+            AutoReplyListener.LAST_REPLY_TIME.put(gone, now - LONGEST_ALLOWED_MS - 1_000L);
+            AutoReplyListener.LAST_REPLY_TIME.put(recent, now - 20_000L);
+
+            listener.onPlayerChat(createChatEvent("test"));
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME)
+                    .doesNotContainKey(gone)
+                    .as("past the current 10-second cooldown, but a raised cooldown could still reach it")
+                    .containsKey(recent)
+                    .containsKey(playerUuid);
+        }
+
+        @Test
+        @DisplayName("reading a player's own expired entry drops it, even when nothing matches")
+        void readDropsOwnExpiredEntry() {
+            when(autoReplyService.findMatch(anyString())).thenReturn(null);
+            AutoReplyListener.LAST_REPLY_TIME.put(playerUuid,
+                    System.currentTimeMillis() - LONGEST_ALLOWED_MS - 1_000L);
+
+            listener.onPlayerChat(createChatEvent("no match"));
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME).doesNotContainKey(playerUuid);
+        }
+
+        @Test
+        @DisplayName("control: at the longest cooldown, an entry inside it still blocks and is kept")
+        void longestCooldownStillBlocks() {
+            config.setCooldown(300);
+            matchEverything();
+            AutoReplyListener.LAST_REPLY_TIME.put(playerUuid, System.currentTimeMillis() - 200_000L);
+
+            listener.onPlayerChat(createChatEvent("test"));
+
+            verify(player, never()).sendMessage(anyString());
+            assertThat(AutoReplyListener.LAST_REPLY_TIME).containsKey(playerUuid);
+        }
+
+        @Test
+        @DisplayName("the longest cooldown the setting accepts is the one the table is kept for")
+        void rangeMatchesTheKeptWindow() throws Exception {
+            com.ultikits.ultitools.annotations.config.Range range = AutoReplyConfig.class
+                    .getDeclaredField("cooldown").getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
+            assertThat((long) range.max() * 1000L).isEqualTo(LONGEST_ALLOWED_MS);
+        }
+    }
 }
