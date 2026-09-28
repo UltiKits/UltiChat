@@ -74,6 +74,13 @@ class ChatListenerTest {
         return new AsyncPlayerChatEvent(false, player, message, recipients);
     }
 
+    /** As {@link #createChatEvent}, but for a specific player object rather than the outer {@code player}. */
+    private AsyncPlayerChatEvent createChatEventFor(Player sender, String message) {
+        Set<Player> recipients = new HashSet<>();
+        recipients.add(sender);
+        return new AsyncPlayerChatEvent(false, sender, message, recipients);
+    }
+
     // ==================== Anti-Spam Tests ====================
 
     @Nested
@@ -687,10 +694,12 @@ class ChatListenerTest {
      * {@code onChat} runs off the main thread, so the record it writes after the spam check can land
      * after the quit handler's {@code AntiSpamService#cleanup} and re-create the quitter's entries,
      * undoing the eviction (UltiKits/UltiChat#20). The listener must leave no entry for a sender who
-     * is no longer online once it has written.
+     * is no longer online once it has written -- but, since the maps are keyed by UUID alone, it must
+     * also leave alone any entry a NEW session for that same UUID has already legitimately written
+     * (UltiKits/UltiChat#47 review of PR #40, narrowing UltiKits/UltiChat#35).
      */
     @Nested
-    @DisplayName("A record written after the sender left leaves no anti-spam entry (UltiKits/UltiChat#20)")
+    @DisplayName("A record written after the sender left leaves no anti-spam entry, without erasing a newer session's own (UltiKits/UltiChat#20, #40)")
     class RecordAfterQuit {
 
         private AntiSpamService realAntiSpam;
@@ -701,6 +710,7 @@ class ChatListenerTest {
             chatConfig.setAntiSpamEnabled(true);
             realAntiSpam = new AntiSpamService();
             ChatTestHelper.setField(realAntiSpam, "config", chatConfig);
+            ChatTestHelper.setField(realAntiSpam, "plugin", ChatTestHelper.getMockPlugin());
             realListener = new ChatListener(chatConfig, channelConfig,
                     realAntiSpam, channelService, emojiService);
         }
@@ -713,7 +723,7 @@ class ChatListenerTest {
         @Test
         @DisplayName("Sender still connected: the message is recorded (control)")
         void connectedSenderIsRecorded() throws Exception {
-            when(player.isConnected()).thenReturn(true);
+            when(ChatTestHelper.getMockServer().getPlayer(playerUuid)).thenReturn(player);
 
             realListener.onChat(createChatEvent("hello"));
 
@@ -724,7 +734,7 @@ class ChatListenerTest {
         @Test
         @DisplayName("Sender gone by the time the record is written: neither map holds them afterwards")
         void disconnectedSenderLeavesNoEntry() throws Exception {
-            when(player.isConnected()).thenReturn(false);
+            when(ChatTestHelper.getMockServer().getPlayer(playerUuid)).thenReturn(null);
 
             AsyncPlayerChatEvent event = createChatEvent("hello");
             realListener.onChat(event);
@@ -735,20 +745,40 @@ class ChatListenerTest {
         }
 
         /**
-         * The check is per session (UltiKits/UltiChat#35): a chat task from a session that has
-         * ended writes nothing that survives, even when the same player has already joined again
-         * and so is online under the same UUID.
+         * The check must tell apart two cases that both leave the stale task's own
+         * {@code player.isConnected()} false: nobody online at all for this UUID (the case above,
+         * where cleanup is correct), and a NEW session already online and already holding its own,
+         * legitimate anti-spam state (UltiKits/UltiChat#47 review of PR #40, narrowing
+         * UltiKits/UltiChat#35's "per session, not per UUID" rule to what it actually has to mean).
+         * The maps are keyed by UUID alone, so a cleanup that cannot tell these apart erases the
+         * reconnected session's own record as collateral damage, letting it bypass anti-spam until
+         * its own next message re-creates the entry.
          */
         @Test
-        @DisplayName("A record from an ended session leaves no entry even when the player has rejoined")
-        void endedSessionLeavesNoEntryAfterRejoin() throws Exception {
-            when(player.isConnected()).thenReturn(false);
-            when(player.isOnline()).thenReturn(true);
+        @DisplayName("A stale task from an ended session does not erase a newer, already-online session's own record")
+        void staleSessionDoesNotEraseTheReconnectedSessionsRecord() throws Exception {
+            // Zeroed so the stale message below is not itself refused as spam by the cooldown the
+            // first message just set -- this test is about the online check after recordMessage, not
+            // about the cooldown gate in front of it.
+            chatConfig.setAntiSpamCooldown(0);
+            Player reconnected = ChatTestHelper.createMockPlayer("TestPlayer", playerUuid);
+            // By the time the stale task (captured against the OLD `player` object, before it
+            // disconnected) reaches its check, Bukkit already reports the NEW session as online.
+            when(ChatTestHelper.getMockServer().getPlayer(playerUuid)).thenReturn(reconnected);
 
-            realListener.onChat(createChatEvent("from the old session"));
+            // The new session records its own message first -- this is the state that must survive.
+            realListener.onChat(createChatEventFor(reconnected, "new session message"));
+            assertThat(map("lastMessageTime")).as("the reconnected session's own record")
+                    .containsKey(playerUuid);
 
-            assertThat(map("lastMessageTime")).doesNotContainKey(playerUuid);
-            assertThat(map("recentMessages")).doesNotContainKey(playerUuid);
+            // The old session's chat task, captured before the disconnect, finally runs.
+            realListener.onChat(createChatEventFor(player, "stale old session message"));
+
+            assertThat(map("lastMessageTime")).as("neither write was erased").containsKey(playerUuid);
+            Collection<?> recent = (Collection<?>) map("recentMessages").get(playerUuid);
+            assertThat(recent)
+                    .as("both the reconnected session's message and the stale one are still recorded")
+                    .hasSize(2);
         }
     }
 

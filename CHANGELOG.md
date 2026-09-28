@@ -124,6 +124,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - 玩家退出后重新加入时，反刷屏历史在任何情况下都从空开始。此前玩家重新加入时仍在处理中的上一次会话的聊天消息，可能被记入新的会话
   （UltiKits/UltiChat#35）。
 
+- A chat message still being processed from a session that has since ended no longer erases a
+  session already online under the same UUID's own anti-spam history. The previous fix for
+  UltiKits/UltiChat#35 above told "this session has ended" from `Player#isConnected()`, which belongs
+  to the specific, possibly stale `Player` object the delayed task was holding and says nothing about
+  whether the same player has since reconnected; since the anti-spam maps are keyed by player UUID
+  alone, that stale task's cleanup could erase the reconnected session's own, already-legitimate
+  cooldown and duplicate-message history moments after it was recorded, letting the reconnected
+  player bypass anti-spam briefly. The check now asks Bukkit whether anyone is online at all under
+  that UUID, which correctly leaves a newer session's state alone (UltiKits/UltiChat#40).
+- 一条仍在处理、但所属会话已经结束的聊天消息，现在不会再抹除同一 UUID 下已在线的新会话自己的反刷屏历史。此前针对
+  UltiKits/UltiChat#35 的修复通过 `Player#isConnected()` 判断“该会话是否已结束”，而该方法属于延迟任务持有的那个具体的、
+  可能已过期的 `Player` 对象，无法说明同一玩家是否已经重新连接；由于反刷屏映射仅以玩家 UUID 为键，该过期任务的清理可能会
+  在刚记录之后就抹除重新连接会话自己合法的冷却与重复消息历史，使重新连接的玩家短暂绕过反垃圾消息检测。现在改为向 Bukkit
+  询问该 UUID 下是否还有任何人在线，从而正确地不去动新会话的状态（UltiKits/UltiChat#40）。
+
 - A chat format using `{displayname}` inserts the player's display name as written. The name was put
   into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
   `{message}` repeated the message, and one containing a PlaceholderAPI placeholder such as

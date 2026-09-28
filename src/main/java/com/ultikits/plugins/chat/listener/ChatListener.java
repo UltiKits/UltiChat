@@ -103,12 +103,18 @@ public class ChatListener implements Listener {
         antiSpamService.recordMessage(player.getUniqueId(), message);
         // This runs off the main thread, so the record above can land after the quit handler's
         // AntiSpamService#cleanup and re-create the quitter's entries (UltiKits/UltiChat#20).
-        // Observe after writing, per session (UltiKits/UltiChat#35): Player#isConnected() belongs
-        // to this player object, and Paper clears it before PlayerQuitEvent fires. A record written
-        // before that comes before the quit cleanup, which removes it; one written after it sees a
-        // disconnected sender and removes itself here, even if the same player has joined again
-        // (isOnline() is per UUID and would say yes).
-        if (!player.isConnected()) {
+        // Observe after writing, per UUID's current online state, not per session (UltiKits/UltiChat#35,
+        // narrowed by the #40 review): Player#isConnected() belongs to this specific, possibly stale
+        // Player object and says only whether THIS connection has ended, not whether a newer session
+        // for the same UUID has since taken its place. A reconnect landing between this message's
+        // recordMessage above and the old check reaching this line made cleanup(UUID) erase the
+        // reconnected session's own, already-legitimate cooldown and duplicate history -- the maps are
+        // keyed by UUID alone -- bypassing anti-spam until its next message re-created them.
+        // Bukkit.getPlayer(UUID) instead asks "is anyone online under this UUID right now": null means
+        // this connection ended with nothing newer in its place, exactly the case #35 needs cleaned up;
+        // non-null (whether still this same connection or a newer one that has since joined) means
+        // there is live state for this UUID that must not be erased.
+        if (Bukkit.getPlayer(player.getUniqueId()) == null) {
             antiSpamService.cleanup(player.getUniqueId());
         }
         return false;
