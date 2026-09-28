@@ -549,4 +549,113 @@ class ChatAdminCommandsTest {
             verify(mockAutoReplyService).setKeyword("server-ip", "server IP");
         }
     }
+
+    // ==================== UltiKits/UltiChat#29 ====================
+
+    /**
+     * A panel configuration update replaces the whole rule map (the framework sets the field
+     * reflectively). A spy whose {@code save()} swaps the map reproduces that landing between a
+     * command's change and its save, single-threaded and without timing.
+     */
+    @Nested
+    @DisplayName("A rule map replaced by the panel during the save is reported as not applied (UltiKits/UltiChat#29)")
+    class ReplacedByPanel {
+
+        private com.ultikits.plugins.chat.config.AutoReplyConfig config;
+        private ChatAdminCommands realCommands;
+        private Map<String, Map<String, Object>> panelRules;
+        private CommandSender sender;
+
+        @BeforeEach
+        void realService() throws Exception {
+            config = spy(new com.ultikits.plugins.chat.config.AutoReplyConfig());
+            Map<String, Map<String, Object>> rules = new LinkedHashMap<>();
+            Map<String, Object> existing = new HashMap<>();
+            existing.put("keyword", "old");
+            existing.put("response", "Old");
+            rules.put("existing", existing);
+            config.setRules(rules);
+            AutoReplyService service = new AutoReplyService();
+            java.lang.reflect.Field field = AutoReplyService.class.getDeclaredField("config");
+            field.setAccessible(true);
+            field.set(service, config);
+            realCommands = new ChatAdminCommands(mockPlugin, service);
+
+            panelRules = new LinkedHashMap<>();
+            Map<String, Object> panelRule = new HashMap<>();
+            panelRule.put("keyword", "panel");
+            panelRule.put("response", "From the panel");
+            panelRules.put("from-panel", panelRule);
+
+            when(mockPlugin.i18n("autoreply_not_applied"))
+                    .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+            sender = mock(CommandSender.class);
+        }
+
+        private void panelReplacesTheRulesDuringTheSave() throws Exception {
+            doAnswer(invocation -> {
+                config.setRules(panelRules);
+                return null;
+            }).when(config).save();
+        }
+
+        private String reply() {
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender).sendMessage(sent.capture());
+            return sent.getValue();
+        }
+
+        private String notApplied(String rule) {
+            return org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                    com.ultikits.plugins.chat.i18n.CatalogueText.text("en", "autoreply_not_applied").replace("{0}", rule));
+        }
+
+        @Test
+        @DisplayName("add: not applied, and the panel's rules are left exactly as the panel wrote them")
+        void add() throws Exception {
+            panelReplacesTheRulesDuringTheSave();
+
+            realCommands.onAutoReplyAdd(sender, "greet", "Hello");
+
+            String reply = reply();
+            assertThat(reply).as("no success is reported").doesNotContain("added");
+            assertThat(reply).isEqualTo(notApplied("greet"));
+            assertThat(config.getRules()).isSameAs(panelRules).containsOnlyKeys("from-panel");
+        }
+
+        @Test
+        @DisplayName("setkeyword: not applied")
+        void setKeyword() throws Exception {
+            panelReplacesTheRulesDuringTheSave();
+
+            realCommands.onAutoReplySetKeyword(sender, "existing", "new keyword");
+
+            String reply = reply();
+            assertThat(reply).as("no success is reported").doesNotContain("keyword set");
+            assertThat(reply).isEqualTo(notApplied("existing"));
+        }
+
+        @Test
+        @DisplayName("remove: not applied")
+        void remove() throws Exception {
+            panelReplacesTheRulesDuringTheSave();
+
+            realCommands.onAutoReplyRemove(sender, "existing");
+
+            String reply = reply();
+            assertThat(reply).as("no success is reported").doesNotContain("removed");
+            assertThat(reply).isEqualTo(notApplied("existing"));
+        }
+
+        @Test
+        @DisplayName("control: a save the panel does not interrupt reports success")
+        void uninterruptedSaveSucceeds() throws Exception {
+            doNothing().when(config).save();
+
+            realCommands.onAutoReplyAdd(sender, "greet", "Hello");
+
+            assertThat(reply()).contains("added");
+            assertThat(config.getRules()).containsKey("greet");
+        }
+    }
 }
