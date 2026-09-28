@@ -1,5 +1,6 @@
 package com.ultikits.plugins.chat.listener;
 
+import com.ultikits.plugins.chat.UltiChat;
 import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.EventListener;
@@ -107,14 +108,14 @@ public class JoinQuitListener implements Listener {
             return PlaceholderAPI.setPlaceholders(player, text);
         }
 
-        // Basic fallbacks when PlaceholderAPI is not installed
-        String result = text.replace("%player_name%", player.getName());
-        result = result.replace("{player}", player.getName());
-        result = result.replace("{displayname}", player.getDisplayName());
-        result = result.replace("%online_players%", String.valueOf(Bukkit.getOnlinePlayers().size()));
-        result = result.replace("%max_players%", String.valueOf(Bukkit.getMaxPlayers()));
-
-        return result;
+        // Basic fallbacks when PlaceholderAPI is not installed, filled in one pass: a display name
+        // the player chose is inserted as written, never scanned for a later placeholder
+        return UltiChat.fillOnce(text,
+                "%player_name%", player.getName(),
+                "{player}", player.getName(),
+                "{displayname}", player.getDisplayName(),
+                "%online_players%", String.valueOf(Bukkit.getOnlinePlayers().size()),
+                "%max_players%", String.valueOf(Bukkit.getMaxPlayers()));
     }
 
     String colorize(String text) {

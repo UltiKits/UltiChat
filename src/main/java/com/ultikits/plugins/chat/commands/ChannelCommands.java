@@ -1,5 +1,6 @@
 package com.ultikits.plugins.chat.commands;
 
+import com.ultikits.plugins.chat.UltiChat;
 import com.ultikits.plugins.chat.service.ChannelService;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.abstracts.command.BaseCommandExecutor;
@@ -59,9 +60,8 @@ public class ChannelCommands extends BaseCommandExecutor {
 
         for (String channelName : channels) {
             String displayName = channelService.getChannelDisplayName(channelName);
-            String line = plugin.i18n("channel_list_entry");
-            line = line.replace("{0}", displayName);
-            line = line.replace("{1}", channelName);
+            // One pass: a display name containing {1} is shown as written
+            String line = UltiChat.fillOnce(plugin.i18n("channel_list_entry"), "{0}", displayName, "{1}", channelName);
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', line));
         }
 

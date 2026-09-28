@@ -107,6 +107,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The `/ch` channel list shows a channel's display name exactly as configured, and the join, quit and
+  welcome lines (without PlaceholderAPI) insert a player's display name exactly as it is. A value
+  containing a later placeholder, such as `{1}` or `%online_players%`, was rewritten by it.
+- `/ch` 频道列表现在按配置原样显示频道显示名；未安装 PlaceholderAPI 时，加入、退出与欢迎消息按原样插入玩家显示名。此前值中若含有
+  随后的占位符（如 `{1}`、`%online_players%`），会被其改写。
+
 - `/uchat autoreply list` and `/uchat autoreply setkeyword` show a rule name, keyword or response
   exactly as written. A value containing `{1}`, `{2}` or `{3}` was rewritten by the placeholders
   filled after it, so the line showed text the rule does not have (UltiKits/UltiChat#39).
