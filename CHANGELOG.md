@@ -107,6 +107,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Messages show an apostrophe once: `Auto-reply rule 'greet' added.`, `You don't have permission for
+  channel staff.` Language entries wrote every apostrophe doubled, and players saw both. The jar's
+  text is corrected, and a doubled apostrophe in a language file an earlier version extracted onto
+  the server is shown as one too (UltiKits/UltiChat#37).
+- 消息中的引号现在只显示一个，例如 `Auto-reply rule 'greet' added.`。此前语言条目把每个引号都写成两个，玩家会看到两个。
+  jar 中的文字已更正，服务器上由旧版本解压出的语言文件中的双引号也会显示为一个（UltiKits/UltiChat#37）。
+
 - The `/ch` channel list shows a channel's display name exactly as configured, and the join, quit and
   welcome lines (without PlaceholderAPI) insert a player's display name exactly as it is. A value
   containing a later placeholder, such as `{1}` or `%online_players%`, was rewritten by it.

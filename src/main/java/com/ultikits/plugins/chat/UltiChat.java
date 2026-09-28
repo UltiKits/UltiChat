@@ -87,6 +87,26 @@ public class UltiChat extends UltiToolsPlugin {
         }
     }
 
+    /**
+     * This module's text, with a doubled apostrophe shown as one.
+     * <p>
+     * Earlier versions wrote apostrophes in their language entries doubled ({@code ''{0}''},
+     * {@code don''t}), the escape {@code java.text.MessageFormat} expects -- but nothing formats these
+     * entries with it, so players saw both characters. The jar's text is corrected, but an upgraded
+     * server keeps its already-extracted language file, whose entries win over the jar's, so the
+     * doubled text is un-doubled here, where every line of this module reads it
+     * (UltiKits/UltiChat#37, maintainer decision 2026-09-27). The one text this changes on purpose,
+     * two apostrophes meant to be shown as two, is written by nothing this module ships.
+     *
+     * @param key the language key
+     * @return the text in the server's language, each doubled apostrophe shown as one
+     */
+    @Override
+    public String i18n(String key) {
+        String text = super.i18n(key);
+        return text == null ? null : text.replace("''", "'");
+    }
+
     @Override
     public List<String> supported() {
         return Arrays.asList("zh", "en");
