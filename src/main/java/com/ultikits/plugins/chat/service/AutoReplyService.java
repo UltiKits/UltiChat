@@ -38,6 +38,23 @@ public class AutoReplyService {
     public static final char UNUSABLE_NAME_CHARACTER = '.';
 
     /**
+     * Thrown by a rule change whose save found the rule map replaced: a panel configuration update
+     * replaces the whole {@code rules} field (the framework sets it reflectively, on the WebSocket
+     * thread), and when that lands between a command's change and its save, or during the save, the
+     * change went into a map the configuration no longer holds. The change is then neither active
+     * nor on disk, and the command must say so rather than report success (UltiKits/UltiChat#29,
+     * maintainer decision 2026-09-27). Nothing is merged: the panel's rules stay exactly as the
+     * panel wrote them.
+     */
+    public static final class RulesReplacedException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        RulesReplacedException() {
+            super("The auto-reply rule map was replaced while the change was being saved");
+        }
+    }
+
+    /**
      * Guards {@link #findMatch(String)}'s iteration and every mutation and rollback in this class.
      * <p>
      * Not every reader of the rule map: {@link #getRules()} hands the live map out unguarded and
@@ -46,8 +63,9 @@ public class AutoReplyService {
      * held (see below); and {@code AbstractConfigEntity#updateProperties} replaces the {@code rules}
      * field reflectively from the WebSocket thread, which no lock this class owns can guard -- if a
      * panel configuration write lands between a mutation here and its save, the save serialises the
-     * panel's map and the command still reports success. That last one is narrow and is not
-     * addressed here; it is a framework-side ownership question, not a module-side locking one.
+     * panel's map. That is detected after the save rather than prevented: the change throws
+     * {@link RulesReplacedException} and the command reports that it did not take effect
+     * (UltiKits/UltiChat#29).
      * <p>
      * {@link #findMatch(String)} iterates that map on a chat thread -- {@code AutoReplyListener}
      * handles {@code AsyncPlayerChatEvent} -- while a {@code /uchat autoreply} command mutates it on
@@ -163,6 +181,8 @@ public class AutoReplyService {
      * @throws IOException if the configuration could not be written; the rule set is left unchanged
      * @throws IllegalArgumentException if {@code name} contains {@link #UNUSABLE_NAME_CHARACTER};
      *                                  nothing is changed or written
+     * @throws RulesReplacedException if a panel update replaced the rule map while the change was
+     *                                being saved; the change did not take effect
      */
     public void addRule(String name, String keyword, String response) throws IOException {
         if (name.indexOf(UNUSABLE_NAME_CHARACTER) >= 0) {
@@ -195,7 +215,7 @@ public class AutoReplyService {
             live.put(name, rule);
         }
 
-        saveOrRestore(() -> {
+        saveOrRestore(rules, () -> {
             if (rulesWereAbsent) {
                 // Not an in-place restore, unlike every other rollback here: the field itself was
                 // absent, so restoring it means putting the absence back. Unreachable in practice --
@@ -223,13 +243,16 @@ public class AutoReplyService {
      * @param name    the rule name (key)
      * @param keyword the new keyword to match
      * @throws IOException if the configuration could not be written; the rule is left unchanged
+     * @throws RulesReplacedException if a panel update replaced the rule map while the change was
+     *                                being saved; the change did not take effect
      */
     public void setKeyword(String name, String keyword) throws IOException {
+        final Map<String, Map<String, Object>> rules;
         final Map<String, Object> rule;
         final boolean hadKeyword;
         final Object keywordBefore;
         synchronized (rulesLock) {
-            Map<String, Map<String, Object>> rules = config.getRules();
+            rules = config.getRules();
             if (rules == null) {
                 return;
             }
@@ -250,7 +273,7 @@ public class AutoReplyService {
             rule.put("keyword", keyword);
         }
 
-        saveOrRestore(() -> {
+        saveOrRestore(rules, () -> {
             if (hadKeyword) {
                 rule.put("keyword", keywordBefore);
             } else {
@@ -271,6 +294,8 @@ public class AutoReplyService {
      *
      * @param name the rule name to remove
      * @throws IOException if the configuration could not be written; the rule set is left unchanged
+     * @throws RulesReplacedException if a panel update replaced the rule map while the change was
+     *                                being saved; the change did not take effect
      */
     public void removeRule(String name) throws IOException {
         final Map<String, Map<String, Object>> rules;
@@ -296,7 +321,7 @@ public class AutoReplyService {
             patternCache.remove(name);
         }
 
-        saveOrRestore(() -> restore(rules, rulesBefore));
+        saveOrRestore(rules, () -> restore(rules, rulesBefore));
     }
 
     /**
@@ -306,10 +331,18 @@ public class AutoReplyService {
      * operator-edit warning cannot drift apart between them. The rollback runs under
      * {@link #rulesLock}, so no chat thread observes a half-restored rule set.
      *
+     * <p>
+     * After a successful write, the rule map the caller changed must still be the one the
+     * configuration holds. If a panel update replaced it in the meantime, the change is in a map
+     * nothing refers to any more: {@link RulesReplacedException} says so, and nothing is merged or
+     * rolled back, since the configuration now holds the panel's rules (UltiKits/UltiChat#29).
+     *
+     * @param changed  the rule map the caller changed
      * @param rollback undoes this method's caller's mutation; run only if the write fails
      * @throws IOException the write failure, rethrown after the rollback
+     * @throws RulesReplacedException if the configuration no longer holds {@code changed}
      */
-    private void saveOrRestore(Rollback rollback) throws IOException {
+    private void saveOrRestore(Map<String, Map<String, Object>> changed, Rollback rollback) throws IOException {
         final boolean overwritesOperatorEdit;
         try {
             // Read before the write, and both under the entity's own monitor, exactly as
@@ -334,6 +367,9 @@ public class AutoReplyService {
         }
         if (overwritesOperatorEdit) {
             warnOperatorEditOverwritten();
+        }
+        if (config.getRules() != changed) {
+            throw new RulesReplacedException();
         }
     }
 

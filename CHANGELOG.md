@@ -107,6 +107,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A `/uchat autoreply add`, `setkeyword` or `remove` whose save coincides with a panel update of the
+  auto-reply rules now says the change did not take effect ("...the panel replaced the auto-reply rules
+  while it was being saved. Run the command again."). The panel's update replaces the whole rule set,
+  so the command's change was neither active nor saved, yet the command reported success. The panel's
+  rules are kept as the panel wrote them (UltiKits/UltiChat#29).
+- `/uchat autoreply add`、`setkeyword` 或 `remove` 的保存恰好与面板更新自动回复规则同时发生时，命令现在会说明更改未生效（保存时面板替换了规则，
+  请重新执行）。面板更新会整体替换规则集，因此命令的更改既未生效也未保存，而命令此前却报告成功。面板写入的规则保持不变
+  （UltiKits/UltiChat#29）。
+
 - `/uchat autoreply add` refuses a rule name containing `.` and says why. The configuration file
   stores a rule under its name as a path, so `my.rule` was split into two keys when the file was
   written: the rule was renamed to `my` and never fired, while the command reported it added

@@ -118,6 +118,9 @@ public class ChatAdminCommands extends BaseCommandExecutor {
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
             return;
+        } catch (AutoReplyService.RulesReplacedException e) {
+            reportReplacedByPanel(sender, name);
+            return;
         }
         String msg = plugin.i18n("autoreply_added").replace("{0}", name);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
@@ -164,6 +167,9 @@ public class ChatAdminCommands extends BaseCommandExecutor {
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
             return;
+        } catch (AutoReplyService.RulesReplacedException e) {
+            reportReplacedByPanel(sender, name);
+            return;
         }
         String msg = plugin.i18n("autoreply_keyword_set").replace("{0}", name).replace("{1}", keyword);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
@@ -187,6 +193,9 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             autoReplyService.removeRule(name);
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
+            return;
+        } catch (AutoReplyService.RulesReplacedException e) {
+            reportReplacedByPanel(sender, name);
             return;
         }
         String msg = plugin.i18n("autoreply_removed").replace("{0}", name);
@@ -214,6 +223,20 @@ public class ChatAdminCommands extends BaseCommandExecutor {
     private void reportSaveFailure(CommandSender sender, String name, IOException cause) {
         plugin.getLogger().error(cause, plugin.i18n("log_autoreply_save_failed").replace("{RULE}", name));
         String msg = plugin.i18n("autoreply_save_failed").replace("{0}", name);
+        sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+    }
+
+    /**
+     * Tell the sender the rule change did not take effect: a panel configuration update replaced the
+     * rule set while the change was being saved, so the panel's rules are what is now active and on
+     * disk, and the command's change is in neither (UltiKits/UltiChat#29). Trying again applies the
+     * change to the rules the panel wrote.
+     *
+     * @param sender the sender to report to
+     * @param name   the rule name the command was changing
+     */
+    private void reportReplacedByPanel(CommandSender sender, String name) {
+        String msg = plugin.i18n("autoreply_not_applied").replace("{0}", name);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
     }
 
