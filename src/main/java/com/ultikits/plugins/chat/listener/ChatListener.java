@@ -5,6 +5,7 @@ import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.service.AntiSpamService;
 import com.ultikits.plugins.chat.service.ChannelService;
+import com.ultikits.plugins.chat.service.ConnectionRegistry;
 import com.ultikits.plugins.chat.service.EmojiService;
 import com.ultikits.ultitools.annotations.EventListener;
 import org.bukkit.Bukkit;
@@ -18,6 +19,7 @@ import me.clip.placeholderapi.PlaceholderAPI;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Main chat event listener that integrates anti-spam, emoji, channel, format, and mention features.
@@ -34,15 +36,17 @@ public class ChatListener implements Listener {
     private final AntiSpamService antiSpamService;
     private final ChannelService channelService;
     private final EmojiService emojiService;
+    private final ConnectionRegistry connectionRegistry;
 
     public ChatListener(ChatConfig chatConfig, ChannelConfig channelConfig,
                         AntiSpamService antiSpamService, ChannelService channelService,
-                        EmojiService emojiService) {
+                        EmojiService emojiService, ConnectionRegistry connectionRegistry) {
         this.chatConfig = chatConfig;
         this.channelConfig = channelConfig;
         this.antiSpamService = antiSpamService;
         this.channelService = channelService;
         this.emojiService = emojiService;
+        this.connectionRegistry = connectionRegistry;
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
@@ -93,6 +97,19 @@ public class ChatListener implements Listener {
         if (!chatConfig.isAntiSpamEnabled() || player.hasPermission("ultichat.spam.bypass")) {
             return false;
         }
+        UUID playerId = player.getUniqueId();
+        // Captured once, at the start of this connection's own async chat processing, so every
+        // state-changing step below can tell whether IT is still that same connection by the time it
+        // runs (UltiKits/UltiChat#40 review, maintainer decision 2026-09-29). Two narrower checks were
+        // tried here before this one and both eventually let a stale, superseded connection act on a
+        // newer one's behalf: Player#isConnected() (UltiKits/UltiChat#35) belongs to this specific,
+        // possibly-stale Player object and only knows whether THIS connection ended, not whether a
+        // newer one has since taken its place; Bukkit.getPlayer(UUID) == null (the #40 review's own
+        // narrowing) asks "is anyone online under this UUID" rather than "is this still the
+        // connection that started this task" -- so a reconnect landing between this message's
+        // recordMessage and that check still let the write through, attributed to the wrong
+        // connection. A generation captured here and re-checked below answers the right question.
+        long generation = connectionRegistry.currentGeneration(playerId);
         String spamReason = antiSpamService.checkSpam(player, message);
         if (spamReason != null) {
             event.setCancelled(true);
@@ -100,22 +117,22 @@ public class ChatListener implements Listener {
             player.sendMessage(ChatColor.RED + ChatColor.translateAlternateColorCodes('&', spamReason));
             return true;
         }
-        antiSpamService.recordMessage(player.getUniqueId(), message);
-        // This runs off the main thread, so the record above can land after the quit handler's
-        // AntiSpamService#cleanup and re-create the quitter's entries (UltiKits/UltiChat#20).
-        // Observe after writing, per UUID's current online state, not per session (UltiKits/UltiChat#35,
-        // narrowed by the #40 review): Player#isConnected() belongs to this specific, possibly stale
-        // Player object and says only whether THIS connection has ended, not whether a newer session
-        // for the same UUID has since taken its place. A reconnect landing between this message's
-        // recordMessage above and the old check reaching this line made cleanup(UUID) erase the
-        // reconnected session's own, already-legitimate cooldown and duplicate history -- the maps are
-        // keyed by UUID alone -- bypassing anti-spam until its next message re-created them.
-        // Bukkit.getPlayer(UUID) instead asks "is anyone online under this UUID right now": null means
-        // this connection ended with nothing newer in its place, exactly the case #35 needs cleaned up;
-        // non-null (whether still this same connection or a newer one that has since joined) means
-        // there is live state for this UUID that must not be erased.
-        if (Bukkit.getPlayer(player.getUniqueId()) == null) {
-            antiSpamService.cleanup(player.getUniqueId());
+        // Skipped entirely, not written-then-undone, when this connection has since been superseded
+        // or has ended: a skipped write can never re-create an entry a quit's cleanup already removed
+        // (closing UltiKits/UltiChat#20's failure mode by construction, not by a reactive re-check),
+        // and can never attribute a stale message to a newer connection's own state.
+        if (connectionRegistry.isCurrent(playerId, generation)) {
+            antiSpamService.recordMessage(playerId, message);
+            // Re-checked, not reused: recordMessage above is not instantaneous, and a reconnect
+            // landing between the write and this check must not let this task's cleanup run against
+            // the new connection's now-live state -- the exact #40-review regression this generation
+            // check exists to close. Bukkit.getPlayer(UUID) == null still asks the question this
+            // cleanup actually needs answered (is anybody at all online for this UUID right now);
+            // isCurrent additionally guards against acting on a UUID some newer, still-online
+            // connection now owns.
+            if (Bukkit.getPlayer(playerId) == null && connectionRegistry.isCurrent(playerId, generation)) {
+                antiSpamService.cleanup(playerId);
+            }
         }
         return false;
     }

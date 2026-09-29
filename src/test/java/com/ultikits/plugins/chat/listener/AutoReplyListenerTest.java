@@ -2,6 +2,7 @@ package com.ultikits.plugins.chat.listener;
 
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.service.AutoReplyService;
+import com.ultikits.plugins.chat.service.ConnectionRegistry;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -32,6 +33,7 @@ class AutoReplyListenerTest {
     private AutoReplyListener listener;
     private AutoReplyConfig config;
     private AutoReplyService autoReplyService;
+    private ConnectionRegistry connectionRegistry;
     private Player player;
     private UUID playerUuid;
 
@@ -44,14 +46,21 @@ class AutoReplyListenerTest {
         config.setCooldown(10);
 
         autoReplyService = mock(AutoReplyService.class);
+        connectionRegistry = new ConnectionRegistry();
 
         listener = new AutoReplyListener();
         ChatTestHelper.setField(listener, "config", config);
         ChatTestHelper.setField(listener, "autoReplyService", autoReplyService);
+        ChatTestHelper.setField(listener, "connectionRegistry", connectionRegistry);
 
         playerUuid = UUID.randomUUID();
         player = ChatTestHelper.createMockPlayer("TestPlayer", playerUuid);
         lenient().when(player.hasPermission(anyString())).thenReturn(false);
+        // The normal single-connection case for every existing test in this class: the player has a
+        // real, current generation, exactly as a real join would assign (UltiKits/UltiChat#40 review,
+        // maintainer decision 2026-09-29). Tests for the reconnect race itself inject a differently
+        // wired registry of their own.
+        connectionRegistry.onJoin(playerUuid);
 
         // Clear static cooldown map
         clearCooldownMap();
@@ -579,6 +588,60 @@ class AutoReplyListenerTest {
             com.ultikits.ultitools.annotations.config.Range range = AutoReplyConfig.class
                     .getDeclaredField("cooldown").getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
             assertThat((long) range.max() * 1000L).isEqualTo(LONGEST_ALLOWED_MS);
+        }
+    }
+
+    // ==================== UltiKits/UltiChat#40 review, maintainer decision 2026-09-29 ====================
+
+    /**
+     * {@code LAST_REPLY_TIME} is exactly the same shape of per-UUID state {@link ChatListener}'s
+     * anti-spam maps are: written from an async chat-processing path, keyed by UUID alone. It shares
+     * the same reconnect race unless it is swept the same way -- a stale, superseded connection's own
+     * delayed reply must not set a cooldown timestamp that applies to whatever connection now owns
+     * this UUID.
+     */
+    @Nested
+    @DisplayName("The cooldown write is generation-gated against a reconnect race")
+    class ReconnectRace {
+
+        @Test
+        @DisplayName("An old connection's cooldown write lands after a newer connection has taken over: skipped, the new connection's own record survives untouched")
+        void oldConnectionsWriteAfterReconnectIsSkipped() throws Exception {
+            matchEverythingHelper();
+
+            // The old connection's chat task captured its generation before the reconnect, and by
+            // the time it reaches its own write, the registry no longer reports that generation as
+            // current -- simulated directly, the same way ChatListenerTest$RecordAfterQuit simulates
+            // it, since there is no way to pause a real registry mid-method the way an actual delayed
+            // async task would be paused by thread scheduling.
+            ConnectionRegistry staleView = mock(ConnectionRegistry.class);
+            when(staleView.currentGeneration(playerUuid)).thenReturn(0L);
+            when(staleView.isCurrent(playerUuid, 0L)).thenReturn(false);
+            ChatTestHelper.setField(listener, "connectionRegistry", staleView);
+
+            listener.onPlayerChat(createChatEvent("test"));
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME)
+                    .as("the stale connection's reply was still sent (unconditional), but its cooldown write was skipped")
+                    .doesNotContainKey(playerUuid);
+            verify(player).sendMessage(anyString());
+        }
+
+        @Test
+        @DisplayName("Normal single connection: the cooldown write proceeds (control)")
+        void normalSingleConnectionWrites() {
+            matchEverythingHelper();
+
+            listener.onPlayerChat(createChatEvent("test"));
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME).containsKey(playerUuid);
+        }
+
+        private void matchEverythingHelper() {
+            Map<String, Object> rule = createSimpleRule("Response");
+            when(autoReplyService.findMatch(anyString())).thenReturn(createMatchEntry("r1", rule));
+            when(autoReplyService.getResponse(rule)).thenReturn("Response");
+            when(autoReplyService.getCommands(rule)).thenReturn(Collections.<String>emptyList());
         }
     }
 }

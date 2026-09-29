@@ -4,6 +4,7 @@ import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.plugins.chat.service.AntiSpamService;
 import com.ultikits.plugins.chat.service.ChannelService;
+import com.ultikits.plugins.chat.service.ConnectionRegistry;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -25,6 +26,7 @@ class PlayerChannelListenerTest {
 
     private ChannelService channelService;
     private ChannelConfig channelConfig;
+    private ConnectionRegistry connectionRegistry;
     private PlayerChannelListener listener;
 
     @BeforeEach
@@ -34,11 +36,13 @@ class PlayerChannelListenerTest {
         channelService = mock(ChannelService.class);
         channelConfig = mock(ChannelConfig.class);
         lenient().when(channelConfig.getDefaultChannel()).thenReturn("global");
+        connectionRegistry = new ConnectionRegistry();
 
         listener = new PlayerChannelListener();
         ChatTestHelper.setField(listener, "channelService", channelService);
         ChatTestHelper.setField(listener, "channelConfig", channelConfig);
         injectByType(mock(AntiSpamService.class));
+        injectByType(connectionRegistry);
     }
 
     /**
@@ -49,6 +53,18 @@ class PlayerChannelListenerTest {
         for (Field field : PlayerChannelListener.class.getDeclaredFields()) {
             if (field.getType() == AntiSpamService.class) {
                 ChatTestHelper.setField(listener, field.getName(), service);
+            }
+        }
+    }
+
+    /**
+     * Sets every field of the listener whose type is the registry's, as the container's by-type
+     * {@code @Autowired} does, so no test depends on the field's name.
+     */
+    private void injectByType(ConnectionRegistry registry) throws Exception {
+        for (Field field : PlayerChannelListener.class.getDeclaredFields()) {
+            if (field.getType() == ConnectionRegistry.class) {
+                ChatTestHelper.setField(listener, field.getName(), registry);
             }
         }
     }
@@ -157,6 +173,57 @@ class PlayerChannelListenerTest {
 
             listener.onPlayerQuit(new PlayerQuitEvent(player, "left"));
             verify(channelService).removePlayer(uuid);
+        }
+    }
+
+    // ==================== ConnectionRegistry wiring (UltiKits/UltiChat#40 review, maintainer decision 2026-09-29) ====================
+
+    @Nested
+    @DisplayName("Join and quit maintain the player's ConnectionRegistry generation")
+    class ConnectionRegistryWiring {
+
+        @Test
+        @DisplayName("Join assigns a generation that is current immediately afterward")
+        void joinAssignsAGeneration() {
+            UUID uuid = UUID.randomUUID();
+            Player player = ChatTestHelper.createMockPlayer("TestPlayer", uuid);
+
+            listener.onPlayerJoin(new PlayerJoinEvent(player, "joined"));
+
+            long generation = connectionRegistry.currentGeneration(uuid);
+            assertThat(generation).isNotZero();
+            assertThat(connectionRegistry.isCurrent(uuid, generation)).isTrue();
+        }
+
+        @Test
+        @DisplayName("Quit removes the generation entirely, not merely leaves it un-bumped")
+        void quitRemovesTheGeneration() {
+            UUID uuid = UUID.randomUUID();
+            Player player = ChatTestHelper.createMockPlayer("TestPlayer", uuid);
+            listener.onPlayerJoin(new PlayerJoinEvent(player, "joined"));
+            long generation = connectionRegistry.currentGeneration(uuid);
+
+            listener.onPlayerQuit(new PlayerQuitEvent(player, "left"));
+
+            assertThat(connectionRegistry.currentGeneration(uuid)).isZero();
+            assertThat(connectionRegistry.isCurrent(uuid, generation)).isFalse();
+        }
+
+        @Test
+        @DisplayName("A reconnect (join, quit, join again) assigns a strictly newer generation than the first")
+        void reconnectAssignsANewerGeneration() {
+            UUID uuid = UUID.randomUUID();
+            Player player = ChatTestHelper.createMockPlayer("TestPlayer", uuid);
+
+            listener.onPlayerJoin(new PlayerJoinEvent(player, "joined"));
+            long first = connectionRegistry.currentGeneration(uuid);
+            listener.onPlayerQuit(new PlayerQuitEvent(player, "left"));
+            listener.onPlayerJoin(new PlayerJoinEvent(player, "joined"));
+            long second = connectionRegistry.currentGeneration(uuid);
+
+            assertThat(second).isGreaterThan(first);
+            assertThat(connectionRegistry.isCurrent(uuid, first)).isFalse();
+            assertThat(connectionRegistry.isCurrent(uuid, second)).isTrue();
         }
     }
 

@@ -139,6 +139,28 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   在刚记录之后就抹除重新连接会话自己合法的冷却与重复消息历史，使重新连接的玩家短暂绕过反垃圾消息检测。现在改为向 Bukkit
   询问该 UUID 下是否还有任何人在线，从而正确地不去动新会话的状态（UltiKits/UltiChat#40）。
 
+- The anti-spam and auto-reply cooldown state a chat message writes or cleans up now checks a
+  per-connection generation number rather than asking whether anyone is online under the player's
+  UUID at all. Both checks tried before this one (`Player#isConnected()`, then
+  `Bukkit.getPlayer(UUID) == null` immediately above) eventually let a stale, superseded connection's
+  own delayed processing act on a newer connection's behalf, because neither could tell "this UUID
+  has some connection" apart from "this UUID has the SAME connection that started this task": a
+  reconnect landing between a stale task's write and its own connection check could still leave that
+  write in place, attributed to whichever connection now owns the UUID, even once the previous fix
+  closed the narrower case of a stale cleanup erasing a newer connection's state outright. Every
+  player is now assigned a strictly increasing connection number on join, captured once at the start
+  of a chat message's own anti-spam or auto-reply-cooldown processing; the write or cleanup that
+  processing performs later only takes effect if that number is still current by the time it runs.
+  The number is removed, not merely left behind, on quit, so this table holds only currently connected
+  players (maintainer decision, 2026-09-29).
+- 聊天消息写入或清理反刷屏及自动回复冷却状态时，现在检查一个按连接分配的编号，而不是判断该玩家 UUID 下是否还有任何人在线。
+  在此之前尝试过的两种判断（`Player#isConnected()`，以及上一条中的 `Bukkit.getPlayer(UUID) == null`）最终都会让一个已被取代、
+  过期的连接的延迟处理代表新连接生效，因为两者都无法区分“这个 UUID 还有某个连接在线”与“这就是启动本次任务的那个连接”：
+  重连恰好发生在过期任务的写入与其自身连接判断之间时，即便上一次修复已经堵住了过期清理直接抹除新连接状态这一较窄的情形，
+  该写入仍可能保留下来，被算作当前拥有该 UUID 的连接所写。现在每名玩家加入时都会分配一个严格递增的连接编号，在一条聊天
+  消息自身的反刷屏或自动回复冷却处理开始时读取一次；该处理稍后执行的写入或清理，只有在这个编号仍是当前编号时才会生效。
+  该编号在退出时会被彻底移除，而不是仅仅保留不变，因此该表只保存当前在线玩家（维护者决定，2026-09-29）。
+
 - A chat format using `{displayname}` inserts the player's display name as written. The name was put
   into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
   `{message}` repeated the message, and one containing a PlaceholderAPI placeholder such as
