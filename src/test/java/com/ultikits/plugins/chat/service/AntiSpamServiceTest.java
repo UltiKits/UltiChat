@@ -694,21 +694,77 @@ class AntiSpamServiceTest {
         @Test
         @DisplayName("recordMessage sweeps other players' expired entries too, so the table does not grow past who could still matter")
         void recordMessageSweepsExpiredEntriesForOtherPlayers() throws Exception {
+            // Corrected 2026-09-29 (coordinator ruling): a per-write full-table sweep was a measured
+            // performance concern in its own right (O(N) on the module's highest-frequency hot path)
+            // and is removed; table-wide eviction of a UUID that stops chatting entirely is now the
+            // scheduled sweep's job (#recordMessageDoesNotScanTheWholeTable, #scheduledSweepClearsAnUnrelatedStaleEntry
+            // below), not something an unrelated write does as a side effect any more.
             UUID stale = UUID.randomUUID();
             UUID fresh = UUID.randomUUID();
             long[] now = manualClock();
 
             service.recordMessage(stale, "hello");
             now[0] += 600_000L; // past both ceilings
-            service.recordMessage(fresh, "hi"); // an unrelated write, not a read of `stale`'s own entry
+            service.recordMessage(fresh, "hi"); // an unrelated write
 
             @SuppressWarnings("unchecked")
             Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
             @SuppressWarnings("unchecked")
             Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
-            assertThat(lastMessageTime).as("swept by the unrelated write, table does not only grow")
+            assertThat(lastMessageTime).as("an unrelated write no longer sweeps the whole table")
+                    .containsKeys(stale, fresh);
+            assertThat(recentMessages).containsKeys(stale, fresh);
+        }
+
+        @Test
+        @DisplayName("recordMessage does not scan the whole table: an unrelated player's own entry is untouched by it, however many players are tracked")
+        void recordMessageDoesNotScanTheWholeTable() throws Exception {
+            UUID other = UUID.randomUUID();
+            UUID writer = UUID.randomUUID();
+            service.recordMessage(other, "hello");
+            Object otherTimeBefore = ((Map<UUID, ?>) ChatTestHelper.getField(service, "lastMessageTime")).get(other);
+
+            service.recordMessage(writer, "hi");
+
+            @SuppressWarnings("unchecked")
+            Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
+            assertThat(lastMessageTime.get(other))
+                    .as("an unrelated write does not re-touch another player's own entry at all")
+                    .isEqualTo(otherTimeBefore);
+        }
+
+        @Test
+        @DisplayName("The scheduled sweep clears a table-wide stale entry that an unrelated write no longer does")
+        void scheduledSweepClearsAnUnrelatedStaleEntry() throws Exception {
+            UUID stale = UUID.randomUUID();
+            UUID fresh = UUID.randomUUID();
+            long[] now = manualClock();
+
+            service.recordMessage(stale, "hello");
+            now[0] += 600_000L; // past both ceilings
+            service.recordMessage(fresh, "hi"); // no longer sweeps `stale`'s entry as a side effect
+
+            service.sweepExpiredEntries();
+
+            @SuppressWarnings("unchecked")
+            Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
+            @SuppressWarnings("unchecked")
+            Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
+            assertThat(lastMessageTime).as("the table does not only grow -- the scheduled sweep still clears it")
                     .doesNotContainKey(stale).containsKey(fresh);
             assertThat(recentMessages).doesNotContainKey(stale).containsKey(fresh);
+        }
+
+        @Test
+        @DisplayName("The scheduled sweep is annotated with a literal, fixed period -- not config-bound")
+        void scheduledSweepIsLiteralNotConfigBound() throws Exception {
+            java.lang.reflect.Method sweep = AntiSpamService.class.getDeclaredMethod("sweepExpiredEntries");
+            com.ultikits.ultitools.annotations.Scheduled annotation =
+                    sweep.getAnnotation(com.ultikits.ultitools.annotations.Scheduled.class);
+            assertThat(annotation).as("must be @Scheduled at all").isNotNull();
+            assertThat(annotation.period()).isEqualTo(1200);
+            assertThat(annotation.async()).isFalse();
+            assertThat(annotation.periodKey()).as("literal, not config-bound").isEmpty();
         }
 
         @Test
@@ -722,6 +778,45 @@ class AntiSpamServiceTest {
             @SuppressWarnings("unchecked")
             Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
             assertThat(lastMessageTime).containsKey(playerId);
+        }
+
+        /**
+         * UltiKits/UltiChat#40 review, Codex round 5: the prior version of this class's self-eviction
+         * read a snapshot of the retained list, decided staleness from it, and only later called
+         * {@code recentMessages.remove(playerId, snapshot)}. Because the list was a single, shared,
+         * mutable object, a concurrent {@code recordMessage} append (mutating that SAME object in
+         * place) could land between the read and the removal; the removal's identity check still
+         * matched (same object reference, just mutated), so it deleted the mapping the fresh append
+         * had just been written into. This test reproduces that interleaving directly and
+         * deterministically -- not via real concurrent threads, which would make a RED/GREEN proof
+         * flaky and timing-dependent -- since a real race is only ever a probabilistic reproduction of
+         * exactly the sequence forced here.
+         */
+        @Test
+        @DisplayName("A stale-check's own captured snapshot, removed after a concurrent append, does not lose the append (UltiKits/UltiChat#40 review, coordinator ruling 2026-09-29)")
+        void concurrentAppendDuringStaleCheckDoesNotLoseTheMessage() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            service.recordMessage(playerId, "old");
+
+            @SuppressWarnings("unchecked")
+            Map<UUID, Object> recentMessages = (Map<UUID, Object>) ChatTestHelper.getField(service, "recentMessages");
+            // Captured the way a concurrent stale-check would: BEFORE the entry ages past the
+            // ceiling and BEFORE the concurrent append below.
+            Object staleSnapshot = recentMessages.get(playerId);
+
+            now[0] += 600_000L; // stale, from the snapshot's own perspective
+            service.recordMessage(playerId, "fresh"); // the "owner's" own concurrent append
+
+            // The delayed removal a racing stale-check thread would perform, using the reference it
+            // captured before the append -- UltiKits/UltiChat#40 review's own description: "this
+            // predicate can observe the old tail and then remove the mapping after the owner has
+            // appended the new message."
+            recentMessages.remove(playerId, staleSnapshot);
+
+            assertThat(recentMessages)
+                    .as("the fresh append must survive a stale check that captured an older reference first")
+                    .containsKey(playerId);
         }
 
         @Test

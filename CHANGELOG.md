@@ -192,6 +192,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   保留——这是正确、有意为之的行为，而不是需要防范的情况。`AntiSpamService#cleanup` 及退出时对它的调用作为死代码一并
   移除，因为已不再有任何调用方。
 
+- Two implementation defects in the time-based expiry immediately above are fixed, without changing
+  the decision itself (elapsed time, not connection lifecycle, is still the right rule): a concurrent
+  append and a stale-entry self-eviction could interleave and lose the fresh message, because the
+  retained-message list was a single, shared, mutable object that both a read-then-decide-then-delete
+  self-eviction and an in-place append could touch at the same time; and every accepted chat message
+  scanned both tables in full, an avoidable cost on the module's highest-frequency hot path. Both
+  tables' writes are now a single atomic map operation per player (deleting an expired entry and
+  appending a new one happen together, never as a read followed by a separate write later), and the
+  retained-message list is replaced wholesale rather than mutated in place, so no reader can ever
+  observe it half-built. The per-write full-table scan is removed; a new low-frequency scheduled sweep
+  (once a minute) now does that housekeeping instead, so neither table still only grows, but no single
+  chat message pays for scanning every other tracked player to get there.
+- 立即修复上一条所述的按时间过期机制在实现上的两个缺陷，不改变该决定本身（仍以经过时间而非连接生命周期作为判断依据是
+  正确的）：并发的写入与某条记录的自我过期判断可能交错执行，导致刚写入的消息丢失，原因是被保留的消息列表是一个共享的
+  可变对象，「先读取判断、再稍后删除」的自我过期逻辑与就地追加的写入可能同时触碰同一个对象；此外，每一条被接受的聊天
+  消息都会完整扫描两张表一次，在本模块最高频的路径上产生了可以避免的开销。现在两张表的写入都是每个玩家一次原子的映射
+  操作（删除过期记录与追加新消息在同一步完成，不再是先读取、之后再单独写入），被保留的消息列表整体替换而不是就地修改，
+  因此任何读取者都不可能看到一个正在构建中的中间状态。取消每次写入时的整表扫描，改为新增一个低频的定时清理任务
+  （每分钟一次）承担该项收尾工作，使两张表依然不会只增不减，但不再让每一条聊天消息都为扫描其他所有被追踪的玩家付出代价。
+
 - A chat format using `{displayname}` inserts the player's display name as written. The name was put
   into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
   `{message}` repeated the message, and one containing a PlaceholderAPI placeholder such as
