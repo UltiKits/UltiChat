@@ -75,18 +75,18 @@ public class AntiSpamService {
     /**
      * The eviction ceiling used instead of {@link #MAX_DUPLICATE_WINDOW_MS} while
      * {@code anti-spam.duplicate-window} is currently {@code 0} -- the shipped default, documented
-     * and advertised as "no time limit" on duplicate matching (UltiKits/UltiChat#14).
+     * as no window-based expiry on duplicate matching (UltiKits/UltiChat#14).
      * {@code MAX_DUPLICATE_WINDOW_MS} cannot be used unconditionally here: applying it while the
-     * setting is 0 silently contradicts that promise for every player quiet for more than ten
-     * minutes, which is not a rare edge case -- it is the default configuration, and an ordinary gap
-     * in ordinary play (UltiKits/UltiChat#40 review, Codex round 6, confirmed pre-existing from the
-     * prior round rather than caused by this one: this same unconditional ceiling was already applied
-     * regardless of the setting's value before this round, which only changed how eviction is
-     * performed, not this comparison). A day is far longer than any realistic play session --
-     * "no time limit" remains true for every duplicate-matching decision a player could actually
-     * observe -- while still eventually reclaiming memory for a UUID that stops chatting altogether,
-     * which is what {@code anti-spam.duplicate-window: 0} was never meant to make literal (that
-     * would reopen UltiKits/UltiChat#20 for the shipped default). Pinned by
+     * setting is 0 would drop the history of every player quiet for more than ten minutes,
+     * which is not a rare edge case -- it is the default configuration, and an ordinary gap
+     * in ordinary play (UltiKits/UltiChat#40 review, Codex round 6).
+     * <p>
+     * This ceiling is a memory bound, and it IS observable: a player who sends no message for
+     * 24 hours loses their duplicate history, so the same message is accepted again afterwards.
+     * The maintainer decided (2026-09-29, #40 review) to keep it and to document it: {@code 0}
+     * means no window-based expiry, but a player's duplicate history is cleared after 24 hours
+     * without messages. A truly unbounded history would reopen UltiKits/UltiChat#20 (a table
+     * that only grows) for the shipped default. Pinned by
      * {@code AntiSpamServiceTest#unlimitedDuplicateWindowHousekeepingCeilingIsFarLongerThanAnyRealisticSession}.
      */
     private static final long UNLIMITED_DUPLICATE_WINDOW_HOUSEKEEPING_MS = 86_400_000L;
@@ -282,10 +282,10 @@ public class AntiSpamService {
      * A message is a duplicate when at least {@code anti-spam.max-duplicate} of the player's
      * retained messages (the last {@code max-duplicate} accepted ones) are identical to it. With a
      * positive {@code anti-spam.duplicate-window}, a retained copy sent longer ago than that many
-     * seconds stops counting. A window of {@code 0} (the default) means no time limit: every retained
-     * copy counts however old, which is exactly the rule before UltiKits/UltiChat#14, when the window
-     * was never read. That comparison is unaffected by the entry-eviction ceiling below, which uses a
-     * far longer, separate constant while the window is {@code 0} for exactly this reason (see
+     * seconds stops counting. A window of {@code 0} (the default) means no window-based expiry: every
+     * retained copy counts however old, the counting rule before UltiKits/UltiChat#14, when the window
+     * was never read -- but a player's duplicate history is cleared after 24 hours without messages,
+     * the separate memory-bound ceiling this method also applies while the window is {@code 0} (see
      * {@link #duplicateWindowEvictionCeilingMs()}).
      * <p>
      * The staleness check and the read it gates are one atomic {@link Map#compute} call: the

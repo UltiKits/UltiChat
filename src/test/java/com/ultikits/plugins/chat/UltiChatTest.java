@@ -201,7 +201,8 @@ class UltiChatTest {
                     .contains("60 seconds")
                     .contains("more permissive than before the upgrade")
                     .contains("set it to 0")
-                    .contains("no time limit")
+                    .contains("no window-based expiry")
+                    .contains("cleared after 24 hours without messages")
                     .contains("/uchat reload")
                     .contains("UltiKits/UltiChat#14");
         }

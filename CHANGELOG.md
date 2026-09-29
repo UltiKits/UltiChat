@@ -49,25 +49,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `anti-spam.duplicate-window` in `config/chat.yml` now takes effect. It was documented as the
   duplicate-detection time window but never read: a message counted as a duplicate when the
   player's last `anti-spam.max-duplicate` accepted messages were all the same text, however long
-  ago they had been sent. It now means: `0` -- the new declared default -- is no time limit, exactly
-  that old rule; a positive value (up to 600) is a window in seconds, and a retained copy older than
-  it stops counting. The allowed range is now 0-600 (it was 10-600). **Upgrade consequence:** a
+  ago they had been sent. It now means: `0` -- the new declared default -- is no window-based expiry,
+  that old counting rule, but a player's duplicate history is cleared after 24 hours without
+  messages (a memory bound; see the UltiKits/UltiChat#40 entries below); a positive value (up to
+  600) is a window in seconds, and a retained copy older than it stops counting. The allowed range is now 0-600 (it was 10-600). **Upgrade consequence:** a
   server that ran an earlier version already has `duplicate-window: 60` in its own file (the
   framework wrote the old default there), and that 60 now applies, so duplicate detection on such a
   server is more permissive than before the upgrade: with the default `max-duplicate: 3`, the same
   message sent three times is refused on the fourth only if the first of those three is at most 60
   seconds old. At module start and on every reload, any window above 0 is announced with one
   warning naming the file, the key and the value; set it to `0` and run `/uchat reload` to restore
-  the previous behaviour exactly (UltiKits/UltiChat#14).
+  the previous duplicate-counting rule (UltiKits/UltiChat#14).
 - `config/chat.yml` 中的 `anti-spam.duplicate-window` 现在会生效。它此前被文档描述为重复检测的时间窗口，
   但从未被读取：只要玩家最近 `anti-spam.max-duplicate` 条被接受的消息都是同一内容，无论发送于多久以前，
-  新消息都会被判为重复。现在它的含义是：`0`（新的声明默认值）表示不限时，与上述旧规则完全相同；
+  新消息都会被判为重复。现在它的含义是：`0`（新的声明默认值）表示不按窗口过期，即上述旧的计数规则，
+  但玩家 24 小时未发消息后其重复记录会被清除（内存上限，见下文 UltiKits/UltiChat#40 的条目）；
   正值（最大 600）表示以秒为单位的时间窗口，早于该窗口的保留消息不再计数。允许范围改为 0-600（原为 10-600）。
   **升级后果：**运行过早期版本的服务器，其自己的文件中已有 `duplicate-window: 60`（框架曾把旧默认值写入该文件），
   这个 60 现在会生效，因此该服务器上的重复检测会比升级前更宽松：在默认 `max-duplicate: 3` 下，
   同一消息发送三次后，只有当这三次中的第一次发送于 60 秒以内时，第四次才会被拦截。
   模块启动时与每次重载时，只要时间窗口大于 0，就会记录一条指明文件、键名与当前值的警告；
-  将其设为 `0` 并执行 `/uchat reload`，即可完全恢复旧行为（UltiKits/UltiChat#14）。
+  将其设为 `0` 并执行 `/uchat reload`，即可恢复之前的重复计数规则（UltiKits/UltiChat#14）。
 
 - A channel format you edited before this version now takes effect. Channel formats were never
   applied before, so an edit -- for example recolouring the shipped `{display}&f: {message}` to
@@ -220,22 +222,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   an ordinary gap in ordinary play, silently lost history the setting promised would never expire; and
   `anti-spam.auto-reply`'s own cooldown table scanned every tracked player on every single matching
   reply, an avoidable cost this module's other tables had already been corrected to avoid. The first is
-  fixed by using a separate, much longer housekeeping ceiling (24 hours, far beyond any realistic play
-  session) whenever `duplicate-window` is currently `0`, so "no time limit" remains true for every
-  duplicate-matching decision a player could actually observe, while memory is still eventually
-  reclaimed for a UUID that stops chatting altogether; a positive, finite `duplicate-window` is
-  unaffected and still uses the earlier 600-second ceiling. The second is fixed by moving that table's
-  per-reply sweep to the same low-frequency scheduled task pattern this module's other tables now use,
-  rather than scanning on every reply.
+  fixed by using a separate, much longer housekeeping ceiling (24 hours) whenever `duplicate-window` is
+  currently `0`, so memory is still reclaimed for a UUID that stops chatting altogether; a positive,
+  finite `duplicate-window` is unaffected and still uses the earlier 600-second ceiling. That ceiling
+  is observable: a player who sends nothing for 24 hours loses their duplicate history, and the same
+  message is accepted again afterwards. By maintainer decision the ceiling stays and the documentation
+  says what it does: `0` means no window-based expiry, but a player's duplicate history is cleared
+  after 24 hours without messages -- the configuration comment, the shipped `chat.yml`, the upgrade
+  warning and `FEATURES.md` now say this instead of "no time limit" (UltiKits/UltiChat#40 review).
+  The second is fixed by moving that table's per-reply sweep to the same low-frequency scheduled task
+  pattern this module's other tables now use, rather than scanning on every reply.
 - 修复时间过期机制中的另外两个缺陷，二者都是此前就已存在的问题（自上一条修复之前的那一轮起就未曾改变），而不是由紧邻
   的前两次提交引入：即使 `anti-spam.duplicate-window` 为 `0`——出厂默认值，文档中宣称并标明为"不限时"——600 秒的
   自我过期上限此前仍会被应用于玩家保留的重复消息历史，导致只要沉默短短十分钟（日常游玩中很常见的间隔）就会悄悄丢失
   该设置本应永不过期的历史；此外，`anti-spam.auto-reply` 自身的冷却表在每一次匹配到的自动回复上都会扫描所有被追踪的
   玩家，这项本可避免的开销，在本模块其他表中早已被修正过。第一个问题的修复方式是：只要 `duplicate-window` 当前为
-  `0`，就改用一个更长得多的、单独的收尾清理上限（24 小时，远超任何现实的游玩时段），使"不限时"对玩家在游玩中能实际
-  观察到的任何重复判定都保持为真，同时仍能为彻底停止聊天的玩家最终回收内存；配置为正数、有限值的 `duplicate-window`
-  不受影响，仍沿用原有的 600 秒上限。第二个问题的修复方式是：将该表按回复触发的扫描迁移到与本模块其他表相同的低频
-  定时任务模式，而不再是每次回复都扫描一次。
+  `0`，就改用一个更长得多的、单独的收尾清理上限（24 小时），仍能为彻底停止聊天的玩家回收内存；配置为正数、有限值的
+  `duplicate-window` 不受影响，仍沿用原有的 600 秒上限。这个上限是可以观察到的：玩家 24 小时未发消息后，其重复记录
+  会被清除，之后同一条消息会再次被接受。按维护者的决定，保留这个上限，并让文档如实说明：`0` 表示不按窗口过期，
+  但玩家 24 小时未发消息后其重复记录会被清除——配置注释、出厂 `chat.yml`、升级警告与 `FEATURES.md` 现在都这样写，
+  不再写"不限时"（UltiKits/UltiChat#40 评审）。
+  第二个问题的修复方式是：将该表按回复触发的扫描迁移到与本模块其他表相同的低频定时任务模式，而不再是每次回复都扫描一次。
 
 - A chat format using `{displayname}` inserts the player's display name as written. The name was put
   into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
