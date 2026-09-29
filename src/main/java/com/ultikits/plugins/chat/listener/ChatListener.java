@@ -5,7 +5,6 @@ import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.service.AntiSpamService;
 import com.ultikits.plugins.chat.service.ChannelService;
-import com.ultikits.plugins.chat.service.ConnectionRegistry;
 import com.ultikits.plugins.chat.service.EmojiService;
 import com.ultikits.ultitools.annotations.EventListener;
 import org.bukkit.Bukkit;
@@ -19,7 +18,6 @@ import me.clip.placeholderapi.PlaceholderAPI;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * Main chat event listener that integrates anti-spam, emoji, channel, format, and mention features.
@@ -36,17 +34,15 @@ public class ChatListener implements Listener {
     private final AntiSpamService antiSpamService;
     private final ChannelService channelService;
     private final EmojiService emojiService;
-    private final ConnectionRegistry connectionRegistry;
 
     public ChatListener(ChatConfig chatConfig, ChannelConfig channelConfig,
                         AntiSpamService antiSpamService, ChannelService channelService,
-                        EmojiService emojiService, ConnectionRegistry connectionRegistry) {
+                        EmojiService emojiService) {
         this.chatConfig = chatConfig;
         this.channelConfig = channelConfig;
         this.antiSpamService = antiSpamService;
         this.channelService = channelService;
         this.emojiService = emojiService;
-        this.connectionRegistry = connectionRegistry;
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
@@ -97,19 +93,6 @@ public class ChatListener implements Listener {
         if (!chatConfig.isAntiSpamEnabled() || player.hasPermission("ultichat.spam.bypass")) {
             return false;
         }
-        UUID playerId = player.getUniqueId();
-        // Captured once, at the start of this connection's own async chat processing, so every
-        // state-changing step below can tell whether IT is still that same connection by the time it
-        // runs (UltiKits/UltiChat#40 review, maintainer decision 2026-09-29). Two narrower checks were
-        // tried here before this one and both eventually let a stale, superseded connection act on a
-        // newer one's behalf: Player#isConnected() (UltiKits/UltiChat#35) belongs to this specific,
-        // possibly-stale Player object and only knows whether THIS connection ended, not whether a
-        // newer one has since taken its place; Bukkit.getPlayer(UUID) == null (the #40 review's own
-        // narrowing) asks "is anyone online under this UUID" rather than "is this still the
-        // connection that started this task" -- so a reconnect landing between this message's
-        // recordMessage and that check still let the write through, attributed to the wrong
-        // connection. A generation captured here and re-checked below answers the right question.
-        long generation = connectionRegistry.currentGeneration(playerId);
         String spamReason = antiSpamService.checkSpam(player, message);
         if (spamReason != null) {
             event.setCancelled(true);
@@ -117,23 +100,19 @@ public class ChatListener implements Listener {
             player.sendMessage(ChatColor.RED + ChatColor.translateAlternateColorCodes('&', spamReason));
             return true;
         }
-        // Skipped entirely, not written-then-undone, when this connection has since been superseded
-        // or has ended: a skipped write can never re-create an entry a quit's cleanup already removed
-        // (closing UltiKits/UltiChat#20's failure mode by construction, not by a reactive re-check),
-        // and can never attribute a stale message to a newer connection's own state.
-        if (connectionRegistry.isCurrent(playerId, generation)) {
-            antiSpamService.recordMessage(playerId, message);
-            // Re-checked, not reused: recordMessage above is not instantaneous, and a reconnect
-            // landing between the write and this check must not let this task's cleanup run against
-            // the new connection's now-live state -- the exact #40-review regression this generation
-            // check exists to close. Bukkit.getPlayer(UUID) == null still asks the question this
-            // cleanup actually needs answered (is anybody at all online for this UUID right now);
-            // isCurrent additionally guards against acting on a UUID some newer, still-online
-            // connection now owns.
-            if (Bukkit.getPlayer(playerId) == null && connectionRegistry.isCurrent(playerId, generation)) {
-                antiSpamService.cleanup(playerId);
-            }
-        }
+        // Always recorded, unconditionally, with no connection or session check of any kind here or
+        // anywhere else in this method (UltiKits/UltiChat#40 review, maintainer decision 2026-09-29,
+        // switching approach rather than adding a fourth connection-scoped guard on top of three that
+        // each failed differently: Player#isConnected() (#35) erased a reconnected session's own
+        // legitimate state; Bukkit.getPlayer(UUID) == null (the #40 review's own narrowing) left a
+        // stale write in place across a reconnect; a per-connection generation number (the #40
+        // review, again) turned out to gate the write itself with a check-then-act race of its own.
+        // All three treated "a message from before a reconnect landing after it" as something to be
+        // gated against. It never was: anti-spam exists precisely to combine what the SAME player
+        // sends before and after a reconnect, so this write belongs in that player's own history
+        // regardless of when it lands. AntiSpamService now expires an entry purely by elapsed time,
+        // with no connection check anywhere in the chain -- see its own class-level notes.
+        antiSpamService.recordMessage(player.getUniqueId(), message);
         return false;
     }
 

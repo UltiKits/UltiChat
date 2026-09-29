@@ -604,71 +604,142 @@ class AntiSpamServiceTest {
     }
 
     // -------------------------------------------------------------------------
-    // cleanup
+    // Self-expiry, replacing connection-scoped cleanup entirely
+    // (UltiKits/UltiChat#20, #35, #40 review, maintainer decision 2026-09-29)
     // -------------------------------------------------------------------------
 
+    /**
+     * {@code cleanup(UUID)} existed from UltiKits/UltiChat#20 through three further review rounds on
+     * the same reconnect race, called from {@code PlayerChannelListener#onPlayerQuit} and, for one
+     * round, gated by a per-connection generation check inside {@code ChatListener} itself. Every one
+     * of those designs treated a reconnect as something anti-spam tracking needed to react to, and
+     * each reacted to it wrong in a different way. The maintainer's final decision (2026-09-29) is
+     * that quit is not an event this service needs to know about at all: both maps now expire an
+     * entry purely by elapsed time, in {@link AntiSpamService#checkCooldown} and
+     * {@link AntiSpamService#isDuplicate} (self-eviction on read) and by a sweep piggybacked on every
+     * {@link AntiSpamService#recordMessage} call, so a UUID that never chats again is not held open
+     * by nothing ever reading it. There is no {@code cleanup} method left to call.
+     */
     @Nested
-    @DisplayName("cleanup")
-    class CleanupTests {
+    @DisplayName("Self-expiry (UltiKits/UltiChat#20, #35, #40 review, maintainer decision 2026-09-29)")
+    class SelfExpiryTests {
+
+        /** Replaces the service's clock with a hand-set one; returns the cell that holds "now". */
+        private long[] manualClock() throws Exception {
+            final long[] now = {1_000_000L};
+            ChatTestHelper.setField(service, "clock", (LongSupplier) () -> now[0]);
+            return now;
+        }
 
         @Test
-        @DisplayName("should remove all state for player")
-        void shouldRemoveAllState() throws Exception {
+        @DisplayName("Reconnecting does not bypass anti-spam: a cooldown timestamp survives however long the player is silent for less than the self-eviction ceiling")
+        void cooldownSurvivesAGapShortOfTheCeiling() throws Exception {
             UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(30);
 
-            // Add state
             service.recordMessage(playerId, "hello");
+            // A 10-second gap -- standing in for a disconnect-and-reconnect -- well inside the
+            // 30-second cooldown, so still would block a message from either the same or a
+            // "reconnected" connection; the point is that nothing cleared the entry across the gap.
+            now[0] += 10_000L;
 
-            // Verify state exists
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "world"))
+                    .as("the cooldown from before the gap still applies; a reconnect did not reset it")
+                    .isEqualTo(ZH_COOLDOWN);
+        }
+
+        @Test
+        @DisplayName("A cooldown entry is cleared once it is older than the longest cooldown this setting could ever be reloaded to")
+        void cooldownEntryExpiresPastItsOwnCeiling() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(30);
+
+            service.recordMessage(playerId, "hello");
+            now[0] += 60_000L; // exactly the @Range(max = 60) ceiling in seconds
+
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "world"))
+                    .as("no possible cooldown setting could still be blocking on an entry this old")
+                    .isNull();
+
             @SuppressWarnings("unchecked")
             Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
+            assertThat(lastMessageTime).as("cleared by the read above, not merely ignored").doesNotContainKey(playerId);
+        }
+
+        @Test
+        @DisplayName("A duplicate-detection entry is cleared once it is older than the longest duplicate-window this setting could ever be reloaded to, even with duplicate-window: 0 (unlimited)")
+        void duplicateEntryExpiresPastItsOwnCeilingEvenWhenUnlimited() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(0); // the shipped default: no time limit on matching
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            now[0] += 600_000L; // exactly the @Range(max = 600) ceiling in seconds
+
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "spam"))
+                    .as("an entry this old cannot be reached by ANY duplicate-window value, "
+                            + "unlimited included -- it is memory, not history, kept past this point")
+                    .isNull();
+
             @SuppressWarnings("unchecked")
             Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
-
-            assertThat(lastMessageTime).containsKey(playerId);
-            assertThat(recentMessages).containsKey(playerId);
-
-            // Cleanup
-            service.cleanup(playerId);
-
-            assertThat(lastMessageTime).doesNotContainKey(playerId);
             assertThat(recentMessages).doesNotContainKey(playerId);
         }
 
         @Test
-        @DisplayName("should handle null playerId gracefully")
-        void shouldHandleNullPlayerId() {
-            // Should not throw
-            service.cleanup(null);
-        }
+        @DisplayName("recordMessage sweeps other players' expired entries too, so the table does not grow past who could still matter")
+        void recordMessageSweepsExpiredEntriesForOtherPlayers() throws Exception {
+            UUID stale = UUID.randomUUID();
+            UUID fresh = UUID.randomUUID();
+            long[] now = manualClock();
 
-        @Test
-        @DisplayName("should handle cleanup of non-existent player")
-        void shouldHandleCleanupOfNonExistentPlayer() {
-            // Should not throw
-            service.cleanup(UUID.randomUUID());
-        }
-
-        @Test
-        @DisplayName("should not affect other players")
-        void shouldNotAffectOtherPlayers() throws Exception {
-            UUID player1 = UUID.randomUUID();
-            UUID player2 = UUID.randomUUID();
-
-            service.recordMessage(player1, "msg1");
-            service.recordMessage(player2, "msg2");
-
-            service.cleanup(player1);
+            service.recordMessage(stale, "hello");
+            now[0] += 600_000L; // past both ceilings
+            service.recordMessage(fresh, "hi"); // an unrelated write, not a read of `stale`'s own entry
 
             @SuppressWarnings("unchecked")
             Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
             @SuppressWarnings("unchecked")
             Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
+            assertThat(lastMessageTime).as("swept by the unrelated write, table does not only grow")
+                    .doesNotContainKey(stale).containsKey(fresh);
+            assertThat(recentMessages).doesNotContainKey(stale).containsKey(fresh);
+        }
 
-            assertThat(lastMessageTime).doesNotContainKey(player1);
-            assertThat(lastMessageTime).containsKey(player2);
-            assertThat(recentMessages).doesNotContainKey(player1);
-            assertThat(recentMessages).containsKey(player2);
+        @Test
+        @DisplayName("An async write is never gated by any check: recordMessage always writes, whatever else has happened")
+        void recordMessageNeverGated() throws Exception {
+            UUID playerId = UUID.randomUUID();
+
+            service.recordMessage(playerId, "first");
+            service.recordMessage(playerId, "second");
+
+            @SuppressWarnings("unchecked")
+            Map<UUID, Long> lastMessageTime = (Map<UUID, Long>) ChatTestHelper.getField(service, "lastMessageTime");
+            assertThat(lastMessageTime).containsKey(playerId);
+        }
+
+        @Test
+        @DisplayName("The cooldown self-eviction ceiling matches anti-spam.cooldown's own @Range maximum")
+        void cooldownRangeMatchesTheSelfEvictionWindow() throws Exception {
+            com.ultikits.ultitools.annotations.config.Range range = ChatConfig.class
+                    .getDeclaredField("antiSpamCooldown")
+                    .getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
+            assertThat((long) range.max() * 1000L).isEqualTo(60_000L);
+        }
+
+        @Test
+        @DisplayName("The duplicate-window self-eviction ceiling matches anti-spam.duplicate-window's own @Range maximum")
+        void duplicateWindowRangeMatchesTheSelfEvictionWindow() throws Exception {
+            com.ultikits.ultitools.annotations.config.Range range = ChatConfig.class
+                    .getDeclaredField("antiSpamDuplicateWindow")
+                    .getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
+            assertThat((long) range.max() * 1000L).isEqualTo(600_000L);
         }
     }
 
@@ -799,9 +870,12 @@ class AntiSpamServiceTest {
 
             // Positive control: the reflection sees the state and entry points that do exist.
             assertThat(fields).contains("lastMessageTime", "recentMessages");
-            assertThat(methods).contains("checkSpam", "recordMessage", "cleanup");
+            assertThat(methods).contains("checkSpam", "recordMessage");
             assertThat(fields).doesNotContain("mutedUntil");
             assertThat(methods).doesNotContain("mutePlayer", "checkMute");
+            // No cleanup method either -- removed as dead code once quit no longer calls it
+            // (UltiKits/UltiChat#40 review, maintainer decision 2026-09-29). See SelfExpiryTests.
+            assertThat(methods).doesNotContain("cleanup");
         }
     }
 }

@@ -4,7 +4,6 @@ import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.plugins.chat.config.ChannelConfig;
 import com.ultikits.plugins.chat.service.AntiSpamService;
 import com.ultikits.plugins.chat.service.ChannelService;
-import com.ultikits.plugins.chat.service.ConnectionRegistry;
 import com.ultikits.plugins.chat.service.EmojiService;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import org.bukkit.Bukkit;
@@ -35,7 +34,6 @@ class ChatListenerTest {
     private AntiSpamService antiSpamService;
     private ChannelService channelService;
     private EmojiService emojiService;
-    private ConnectionRegistry connectionRegistry;
     private Player player;
     private UUID playerUuid;
 
@@ -48,14 +46,10 @@ class ChatListenerTest {
         antiSpamService = mock(AntiSpamService.class);
         channelService = mock(ChannelService.class);
         emojiService = mock(EmojiService.class);
-        connectionRegistry = mock(ConnectionRegistry.class);
-        // Default: the normal single-connection case -- whatever generation is captured is still
-        // current by the time a write/cleanup checks it. Tests for the reconnect race override this.
-        lenient().when(connectionRegistry.isCurrent(any(UUID.class), anyLong())).thenReturn(true);
 
         listener = new ChatListener(
                 chatConfig, channelConfig,
-                antiSpamService, channelService, emojiService, connectionRegistry
+                antiSpamService, channelService, emojiService
         );
 
         playerUuid = UUID.randomUUID();
@@ -622,7 +616,7 @@ class ChatListenerTest {
             ChannelService realChannelService = new ChannelService();
             ChatTestHelper.setField(realChannelService, "config", realChannelConfig);
             realListener = new ChatListener(chatConfig, realChannelConfig,
-                    antiSpamService, realChannelService, emojiService, connectionRegistry);
+                    antiSpamService, realChannelService, emojiService);
         }
 
         /** Sets (or, for null, removes) the global channel's format and returns the chat line. */
@@ -697,37 +691,38 @@ class ChatListenerTest {
     }
 
     /**
-     * {@code onChat} runs off the main thread, so state it writes or cleans up can land out of
-     * order relative to a reconnect. Two per-object/per-UUID checks were tried here in turn and each
-     * eventually let a stale, superseded connection act on a newer one's behalf:
-     * {@code Player#isConnected()} (UltiKits/UltiChat#35) only knows whether THIS specific connection
-     * has ended; {@code Bukkit.getPlayer(UUID) == null} (the #40 review's own narrowing) only knows
-     * whether SOMEBODY is online under this UUID, not whether it is still THIS connection. A
-     * {@link ConnectionRegistry} generation, captured at the start of this connection's own async
-     * processing and re-checked before every state-changing step, answers the right question
-     * directly and closes the whole class at once (UltiKits/UltiChat#40 review, maintainer decision
-     * 2026-09-29): a stale write can no longer land at all (closing UltiKits/UltiChat#20's failure
-     * mode by construction, not by a reactive cleanup), and a stale cleanup can no longer erase a
-     * newer connection's own state (UltiKits/UltiChat#47 review of PR #40, narrowing
-     * UltiKits/UltiChat#35's "per session, not per UUID" rule to what it actually has to mean).
+     * {@code onChat} runs off the main thread. Three different connection-scoped guards were tried
+     * here in turn, on three separate review rounds, and every one of them was the wrong shape of
+     * fix: {@code Player#isConnected()} (UltiKits/UltiChat#35) erased a reconnected player's own
+     * legitimate history; {@code Bukkit.getPlayer(UUID) == null} (the #40 review's own narrowing)
+     * left a stale write in place across a reconnect but otherwise still treated "a message landing
+     * after a reconnect" as something to react to; a per-connection generation number (the #40
+     * review, again) turned out to gate the write itself with a check-then-act race of its own.
+     * <p>
+     * The maintainer's final decision on this review (2026-09-29) is to stop treating this as a
+     * connection-scoped problem at all: anti-spam exists precisely to combine what the SAME player
+     * sends before and after a reconnect, so a message landing after a reconnect belongs in that
+     * player's own history, not something to be gated against. {@code recordMessage} is now
+     * unconditional, with no connection awareness anywhere in this class or in
+     * {@link AntiSpamService}; {@link AntiSpamService} expires its own entries purely by elapsed
+     * time (see its own tests for that). {@link PlayerChannelListenerTest} covers that quit no
+     * longer touches anti-spam state at all.
      */
     @Nested
-    @DisplayName("Anti-spam state is generation-gated against a reconnect race (UltiKits/UltiChat#20, #35, #40 review)")
+    @DisplayName("Anti-spam recording is unconditional -- no connection check of any kind (UltiKits/UltiChat#20, #35, #40 review, maintainer decision 2026-09-29)")
     class RecordAfterQuit {
 
         private AntiSpamService realAntiSpam;
-        private ConnectionRegistry realConnectionRegistry;
         private ChatListener realListener;
 
         @BeforeEach
-        void useRealServices() throws Exception {
+        void useRealAntiSpamService() throws Exception {
             chatConfig.setAntiSpamEnabled(true);
             realAntiSpam = new AntiSpamService();
             ChatTestHelper.setField(realAntiSpam, "config", chatConfig);
             ChatTestHelper.setField(realAntiSpam, "plugin", ChatTestHelper.getMockPlugin());
-            realConnectionRegistry = new ConnectionRegistry();
             realListener = new ChatListener(chatConfig, channelConfig,
-                    realAntiSpam, channelService, emojiService, realConnectionRegistry);
+                    realAntiSpam, channelService, emojiService);
         }
 
         @SuppressWarnings("unchecked")
@@ -735,20 +730,9 @@ class ChatListenerTest {
             return (Map<UUID, ?>) ChatTestHelper.getField(realAntiSpam, name);
         }
 
-        /** A listener wired to a registry that reports a fixed, stubbed generation state, simulating
-         * a connection whose own async task is still running with whatever the registry reported at
-         * some earlier moment, regardless of what has changed since. */
-        private ChatListener listenerWithStubbedRegistry(ConnectionRegistry stubbed) {
-            return new ChatListener(chatConfig, channelConfig,
-                    realAntiSpam, channelService, emojiService, stubbed);
-        }
-
         @Test
-        @DisplayName("Normal single connection: the message is recorded (control)")
-        void normalSingleConnectionIsRecorded() throws Exception {
-            realConnectionRegistry.onJoin(playerUuid);
-            when(ChatTestHelper.getMockServer().getPlayer(playerUuid)).thenReturn(player);
-
+        @DisplayName("A message is recorded (control)")
+        void messageIsRecorded() throws Exception {
             realListener.onChat(createChatEvent("hello"));
 
             assertThat(map("lastMessageTime")).containsKey(playerUuid);
@@ -756,82 +740,50 @@ class ChatListenerTest {
         }
 
         @Test
-        @DisplayName("Normal single connection, sender gone by the time the record would be written: neither map holds them afterwards")
-        void disconnectedSenderLeavesNoEntry() throws Exception {
-            realConnectionRegistry.onJoin(playerUuid);
-            when(ChatTestHelper.getMockServer().getPlayer(playerUuid)).thenReturn(null);
+        @DisplayName("Reconnecting does not bypass anti-spam: messages sent before and after a reconnect are counted together")
+        void reconnectDoesNotBypassAntiSpam() throws Exception {
+            chatConfig.setAntiSpamCooldown(0);
+            chatConfig.setAntiSpamMaxDuplicate(3);
 
-            AsyncPlayerChatEvent event = createChatEvent("hello");
-            realListener.onChat(event);
+            // Three identical messages before a reconnect.
+            realListener.onChat(createChatEvent("spam"));
+            realListener.onChat(createChatEvent("spam"));
+            realListener.onChat(createChatEvent("spam"));
 
-            assertThat(event.isCancelled()).as("the message itself is not refused").isFalse();
-            assertThat(map("lastMessageTime")).doesNotContainKey(playerUuid);
-            assertThat(map("recentMessages")).doesNotContainKey(playerUuid);
+            // The player disconnects and rejoins -- simulated by an independent PlayerChannelListener
+            // sharing no state with anti-spam at all, since quit no longer touches it (see
+            // PlayerChannelListenerTest). Nothing here needs to run for that to be true; the point of
+            // this test is that NOTHING erases realAntiSpam's state in between.
+
+            // A fourth identical message after the reconnect: if reconnecting reset this player's
+            // history, this would be accepted as a fresh start. It is refused instead -- the history
+            // from before the reconnect still counts.
+            AsyncPlayerChatEvent afterReconnect = createChatEvent("spam");
+            realListener.onChat(afterReconnect);
+
+            assertThat(afterReconnect.isCancelled())
+                    .as("the reconnect did not let a 4th identical message bypass duplicate detection")
+                    .isTrue();
         }
 
         @Test
-        @DisplayName("An old connection's write lands after a newer connection has taken over: skipped, the new connection's own record survives untouched")
-        void oldConnectionsWriteAfterReconnectIsSkipped() throws Exception {
-            // Zeroed so the stale message below is not itself refused as spam by the cooldown the
-            // first message just set -- this test is about the generation gate, not the cooldown
-            // gate in front of it.
-            chatConfig.setAntiSpamCooldown(0);
+        @DisplayName("An old connection's own chat processing never clears any state, whatever else has happened since")
+        void oldConnectionsProcessingNeverClearsState() throws Exception {
+            // Two messages recorded -- standing in for two different connections' own activity, in
+            // whatever order their async processing actually completes in. There is no code path in
+            // ChatListener or AntiSpamService that removes an entry as a side effect of recording a
+            // message; the only way either map loses an entry is elapsed time (AntiSpamServiceTest)
+            // or reading a message from a different, unrelated UUID (which cannot touch this one).
+            realListener.onChat(createChatEvent("first"));
+            Object firstRecordedTime = map("lastMessageTime").get(playerUuid);
 
-            // The new connection records its own message first, through the real registry -- this is
-            // the state that must survive untouched.
-            realConnectionRegistry.onJoin(playerUuid);
-            when(ChatTestHelper.getMockServer().getPlayer(playerUuid)).thenReturn(player);
-            realListener.onChat(createChatEvent("new connection message"));
-            assertThat(map("lastMessageTime")).as("the new connection's own record").containsKey(playerUuid);
-            Object newConnectionTime = map("lastMessageTime").get(playerUuid);
+            Player another = ChatTestHelper.createMockPlayer("AnotherPlayer", UUID.randomUUID());
+            realListener.onChat(createChatEventFor(another, "unrelated player's own message"));
 
-            // The old connection's chat task captured its generation before the reconnect, and by
-            // the time it reaches its own write, the registry no longer reports that generation as
-            // current -- simulated directly, since there is no way to pause the real registry
-            // mid-method the way an actual delayed async task would be paused by thread scheduling.
-            ConnectionRegistry staleView = mock(ConnectionRegistry.class);
-            when(staleView.currentGeneration(playerUuid)).thenReturn(0L);
-            when(staleView.isCurrent(playerUuid, 0L)).thenReturn(false);
-            ChatListener staleListener = listenerWithStubbedRegistry(staleView);
-
-            staleListener.onChat(createChatEvent("stale old connection message"));
-
-            assertThat(map("lastMessageTime").get(playerUuid))
-                    .as("the new connection's own timestamp is untouched")
-                    .isEqualTo(newConnectionTime);
+            assertThat(map("lastMessageTime")).as("this player's own record is untouched").containsKey(playerUuid);
+            assertThat(map("lastMessageTime").get(playerUuid)).isEqualTo(firstRecordedTime);
             Collection<?> recent = (Collection<?>) map("recentMessages").get(playerUuid);
-            assertThat(recent).as("the stale message was never recorded").hasSize(1);
-        }
-
-        @Test
-        @DisplayName("An old connection's cleanup lands after a newer connection has taken over: skipped, nothing recorded so far is erased")
-        void oldConnectionsCleanupAfterReconnectIsSkipped() throws Exception {
-            // Zeroed so the old connection's own message below is not itself refused as spam by the
-            // cooldown the pre-populated record just set -- this test is about the generation gate on
-            // cleanup, not the cooldown gate in front of it.
-            chatConfig.setAntiSpamCooldown(0);
-            // What must survive: the state already on record for this UUID (standing in for the new
-            // connection's own already-recorded message, however it got there).
-            realAntiSpam.recordMessage(playerUuid, "already on record");
-            assertThat(map("lastMessageTime")).containsKey(playerUuid);
-
-            // The old connection's task was still current when it reached its own write (so that
-            // write is allowed to proceed), but a reconnect lands in the exact window between that
-            // write and the check that decides whether to clean up -- the #40-review regression this
-            // generation check exists to close. Bukkit.getPlayer(uuid) == null still holds (nobody
-            // the old connection's own reference resolves is online), so the original,
-            // generation-blind condition alone would have run cleanup here.
-            when(ChatTestHelper.getMockServer().getPlayer(playerUuid)).thenReturn(null);
-            ConnectionRegistry racyView = mock(ConnectionRegistry.class);
-            when(racyView.currentGeneration(playerUuid)).thenReturn(1L);
-            when(racyView.isCurrent(playerUuid, 1L)).thenReturn(true, false);
-            ChatListener racyListener = listenerWithStubbedRegistry(racyView);
-
-            racyListener.onChat(createChatEvent("old connection's own message"));
-
-            assertThat(map("lastMessageTime")).as("nothing was erased").containsKey(playerUuid);
-            Collection<?> recent = (Collection<?>) map("recentMessages").get(playerUuid);
-            assertThat(recent).as("both messages are still recorded").hasSize(2);
+            assertThat(recent).as("nothing was cleared").hasSize(1);
         }
     }
 

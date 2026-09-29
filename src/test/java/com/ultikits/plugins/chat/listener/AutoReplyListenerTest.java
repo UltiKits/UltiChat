@@ -2,7 +2,6 @@ package com.ultikits.plugins.chat.listener;
 
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.service.AutoReplyService;
-import com.ultikits.plugins.chat.service.ConnectionRegistry;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -33,7 +32,6 @@ class AutoReplyListenerTest {
     private AutoReplyListener listener;
     private AutoReplyConfig config;
     private AutoReplyService autoReplyService;
-    private ConnectionRegistry connectionRegistry;
     private Player player;
     private UUID playerUuid;
 
@@ -46,21 +44,14 @@ class AutoReplyListenerTest {
         config.setCooldown(10);
 
         autoReplyService = mock(AutoReplyService.class);
-        connectionRegistry = new ConnectionRegistry();
 
         listener = new AutoReplyListener();
         ChatTestHelper.setField(listener, "config", config);
         ChatTestHelper.setField(listener, "autoReplyService", autoReplyService);
-        ChatTestHelper.setField(listener, "connectionRegistry", connectionRegistry);
 
         playerUuid = UUID.randomUUID();
         player = ChatTestHelper.createMockPlayer("TestPlayer", playerUuid);
         lenient().when(player.hasPermission(anyString())).thenReturn(false);
-        // The normal single-connection case for every existing test in this class: the player has a
-        // real, current generation, exactly as a real join would assign (UltiKits/UltiChat#40 review,
-        // maintainer decision 2026-09-29). Tests for the reconnect race itself inject a differently
-        // wired registry of their own.
-        connectionRegistry.onJoin(playerUuid);
 
         // Clear static cooldown map
         clearCooldownMap();
@@ -594,47 +585,38 @@ class AutoReplyListenerTest {
     // ==================== UltiKits/UltiChat#40 review, maintainer decision 2026-09-29 ====================
 
     /**
-     * {@code LAST_REPLY_TIME} is exactly the same shape of per-UUID state {@link ChatListener}'s
-     * anti-spam maps are: written from an async chat-processing path, keyed by UUID alone. It shares
-     * the same reconnect race unless it is swept the same way -- a stale, superseded connection's own
-     * delayed reply must not set a cooldown timestamp that applies to whatever connection now owns
-     * this UUID.
+     * A per-connection generation number was tried on this table for one review round and reverted
+     * on the next: {@code LAST_REPLY_TIME} is exactly the same shape of per-UUID state
+     * {@link ChatListener}'s anti-spam maps are, and the maintainer's final decision for both is the
+     * same -- a reconnect is not something either table needs to react to at all. This class'
+     * cooldown write was already unconditional before that generation number was ever added (this is
+     * the one table in this module that had the self-expiring, connection-blind shape from the start),
+     * so reverting it is a return to how it always worked, not a new design.
      */
     @Nested
-    @DisplayName("The cooldown write is generation-gated against a reconnect race")
-    class ReconnectRace {
+    @DisplayName("The cooldown write is unconditional -- no connection check of any kind (maintainer decision 2026-09-29)")
+    class ReconnectDoesNotAffectTheCooldownWrite {
 
         @Test
-        @DisplayName("An old connection's cooldown write lands after a newer connection has taken over: skipped, the new connection's own record survives untouched")
-        void oldConnectionsWriteAfterReconnectIsSkipped() throws Exception {
-            matchEverythingHelper();
-
-            // The old connection's chat task captured its generation before the reconnect, and by
-            // the time it reaches its own write, the registry no longer reports that generation as
-            // current -- simulated directly, the same way ChatListenerTest$RecordAfterQuit simulates
-            // it, since there is no way to pause a real registry mid-method the way an actual delayed
-            // async task would be paused by thread scheduling.
-            ConnectionRegistry staleView = mock(ConnectionRegistry.class);
-            when(staleView.currentGeneration(playerUuid)).thenReturn(0L);
-            when(staleView.isCurrent(playerUuid, 0L)).thenReturn(false);
-            ChatTestHelper.setField(listener, "connectionRegistry", staleView);
-
-            listener.onPlayerChat(createChatEvent("test"));
-
-            assertThat(AutoReplyListener.LAST_REPLY_TIME)
-                    .as("the stale connection's reply was still sent (unconditional), but its cooldown write was skipped")
-                    .doesNotContainKey(playerUuid);
-            verify(player).sendMessage(anyString());
-        }
-
-        @Test
-        @DisplayName("Normal single connection: the cooldown write proceeds (control)")
-        void normalSingleConnectionWrites() {
+        @DisplayName("The write proceeds regardless of any prior connection history for this UUID")
+        void writeAlwaysProceeds() {
             matchEverythingHelper();
 
             listener.onPlayerChat(createChatEvent("test"));
 
             assertThat(AutoReplyListener.LAST_REPLY_TIME).containsKey(playerUuid);
+            verify(player).sendMessage(anyString());
+        }
+
+        @Test
+        @DisplayName("AutoReplyListener declares no field of any connection-registry type")
+        void listenerHoldsNoConnectionRegistryReference() {
+            for (java.lang.reflect.Field field : AutoReplyListener.class.getDeclaredFields()) {
+                assertThat(field.getType().getSimpleName())
+                        .as("a leftover field would mean this class still depends on connection "
+                                + "tracking, contradicting this decision")
+                        .doesNotContain("ConnectionRegistry");
+            }
         }
 
         private void matchEverythingHelper() {

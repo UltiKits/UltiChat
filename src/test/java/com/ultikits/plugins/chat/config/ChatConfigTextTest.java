@@ -731,7 +731,7 @@ class ChatConfigTextTest {
             ChannelService channelService = new ChannelService();
             ChatTestHelper.setField(channelService, "config", channels());
             ChatListener listener = new ChatListener(chat, channels(), mock(AntiSpamService.class), channelService,
-                    mock(EmojiService.class), mock(com.ultikits.plugins.chat.service.ConnectionRegistry.class));
+                    mock(EmojiService.class));
 
             AsyncPlayerChatEvent global = chatEvent(player);
             listener.onChat(global);

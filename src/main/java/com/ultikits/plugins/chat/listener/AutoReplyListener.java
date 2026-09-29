@@ -2,7 +2,6 @@ package com.ultikits.plugins.chat.listener;
 
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.service.AutoReplyService;
-import com.ultikits.plugins.chat.service.ConnectionRegistry;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.EventListener;
 import org.bukkit.Bukkit;
@@ -49,9 +48,6 @@ public class AutoReplyListener implements Listener {
     @Autowired
     private AutoReplyService autoReplyService;
 
-    @Autowired
-    private ConnectionRegistry connectionRegistry;
-
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         if (!config.isEnabled()) {
@@ -59,19 +55,12 @@ public class AutoReplyListener implements Listener {
         }
 
         Player player = event.getPlayer();
-        UUID playerId = player.getUniqueId();
-        // Captured at the start of this connection's own async processing, for the same reason and
-        // by the same mechanism as ChatListener#handleAntiSpam's anti-spam state (UltiKits/UltiChat#40
-        // review, maintainer decision 2026-09-29): LAST_REPLY_TIME is exactly the same shape of
-        // per-UUID state written from an async path that the anti-spam maps are, so it shares the
-        // same reconnect race unless it is swept the same way.
-        long generation = connectionRegistry.currentGeneration(playerId);
 
         if (player.hasPermission("ultichat.autoreply.bypass")) {
             return;
         }
 
-        if (isOnCooldown(playerId)) {
+        if (isOnCooldown(player.getUniqueId())) {
             return;
         }
 
@@ -89,13 +78,13 @@ public class AutoReplyListener implements Listener {
         sendResponse(player, rule);
         executeCommands(player, autoReplyService.getCommands(rule));
 
-        // Skipped, not written, if this connection has since been superseded or has ended: a stale
-        // reply's own cooldown timestamp must not apply to whatever connection now owns this UUID.
-        if (connectionRegistry.isCurrent(playerId, generation)) {
-            long now = System.currentTimeMillis();
-            LAST_REPLY_TIME.values().removeIf(time -> now - time >= KEEP_MS);
-            LAST_REPLY_TIME.put(playerId, now);
-        }
+        // Always written, unconditionally -- no connection or session check, matching
+        // AntiSpamService's own approach (UltiKits/UltiChat#40 review, maintainer decision
+        // 2026-09-29): a reply triggered just before a reconnect belongs on this player's own
+        // cooldown record regardless of when this write lands.
+        long now = System.currentTimeMillis();
+        LAST_REPLY_TIME.values().removeIf(time -> now - time >= KEEP_MS);
+        LAST_REPLY_TIME.put(player.getUniqueId(), now);
     }
 
     private boolean isOnCooldown(UUID playerId) {

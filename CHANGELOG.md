@@ -161,6 +161,37 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   消息自身的反刷屏或自动回复冷却处理开始时读取一次；该处理稍后执行的写入或清理，只有在这个编号仍是当前编号时才会生效。
   该编号在退出时会被彻底移除，而不是仅仅保留不变，因此该表只保存当前在线玩家（维护者决定，2026-09-29）。
 
+- The per-connection generation number immediately above is removed again, and the anti-spam and
+  auto-reply-cooldown writes it gated are unconditional once more: the maintainer's own review of it
+  found the generation check and the write it gated were themselves a check-then-act pair, so a
+  reconnect landing between them could still let a stale write through — the fourth attempt in a row
+  at a connection-scoped guard, and the fourth to fail differently. The maintainer's final decision
+  (2026-09-29) switches approach entirely, on the reasoning that anti-spam and the auto-reply cooldown
+  exist precisely to combine what the SAME player sends before and after a reconnect — a message
+  landing after a reconnect was never something to be gated against in the first place, so no
+  connection-aware check belongs on this write at all, of any shape. The one real defect this whole
+  chain traces back to (UltiKits/UltiChat#20: nothing ever cleared these maps, so they kept an entry
+  for every player who had ever chatted) is now closed by elapsed time instead of by connection
+  lifecycle: an anti-spam entry clears itself once it is older than the longest `anti-spam.cooldown` or
+  `anti-spam.duplicate-window` this setting could ever be reloaded to (60 and 600 seconds respectively,
+  each field's own declared maximum) — read when it is checked, and swept opportunistically on every
+  write, the same self-expiring shape `anti-spam.auto-reply`'s own cooldown table already had from the
+  start. A player who quits and rejoins keeps their anti-spam history exactly as if they had never
+  disconnected, for as long as they are silent for less than that ceiling; this is the correct,
+  intended behaviour, not something to guard against. `AntiSpamService#cleanup` and the quit-time call
+  to it are removed as dead code, since nothing calls it any more.
+- 上一条中的按连接分配的编号被再次移除，它所控制的反刷屏与自动回复冷却写入重新变为无条件执行：维护者复查该编号机制时
+  发现，编号检查与它所控制的写入本身就是一对"先检查、后执行"，重连仍可能恰好落在两者之间使过期写入得以保留——这已是
+  连续第四次尝试以连接为判断依据的方案，且第四次以不同方式失败。维护者的最终决定（2026-09-29）彻底更换思路：反刷屏与
+  自动回复冷却存在的目的，本就是把同一玩家断线重连前后发送的消息算在一起——重连之后落地的消息，从来就不该被拦截，
+  因此这条写入本就不该有任何与连接相关的判断。这整条链路最初追溯到的真正缺陷（UltiKits/UltiChat#20：从未有任何机制
+  清理这些表，因此会为每个聊天过的玩家保留一条记录）现在改为按经过时间清理，而不是按连接生命周期：一条反刷屏记录在
+  超过 `anti-spam.cooldown` 或 `anti-spam.duplicate-window` 这两个设置各自声明的最大值（分别为 60 秒和 600 秒）后即
+  自动过期——在被读取判断时清理，也会在每次写入时顺带清理其他已过期的记录，与 `anti-spam.auto-reply` 自身冷却表
+  从一开始就采用的自我过期方式一致。玩家退出重新加入后，只要沉默时间短于该上限，其反刷屏历史会完全如同从未断线一样
+  保留——这是正确、有意为之的行为，而不是需要防范的情况。`AntiSpamService#cleanup` 及退出时对它的调用作为死代码一并
+  移除，因为已不再有任何调用方。
+
 - A chat format using `{displayname}` inserts the player's display name as written. The name was put
   into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
   `{message}` repeated the message, and one containing a PlaceholderAPI placeholder such as
