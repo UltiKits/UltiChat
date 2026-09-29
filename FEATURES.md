@@ -87,13 +87,21 @@ rather than an error:
 3. **Javadoc and string literals** — requiring the annotation to start its own line (the
    `^[[:space:]]*@` anchor) is what defeats a javadoc mention or a warning-message string literal
    that merely contains the annotation's name as text; the framework's own `@CmdMapping` count
-   drops from 46 to 15 under this anchor. This module's naive (unanchored) and line-start counts
-   are identical for every annotation kind measured below — no javadoc or string-literal false
-   positive exists in this module's source — but the anchored form is still the one used, so the
-   same command is trustworthy unmodified against every repository in the fan-out.
+   drops from 46 to 15 under this anchor. **Corrected 2026-09-29 (UltiKits/UltiChat#40 review,
+   Codex round 7)**: this module's naive and line-start counts are no longer identical for every
+   annotation kind — `@Scheduled` is now the exception, naive 8 against line-start 5, the three
+   extra hits all `{@code @Scheduled}` javadoc mentions added alongside the two new scheduled
+   sweep methods below (`AntiSpamService#sweepExpiredEntries`, `AutoReplyListener#sweepExpiredEntries`),
+   plus one pre-existing javadoc mention on `AnnouncementConfig`. Every other annotation kind
+   measured below remains identical between the two counts. The anchored form is still the one
+   used, so the same command remains trustworthy unmodified against every repository in the
+   fan-out; this note exists only so the next reader does not treat this document's own,
+   now-stale "identical" claim as still true without re-measuring.
 
 **Positive control:** the line-start form returns `@CmdExecutor` = 2, `@CmdMapping` = 7,
-`@EventListener` = 4 (classes), `@EventHandler` = 6 (handler methods), `@Scheduled` = 3,
+`@EventListener` = 4 (classes), `@EventHandler` = 6 (handler methods), `@Scheduled` = 5 (was 3
+before UltiKits/UltiChat#40 review added `AntiSpamService#sweepExpiredEntries` and
+`AutoReplyListener#sweepExpiredEntries`, both literal-period, not config-bound),
 `@ConditionalOnConfig` = 1, `@ConfigEntity` = 5 (classes), `@ConfigEntry` = 44 — confirmed by
 reading `ChatAdminCommands.java` (5 `@CmdMapping` sites: `reload`, `autoreply list`,
 `autoreply add <name> <response...>`, `autoreply setkeyword <name> <keyword...>` at line 137, and
