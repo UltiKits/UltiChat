@@ -78,8 +78,8 @@ class CommandTextLanguageTest {
                 ChatColor.GOLD + CatalogueText.text("zh", "help_admin_header"),
                 ChatColor.AQUA + "/uchat reload" + ChatColor.WHITE + " - " + CatalogueText.text("zh", "help_admin_reload"),
                 ChatColor.AQUA + "/uchat autoreply list" + ChatColor.WHITE + " - " + CatalogueText.text("zh", "help_admin_autoreply_list"),
-                ChatColor.AQUA + "/uchat autoreply add <name> <response>" + ChatColor.WHITE + " - " + CatalogueText.text("zh", "help_admin_autoreply_add"),
-                ChatColor.AQUA + "/uchat autoreply setkeyword <name> <keyword>" + ChatColor.WHITE + " - " + CatalogueText.text("zh", "help_admin_autoreply_setkeyword"),
+                ChatColor.AQUA + "/uchat autoreply add <name> <response...>" + ChatColor.WHITE + " - " + CatalogueText.text("zh", "help_admin_autoreply_add"),
+                ChatColor.AQUA + "/uchat autoreply setkeyword <name> <keyword...>" + ChatColor.WHITE + " - " + CatalogueText.text("zh", "help_admin_autoreply_setkeyword"),
                 ChatColor.AQUA + "/uchat autoreply remove <name>" + ChatColor.WHITE + " - " + CatalogueText.text("zh", "help_admin_autoreply_remove"));
         CommandSender sender = mock(CommandSender.class);
 

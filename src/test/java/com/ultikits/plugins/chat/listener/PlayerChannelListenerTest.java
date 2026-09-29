@@ -12,7 +12,6 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.UUID;
 
@@ -38,19 +37,6 @@ class PlayerChannelListenerTest {
         listener = new PlayerChannelListener();
         ChatTestHelper.setField(listener, "channelService", channelService);
         ChatTestHelper.setField(listener, "channelConfig", channelConfig);
-        injectByType(mock(AntiSpamService.class));
-    }
-
-    /**
-     * Sets every field of the listener whose type is the service's, as the container's by-type
-     * {@code @Autowired} does, so no test depends on the field's name.
-     */
-    private void injectByType(AntiSpamService service) throws Exception {
-        for (Field field : PlayerChannelListener.class.getDeclaredFields()) {
-            if (field.getType() == AntiSpamService.class) {
-                ChatTestHelper.setField(listener, field.getName(), service);
-            }
-        }
     }
 
     @AfterEach
@@ -160,105 +146,80 @@ class PlayerChannelListenerTest {
         }
     }
 
-    // ==================== Anti-spam eviction on quit (UltiKits/UltiChat#20) ====================
+    // ==================== Anti-spam state is untouched by quit (UltiKits/UltiChat#20, #35, #40 review, maintainer decision 2026-09-29) ====================
 
     /**
-     * UltiKits/UltiChat#20. {@code AntiSpamService#cleanup} existed and was tested, but nothing
-     * called it, so the per-player anti-spam maps kept an entry for every player who had ever chatted
-     * since the server started. The quit handler here is the one that always runs -- it is registered
-     * unconditionally and has no configuration switch, unlike {@code JoinQuitListener}'s, which
-     * returns before doing anything when custom quit messages are disabled.
+     * UltiKits/UltiChat#20 added {@code AntiSpamService#cleanup} and called it here, on quit, to stop
+     * the per-player anti-spam maps from keeping an entry for every player who had ever chatted since
+     * the server started. Two further rounds of this same review (#35, then a per-connection
+     * generation number) each tried to make that cleanup safe against a reconnect race, and each one
+     * failed differently -- clearing state on quit could itself be erased-then-recreated across a
+     * race, and the connection-scoped guards built to close that raced against each other in turn.
      * <p>
-     * The service is a real one, injected by type the way the container does it, so these tests do
-     * not depend on how the listener names its field.
+     * The maintainer's final decision (2026-09-29) is that quit should not touch anti-spam state at
+     * all: anti-spam exists to combine what the SAME player sends before and after a reconnect, so
+     * clearing it on quit was always the wrong idea, not merely unsafe in its details.
+     * {@link AntiSpamService} no longer has a {@code cleanup} method, and {@link PlayerChannelListener}
+     * no longer holds a reference to it -- this class only tests that quit still does what it is
+     * still responsible for (the channel assignment), and, as a class-level control, that
+     * {@link AntiSpamService} has no method left for a quit handler to even call.
      */
     @Nested
-    @DisplayName("Quit evicts the player's anti-spam tracking (UltiKits/UltiChat#20)")
-    class AntiSpamEviction {
-
-        private AntiSpamService antiSpam;
-
-        @BeforeEach
-        void injectRealAntiSpamService() throws Exception {
-            ChatConfig chatConfig = new ChatConfig();
-            antiSpam = new AntiSpamService();
-            ChatTestHelper.setField(antiSpam, "config", chatConfig);
-            injectByType(antiSpam);
-        }
-
-        @SuppressWarnings("unchecked")
-        private Map<UUID, ?> map(String name) throws Exception {
-            return (Map<UUID, ?>) ChatTestHelper.getField(antiSpam, name);
-        }
+    @DisplayName("Quit does not touch anti-spam state (UltiKits/UltiChat#20, #35, #40 review, maintainer decision 2026-09-29)")
+    class AntiSpamNotTouchedOnQuit {
 
         @Test
-        @DisplayName("After quit, neither anti-spam map holds the player; another player's entries stay")
-        void quitEvictsOnlyTheQuitter() throws Exception {
+        @DisplayName("Quit still removes the player's channel assignment (unaffected by this decision)")
+        void quitStillRemovesChannelAssignment() {
             UUID quitter = UUID.randomUUID();
-            UUID stayer = UUID.randomUUID();
-            antiSpam.recordMessage(quitter, "hello");
-            antiSpam.recordMessage(stayer, "hi");
-
-            // Positive control: the state this test expects to disappear is really there first.
-            assertThat(map("lastMessageTime")).containsKeys(quitter, stayer);
-            assertThat(map("recentMessages")).containsKeys(quitter, stayer);
 
             listener.onPlayerQuit(new PlayerQuitEvent(
                     ChatTestHelper.createMockPlayer("Quitter", quitter), "left"));
 
-            assertThat(map("lastMessageTime")).doesNotContainKey(quitter).containsKey(stayer);
-            assertThat(map("recentMessages")).doesNotContainKey(quitter).containsKey(stayer);
-            // The existing channel cleanup still happens alongside it.
             verify(channelService).removePlayer(quitter);
         }
 
-        /**
-         * The quitter is still online for the rest of the quit event, so a chat record that lands
-         * after the cleanup above but before the server drops the player is not caught by
-         * {@code ChatListener}'s own after-write check. The handler therefore sweeps once more on
-         * the next tick, when the player is gone.
-         */
         @Test
-        @DisplayName("A record landing after the quit cleanup is swept on the next tick once the player is gone")
-        void lateRecordIsSweptOnTheNextTick() throws Exception {
+        @DisplayName("Recorded anti-spam state for a player survives that player's own quit")
+        void antiSpamStateSurvivesQuit() throws Exception {
+            ChatConfig chatConfig = new ChatConfig();
+            AntiSpamService antiSpam = new AntiSpamService();
+            ChatTestHelper.setField(antiSpam, "config", chatConfig);
             UUID quitter = UUID.randomUUID();
-            org.bukkit.plugin.Plugin host = mock(org.bukkit.plugin.Plugin.class);
-            when(org.bukkit.Bukkit.getPluginManager().getPlugin("UltiTools")).thenReturn(host);
+            antiSpam.recordMessage(quitter, "hello");
 
+            // PlayerChannelListener no longer holds any reference to AntiSpamService at all -- there
+            // is nothing to inject and nothing this quit event could call even if it wanted to.
             listener.onPlayerQuit(new PlayerQuitEvent(
                     ChatTestHelper.createMockPlayer("Quitter", quitter), "left"));
-            // The async chat thread writes after the handler above has already cleaned up.
-            antiSpam.recordMessage(quitter, "late");
-            // Control: the late record really re-created the entries the sweep must remove.
-            assertThat(map("lastMessageTime")).containsKey(quitter);
-            assertThat(map("recentMessages")).containsKey(quitter);
 
-            org.mockito.ArgumentCaptor<Runnable> sweep = org.mockito.ArgumentCaptor.forClass(Runnable.class);
-            verify(org.bukkit.Bukkit.getScheduler()).runTask(eq(host), sweep.capture());
-            sweep.getValue().run(); // Bukkit.getPlayer(quitter) is null: the player has left
-
-            assertThat(map("lastMessageTime")).doesNotContainKey(quitter);
-            assertThat(map("recentMessages")).doesNotContainKey(quitter);
+            @SuppressWarnings("unchecked")
+            Map<UUID, ?> lastMessageTime = (Map<UUID, ?>) ChatTestHelper.getField(antiSpam, "lastMessageTime");
+            @SuppressWarnings("unchecked")
+            Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(antiSpam, "recentMessages");
+            assertThat(lastMessageTime).as("untouched by a quit event this service never saw").containsKey(quitter);
+            assertThat(recentMessages).containsKey(quitter);
         }
 
         @Test
-        @DisplayName("The next-tick sweep leaves the entry of a player who is online again")
-        void sweepSparesAPlayerWhoIsOnlineAgain() throws Exception {
-            UUID quitter = UUID.randomUUID();
-            org.bukkit.plugin.Plugin host = mock(org.bukkit.plugin.Plugin.class);
-            when(org.bukkit.Bukkit.getPluginManager().getPlugin("UltiTools")).thenReturn(host);
-            Player back = ChatTestHelper.createMockPlayer("Quitter", quitter);
+        @DisplayName("PlayerChannelListener no longer declares any field of AntiSpamService's type")
+        void listenerHoldsNoAntiSpamReference() {
+            for (java.lang.reflect.Field field : PlayerChannelListener.class.getDeclaredFields()) {
+                assertThat(field.getType())
+                        .as("a leftover field would mean the class still depends on AntiSpamService "
+                                + "for something, contradicting this decision")
+                        .isNotEqualTo(AntiSpamService.class);
+            }
+        }
 
-            listener.onPlayerQuit(new PlayerQuitEvent(back, "left"));
-            antiSpam.recordMessage(quitter, "after rejoining");
-            doReturn(back).when(ChatTestHelper.getMockServer()).getPlayer(quitter);
-
-            org.mockito.ArgumentCaptor<Runnable> sweep = org.mockito.ArgumentCaptor.forClass(Runnable.class);
-            verify(org.bukkit.Bukkit.getScheduler()).runTask(eq(host), sweep.capture());
-            sweep.getValue().run();
-
-            assertThat(map("lastMessageTime")).containsKey(quitter);
-            assertThat(map("recentMessages")).containsKey(quitter);
+        @Test
+        @DisplayName("AntiSpamService declares no cleanup-shaped method for a quit handler to call")
+        void serviceHasNoCleanupMethod() {
+            for (java.lang.reflect.Method method : AntiSpamService.class.getDeclaredMethods()) {
+                assertThat(method.getName())
+                        .as("a leftover cleanup method would be dead code once nothing calls it")
+                        .isNotEqualTo("cleanup");
+            }
         }
     }
 }

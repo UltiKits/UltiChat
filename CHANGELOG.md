@@ -9,6 +9,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `/uchat autoreply add <name> <response...>` takes the rest of the line as the response, and
+  `/uchat autoreply setkeyword <name> <keyword...>` the rest of the line as the keyword, so a rule
+  created by command can answer with a sentence and match a phrase. Both took a single word, and a
+  longer line was refused with the usage text (UltiKits/UltiChat#26).
+- `/uchat autoreply add <名称> <回复...>` 现在把该行剩余内容作为回复，`/uchat autoreply setkeyword <名称> <关键词...>`
+  把该行剩余内容作为关键词，因此通过命令创建的规则可以用一句话回复、匹配词组。此前两者都只接受一个词，更长的内容会被当作用法错误拒绝
+  （UltiKits/UltiChat#26）。
+
 - Message and title settings in `config/announcements.yml`, `config/chat.yml`,
   `config/channels.yml` and `config/autoreply.yml` -- the announcements, the join/quit messages,
   the shipped channels' display names and the two example auto-reply rules -- are written in the
@@ -41,25 +49,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `anti-spam.duplicate-window` in `config/chat.yml` now takes effect. It was documented as the
   duplicate-detection time window but never read: a message counted as a duplicate when the
   player's last `anti-spam.max-duplicate` accepted messages were all the same text, however long
-  ago they had been sent. It now means: `0` -- the new declared default -- is no time limit, exactly
-  that old rule; a positive value (up to 600) is a window in seconds, and a retained copy older than
-  it stops counting. The allowed range is now 0-600 (it was 10-600). **Upgrade consequence:** a
+  ago they had been sent. It now means: `0` -- the new declared default -- is no window-based expiry,
+  that old counting rule, but a player's duplicate history is cleared after 24 hours without
+  messages (a memory bound; see the UltiKits/UltiChat#40 entries below); a positive value (up to
+  600) is a window in seconds, and a retained copy older than it stops counting. The allowed range is now 0-600 (it was 10-600). **Upgrade consequence:** a
   server that ran an earlier version already has `duplicate-window: 60` in its own file (the
   framework wrote the old default there), and that 60 now applies, so duplicate detection on such a
   server is more permissive than before the upgrade: with the default `max-duplicate: 3`, the same
   message sent three times is refused on the fourth only if the first of those three is at most 60
   seconds old. At module start and on every reload, any window above 0 is announced with one
   warning naming the file, the key and the value; set it to `0` and run `/uchat reload` to restore
-  the previous behaviour exactly (UltiKits/UltiChat#14).
+  the previous duplicate-counting rule (UltiKits/UltiChat#14).
 - `config/chat.yml` 中的 `anti-spam.duplicate-window` 现在会生效。它此前被文档描述为重复检测的时间窗口，
   但从未被读取：只要玩家最近 `anti-spam.max-duplicate` 条被接受的消息都是同一内容，无论发送于多久以前，
-  新消息都会被判为重复。现在它的含义是：`0`（新的声明默认值）表示不限时，与上述旧规则完全相同；
+  新消息都会被判为重复。现在它的含义是：`0`（新的声明默认值）表示不按窗口过期，即上述旧的计数规则，
+  但玩家 24 小时未发消息后其重复记录会被清除（内存上限，见下文 UltiKits/UltiChat#40 的条目）；
   正值（最大 600）表示以秒为单位的时间窗口，早于该窗口的保留消息不再计数。允许范围改为 0-600（原为 10-600）。
   **升级后果：**运行过早期版本的服务器，其自己的文件中已有 `duplicate-window: 60`（框架曾把旧默认值写入该文件），
   这个 60 现在会生效，因此该服务器上的重复检测会比升级前更宽松：在默认 `max-duplicate: 3` 下，
   同一消息发送三次后，只有当这三次中的第一次发送于 60 秒以内时，第四次才会被拦截。
   模块启动时与每次重载时，只要时间窗口大于 0，就会记录一条指明文件、键名与当前值的警告；
-  将其设为 `0` 并执行 `/uchat reload`，即可完全恢复旧行为（UltiKits/UltiChat#14）。
+  将其设为 `0` 并执行 `/uchat reload`，即可恢复之前的重复计数规则（UltiKits/UltiChat#14）。
 
 - A channel format you edited before this version now takes effect. Channel formats were never
   applied before, so an edit -- for example recolouring the shipped `{display}&f: {message}` to
@@ -98,6 +108,185 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   （UltiKits/UltiChat#15）。
 
 ### Fixed
+
+- A configuration value UltiChat cannot use is now named in the console when the module starts and
+  on every reload, with what it does instead: an `announcements.bossbar.color` that is no boss-bar
+  colour (blue is used), a `mentions.sound` that is no sound (the default sound now plays; it played
+  nothing), an auto-reply rule `mode` other than `contains`, `exact` or `regex` (the rule matches as
+  `contains`), and an auto-reply regular expression that does not compile (the rule never fires).
+  Each of these used to happen silently.
+- UltiChat 无法使用的配置值现在会在模块启动和每次重载时于控制台点名，并说明实际做法：不是 Boss 栏颜色的
+  `announcements.bossbar.color`（使用蓝色）、不是音效的 `mentions.sound`（现在播放默认音效，此前不播放）、
+  不是 `contains`、`exact` 或 `regex` 的自动回复规则 `mode`（按 `contains` 匹配），以及无法编译的自动回复正则表达式（该规则永远不会触发）。
+  此前这些情况都不会有任何提示。
+
+- A player who quits and joins again starts with an empty anti-spam history in every case. A chat
+  message from the earlier session that was still being processed when the player rejoined could
+  record itself into the new session (UltiKits/UltiChat#35).
+- 玩家退出后重新加入时，反刷屏历史在任何情况下都从空开始。此前玩家重新加入时仍在处理中的上一次会话的聊天消息，可能被记入新的会话
+  （UltiKits/UltiChat#35）。
+
+- A chat message still being processed from a session that has since ended no longer erases a
+  session already online under the same UUID's own anti-spam history. The previous fix for
+  UltiKits/UltiChat#35 above told "this session has ended" from `Player#isConnected()`, which belongs
+  to the specific, possibly stale `Player` object the delayed task was holding and says nothing about
+  whether the same player has since reconnected; since the anti-spam maps are keyed by player UUID
+  alone, that stale task's cleanup could erase the reconnected session's own, already-legitimate
+  cooldown and duplicate-message history moments after it was recorded, letting the reconnected
+  player bypass anti-spam briefly. The check now asks Bukkit whether anyone is online at all under
+  that UUID, which correctly leaves a newer session's state alone (UltiKits/UltiChat#40).
+- 一条仍在处理、但所属会话已经结束的聊天消息，现在不会再抹除同一 UUID 下已在线的新会话自己的反刷屏历史。此前针对
+  UltiKits/UltiChat#35 的修复通过 `Player#isConnected()` 判断“该会话是否已结束”，而该方法属于延迟任务持有的那个具体的、
+  可能已过期的 `Player` 对象，无法说明同一玩家是否已经重新连接；由于反刷屏映射仅以玩家 UUID 为键，该过期任务的清理可能会
+  在刚记录之后就抹除重新连接会话自己合法的冷却与重复消息历史，使重新连接的玩家短暂绕过反垃圾消息检测。现在改为向 Bukkit
+  询问该 UUID 下是否还有任何人在线，从而正确地不去动新会话的状态（UltiKits/UltiChat#40）。
+
+- The anti-spam and auto-reply cooldown state a chat message writes or cleans up now checks a
+  per-connection generation number rather than asking whether anyone is online under the player's
+  UUID at all. Both checks tried before this one (`Player#isConnected()`, then
+  `Bukkit.getPlayer(UUID) == null` immediately above) eventually let a stale, superseded connection's
+  own delayed processing act on a newer connection's behalf, because neither could tell "this UUID
+  has some connection" apart from "this UUID has the SAME connection that started this task": a
+  reconnect landing between a stale task's write and its own connection check could still leave that
+  write in place, attributed to whichever connection now owns the UUID, even once the previous fix
+  closed the narrower case of a stale cleanup erasing a newer connection's state outright. Every
+  player is now assigned a strictly increasing connection number on join, captured once at the start
+  of a chat message's own anti-spam or auto-reply-cooldown processing; the write or cleanup that
+  processing performs later only takes effect if that number is still current by the time it runs.
+  The number is removed, not merely left behind, on quit, so this table holds only currently connected
+  players (maintainer decision, 2026-09-29).
+- 聊天消息写入或清理反刷屏及自动回复冷却状态时，现在检查一个按连接分配的编号，而不是判断该玩家 UUID 下是否还有任何人在线。
+  在此之前尝试过的两种判断（`Player#isConnected()`，以及上一条中的 `Bukkit.getPlayer(UUID) == null`）最终都会让一个已被取代、
+  过期的连接的延迟处理代表新连接生效，因为两者都无法区分“这个 UUID 还有某个连接在线”与“这就是启动本次任务的那个连接”：
+  重连恰好发生在过期任务的写入与其自身连接判断之间时，即便上一次修复已经堵住了过期清理直接抹除新连接状态这一较窄的情形，
+  该写入仍可能保留下来，被算作当前拥有该 UUID 的连接所写。现在每名玩家加入时都会分配一个严格递增的连接编号，在一条聊天
+  消息自身的反刷屏或自动回复冷却处理开始时读取一次；该处理稍后执行的写入或清理，只有在这个编号仍是当前编号时才会生效。
+  该编号在退出时会被彻底移除，而不是仅仅保留不变，因此该表只保存当前在线玩家（维护者决定，2026-09-29）。
+
+- The per-connection generation number immediately above is removed again, and the anti-spam and
+  auto-reply-cooldown writes it gated are unconditional once more: the maintainer's own review of it
+  found the generation check and the write it gated were themselves a check-then-act pair, so a
+  reconnect landing between them could still let a stale write through — the fourth attempt in a row
+  at a connection-scoped guard, and the fourth to fail differently. The maintainer's final decision
+  (2026-09-29) switches approach entirely, on the reasoning that anti-spam and the auto-reply cooldown
+  exist precisely to combine what the SAME player sends before and after a reconnect — a message
+  landing after a reconnect was never something to be gated against in the first place, so no
+  connection-aware check belongs on this write at all, of any shape. The one real defect this whole
+  chain traces back to (UltiKits/UltiChat#20: nothing ever cleared these maps, so they kept an entry
+  for every player who had ever chatted) is now closed by elapsed time instead of by connection
+  lifecycle: an anti-spam entry clears itself once it is older than the longest `anti-spam.cooldown` or
+  `anti-spam.duplicate-window` this setting could ever be reloaded to (60 and 600 seconds respectively,
+  each field's own declared maximum) — read when it is checked, and swept opportunistically on every
+  write, the same self-expiring shape `anti-spam.auto-reply`'s own cooldown table already had from the
+  start. A player who quits and rejoins keeps their anti-spam history exactly as if they had never
+  disconnected, for as long as they are silent for less than that ceiling; this is the correct,
+  intended behaviour, not something to guard against. `AntiSpamService#cleanup` and the quit-time call
+  to it are removed as dead code, since nothing calls it any more.
+- 上一条中的按连接分配的编号被再次移除，它所控制的反刷屏与自动回复冷却写入重新变为无条件执行：维护者复查该编号机制时
+  发现，编号检查与它所控制的写入本身就是一对"先检查、后执行"，重连仍可能恰好落在两者之间使过期写入得以保留——这已是
+  连续第四次尝试以连接为判断依据的方案，且第四次以不同方式失败。维护者的最终决定（2026-09-29）彻底更换思路：反刷屏与
+  自动回复冷却存在的目的，本就是把同一玩家断线重连前后发送的消息算在一起——重连之后落地的消息，从来就不该被拦截，
+  因此这条写入本就不该有任何与连接相关的判断。这整条链路最初追溯到的真正缺陷（UltiKits/UltiChat#20：从未有任何机制
+  清理这些表，因此会为每个聊天过的玩家保留一条记录）现在改为按经过时间清理，而不是按连接生命周期：一条反刷屏记录在
+  超过 `anti-spam.cooldown` 或 `anti-spam.duplicate-window` 这两个设置各自声明的最大值（分别为 60 秒和 600 秒）后即
+  自动过期——在被读取判断时清理，也会在每次写入时顺带清理其他已过期的记录，与 `anti-spam.auto-reply` 自身冷却表
+  从一开始就采用的自我过期方式一致。玩家退出重新加入后，只要沉默时间短于该上限，其反刷屏历史会完全如同从未断线一样
+  保留——这是正确、有意为之的行为，而不是需要防范的情况。`AntiSpamService#cleanup` 及退出时对它的调用作为死代码一并
+  移除，因为已不再有任何调用方。
+
+- Two implementation defects in the time-based expiry immediately above are fixed, without changing
+  the decision itself (elapsed time, not connection lifecycle, is still the right rule): a concurrent
+  append and a stale-entry self-eviction could interleave and lose the fresh message, because the
+  retained-message list was a single, shared, mutable object that both a read-then-decide-then-delete
+  self-eviction and an in-place append could touch at the same time; and every accepted chat message
+  scanned both tables in full, an avoidable cost on the module's highest-frequency hot path. Both
+  tables' writes are now a single atomic map operation per player (deleting an expired entry and
+  appending a new one happen together, never as a read followed by a separate write later), and the
+  retained-message list is replaced wholesale rather than mutated in place, so no reader can ever
+  observe it half-built. The per-write full-table scan is removed; a new low-frequency scheduled sweep
+  (once a minute) now does that housekeeping instead, so neither table still only grows, but no single
+  chat message pays for scanning every other tracked player to get there.
+- 立即修复上一条所述的按时间过期机制在实现上的两个缺陷，不改变该决定本身（仍以经过时间而非连接生命周期作为判断依据是
+  正确的）：并发的写入与某条记录的自我过期判断可能交错执行，导致刚写入的消息丢失，原因是被保留的消息列表是一个共享的
+  可变对象，「先读取判断、再稍后删除」的自我过期逻辑与就地追加的写入可能同时触碰同一个对象；此外，每一条被接受的聊天
+  消息都会完整扫描两张表一次，在本模块最高频的路径上产生了可以避免的开销。现在两张表的写入都是每个玩家一次原子的映射
+  操作（删除过期记录与追加新消息在同一步完成，不再是先读取、之后再单独写入），被保留的消息列表整体替换而不是就地修改，
+  因此任何读取者都不可能看到一个正在构建中的中间状态。取消每次写入时的整表扫描，改为新增一个低频的定时清理任务
+  （每分钟一次）承担该项收尾工作，使两张表依然不会只增不减，但不再让每一条聊天消息都为扫描其他所有被追踪的玩家付出代价。
+
+- Two further defects in the time-based expiry are fixed, both pre-existing (present, unchanged, since
+  the round before the one immediately above) rather than caused by either of the two commits directly
+  before this one: the 600-second self-eviction ceiling was being applied to a player's retained
+  duplicate-message history even while `anti-spam.duplicate-window` is `0` -- the shipped default,
+  documented and advertised as "no time limit" -- so any player quiet for as little as ten minutes,
+  an ordinary gap in ordinary play, silently lost history the setting promised would never expire; and
+  `anti-spam.auto-reply`'s own cooldown table scanned every tracked player on every single matching
+  reply, an avoidable cost this module's other tables had already been corrected to avoid. The first is
+  fixed by using a separate, much longer housekeeping ceiling (24 hours) whenever `duplicate-window` is
+  currently `0`, so memory is still reclaimed for a UUID that stops chatting altogether; a positive,
+  finite `duplicate-window` is unaffected and still uses the earlier 600-second ceiling. That ceiling
+  is observable: a player who sends nothing for 24 hours loses their duplicate history, and the same
+  message is accepted again afterwards. By maintainer decision the ceiling stays and the documentation
+  says what it does: `0` means no window-based expiry, but a player's duplicate history is cleared
+  after 24 hours without messages -- the configuration comment, the shipped `chat.yml`, the upgrade
+  warning and `FEATURES.md` now say this instead of "no time limit" (UltiKits/UltiChat#40 review).
+  The second is fixed by moving that table's per-reply sweep to the same low-frequency scheduled task
+  pattern this module's other tables now use, rather than scanning on every reply.
+- 修复时间过期机制中的另外两个缺陷，二者都是此前就已存在的问题（自上一条修复之前的那一轮起就未曾改变），而不是由紧邻
+  的前两次提交引入：即使 `anti-spam.duplicate-window` 为 `0`——出厂默认值，文档中宣称并标明为"不限时"——600 秒的
+  自我过期上限此前仍会被应用于玩家保留的重复消息历史，导致只要沉默短短十分钟（日常游玩中很常见的间隔）就会悄悄丢失
+  该设置本应永不过期的历史；此外，`anti-spam.auto-reply` 自身的冷却表在每一次匹配到的自动回复上都会扫描所有被追踪的
+  玩家，这项本可避免的开销，在本模块其他表中早已被修正过。第一个问题的修复方式是：只要 `duplicate-window` 当前为
+  `0`，就改用一个更长得多的、单独的收尾清理上限（24 小时），仍能为彻底停止聊天的玩家回收内存；配置为正数、有限值的
+  `duplicate-window` 不受影响，仍沿用原有的 600 秒上限。这个上限是可以观察到的：玩家 24 小时未发消息后，其重复记录
+  会被清除，之后同一条消息会再次被接受。按维护者的决定，保留这个上限，并让文档如实说明：`0` 表示不按窗口过期，
+  但玩家 24 小时未发消息后其重复记录会被清除——配置注释、出厂 `chat.yml`、升级警告与 `FEATURES.md` 现在都这样写，
+  不再写"不限时"（UltiKits/UltiChat#40 评审）。
+  第二个问题的修复方式是：将该表按回复触发的扫描迁移到与本模块其他表相同的低频定时任务模式，而不再是每次回复都扫描一次。
+
+- A chat format using `{displayname}` inserts the player's display name as written. The name was put
+  into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
+  `{message}` repeated the message, and one containing a PlaceholderAPI placeholder such as
+  `%server_name%` was expanded as if the operator had written it. Colour codes in the name still show
+  as colour. The shipped `chat.format` uses `{player}` and was not affected (UltiKits/UltiChat#32).
+- 使用 `{displayname}` 的聊天格式现在按原样插入玩家显示名。此前显示名在填入 `{message}` 与 PlaceholderAPI 之前就放进了格式，
+  因此含有 `{message}` 的昵称会让消息重复出现，含有 PlaceholderAPI 占位符（如 `%server_name%`）的昵称会像管理员写入的一样被展开。
+  显示名中的颜色代码仍显示为颜色。出厂的 `chat.format` 使用 `{player}`，不受影响（UltiKits/UltiChat#32）。
+
+- Messages show an apostrophe once: `Auto-reply rule 'greet' added.`, `You don't have permission for
+  channel staff.` Language entries wrote every apostrophe doubled, and players saw both. The jar's
+  text is corrected, and a doubled apostrophe in a language file an earlier version extracted onto
+  the server is shown as one too (UltiKits/UltiChat#37).
+- 消息中的引号现在只显示一个，例如 `Auto-reply rule 'greet' added.`。此前语言条目把每个引号都写成两个，玩家会看到两个。
+  jar 中的文字已更正，服务器上由旧版本解压出的语言文件中的双引号也会显示为一个（UltiKits/UltiChat#37）。
+
+- The `/ch` channel list shows a channel's display name exactly as configured, and the join, quit and
+  welcome lines (without PlaceholderAPI) insert a player's display name exactly as it is. A value
+  containing a later placeholder, such as `{1}` or `%online_players%`, was rewritten by it.
+- `/ch` 频道列表现在按配置原样显示频道显示名；未安装 PlaceholderAPI 时，加入、退出与欢迎消息按原样插入玩家显示名。此前值中若含有
+  随后的占位符（如 `{1}`、`%online_players%`），会被其改写。
+
+- `/uchat autoreply list` and `/uchat autoreply setkeyword` show a rule name, keyword or response
+  exactly as written. A value containing `{1}`, `{2}` or `{3}` was rewritten by the placeholders
+  filled after it, so the line showed text the rule does not have (UltiKits/UltiChat#39).
+- `/uchat autoreply list` 与 `/uchat autoreply setkeyword` 现在按原样显示规则名、关键词和回复。此前值中若含有 `{1}`、`{2}`
+  或 `{3}`，会被随后填入的占位符改写，显示出规则并不具有的内容（UltiKits/UltiChat#39）。
+
+- A `/uchat autoreply add`, `setkeyword` or `remove` whose save coincides with a panel update of the
+  auto-reply rules now says the change did not take effect ("...the panel replaced the auto-reply rules
+  while it was being saved. Run the command again."). The panel's update replaces the whole rule set,
+  so the command's change was neither active nor saved, yet the command reported success. The panel's
+  rules are kept as the panel wrote them (UltiKits/UltiChat#29).
+- `/uchat autoreply add`、`setkeyword` 或 `remove` 的保存恰好与面板更新自动回复规则同时发生时，命令现在会说明更改未生效（保存时面板替换了规则，
+  请重新执行）。面板更新会整体替换规则集，因此命令的更改既未生效也未保存，而命令此前却报告成功。面板写入的规则保持不变
+  （UltiKits/UltiChat#29）。
+
+- `/uchat autoreply add` refuses a rule name containing `.` and says why. The configuration file
+  stores a rule under its name as a path, so `my.rule` was split into two keys when the file was
+  written: the rule was renamed to `my` and never fired, while the command reported it added
+  (UltiKits/UltiChat#25).
+- `/uchat autoreply add` 现在拒绝包含 `.` 的规则名并说明原因。配置文件以规则名作为路径保存规则，`my.rule` 写入文件时会被拆成两个键：
+  规则被改名为 `my` 且永远不会触发，而命令却报告已添加（UltiKits/UltiChat#25）。
 
 - The anti-spam refusals now follow the `language` setting. The cooldown, duplicate and
   too-many-capitals refusals were fixed Chinese text in every language although the language files

@@ -451,4 +451,19 @@ class JoinQuitListenerTest {
             assertThat(quitEvent.getQuitMessage()).isEqualTo("default quit");
         }
     }
+
+    // ==================== placeholder sweep ====================
+
+    @Nested
+    @DisplayName("Without PlaceholderAPI, a display name is inserted as written")
+    class DisplayNameFilledOnce {
+
+        @Test
+        @DisplayName("a display name containing %online_players% is not expanded afterwards")
+        void displayNameStaysLiteral() {
+            when(player.getDisplayName()).thenReturn("Nick %online_players%");
+
+            assertThat(listener.parsePlaceholders(player, "Hello {displayname}")).isEqualTo("Hello Nick %online_players%");
+        }
+    }
 }

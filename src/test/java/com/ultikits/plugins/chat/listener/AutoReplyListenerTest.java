@@ -508,4 +508,148 @@ class AutoReplyListenerTest {
             verify(player, never()).sendMessage(anyString());
         }
     }
+
+    // ==================== UltiKits/UltiChat#34 ====================
+
+    /**
+     * The cooldown table keeps an entry only while some allowed {@code autoreply.cooldown} (at most
+     * 300 seconds) could still block its player. An entry past the current cooldown but younger
+     * than that is kept, so raising the cooldown and reloading still counts it.
+     */
+    @Nested
+    @DisplayName("Cooldown entries no allowed cooldown can reach are dropped (UltiKits/UltiChat#34)")
+    class ExpiredEntries {
+
+        private static final long LONGEST_ALLOWED_MS = 300_000L;
+
+        private void matchEverything() {
+            Map<String, Object> rule = createSimpleRule("Response");
+            when(autoReplyService.findMatch(anyString())).thenReturn(createMatchEntry("r1", rule));
+            when(autoReplyService.getResponse(rule)).thenReturn("Response");
+            when(autoReplyService.getCommands(rule)).thenReturn(Collections.<String>emptyList());
+        }
+
+        @Test
+        @DisplayName("a reply no longer sweeps other players' entries as a side effect (UltiKits/UltiChat#40 review, Codex round 6): the scheduled sweep does it instead")
+        void replyDoesNotSweepOtherPlayersEntries() {
+            matchEverything();
+            UUID other = UUID.randomUUID();
+            long now = System.currentTimeMillis();
+            AutoReplyListener.LAST_REPLY_TIME.put(other, now - LONGEST_ALLOWED_MS - 1_000L);
+
+            listener.onPlayerChat(createChatEvent("test"));
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME)
+                    .as("an unrelated write no longer re-touches another player's own entry at all")
+                    .containsKey(other)
+                    .containsKey(playerUuid);
+        }
+
+        @Test
+        @DisplayName("the scheduled sweep drops other players' entries older than the longest allowed cooldown, once called")
+        void scheduledSweepDropsExpiredEntries() {
+            UUID gone = UUID.randomUUID();
+            UUID recent = UUID.randomUUID();
+            long now = System.currentTimeMillis();
+            AutoReplyListener.LAST_REPLY_TIME.put(gone, now - LONGEST_ALLOWED_MS - 1_000L);
+            AutoReplyListener.LAST_REPLY_TIME.put(recent, now - 20_000L);
+
+            listener.sweepExpiredEntries();
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME)
+                    .doesNotContainKey(gone)
+                    .as("past the current 10-second cooldown, but a raised cooldown could still reach it")
+                    .containsKey(recent);
+        }
+
+        @Test
+        @DisplayName("the scheduled sweep is annotated with a literal, fixed period -- not config-bound")
+        void scheduledSweepIsLiteralNotConfigBound() throws Exception {
+            java.lang.reflect.Method sweep = AutoReplyListener.class.getDeclaredMethod("sweepExpiredEntries");
+            com.ultikits.ultitools.annotations.Scheduled annotation =
+                    sweep.getAnnotation(com.ultikits.ultitools.annotations.Scheduled.class);
+            assertThat(annotation).as("must be @Scheduled at all").isNotNull();
+            assertThat(annotation.period()).isEqualTo(1200);
+            assertThat(annotation.async()).isFalse();
+            assertThat(annotation.periodKey()).as("literal, not config-bound").isEmpty();
+        }
+
+        @Test
+        @DisplayName("reading a player's own expired entry drops it, even when nothing matches")
+        void readDropsOwnExpiredEntry() {
+            when(autoReplyService.findMatch(anyString())).thenReturn(null);
+            AutoReplyListener.LAST_REPLY_TIME.put(playerUuid,
+                    System.currentTimeMillis() - LONGEST_ALLOWED_MS - 1_000L);
+
+            listener.onPlayerChat(createChatEvent("no match"));
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME).doesNotContainKey(playerUuid);
+        }
+
+        @Test
+        @DisplayName("control: at the longest cooldown, an entry inside it still blocks and is kept")
+        void longestCooldownStillBlocks() {
+            config.setCooldown(300);
+            matchEverything();
+            AutoReplyListener.LAST_REPLY_TIME.put(playerUuid, System.currentTimeMillis() - 200_000L);
+
+            listener.onPlayerChat(createChatEvent("test"));
+
+            verify(player, never()).sendMessage(anyString());
+            assertThat(AutoReplyListener.LAST_REPLY_TIME).containsKey(playerUuid);
+        }
+
+        @Test
+        @DisplayName("the longest cooldown the setting accepts is the one the table is kept for")
+        void rangeMatchesTheKeptWindow() throws Exception {
+            com.ultikits.ultitools.annotations.config.Range range = AutoReplyConfig.class
+                    .getDeclaredField("cooldown").getAnnotation(com.ultikits.ultitools.annotations.config.Range.class);
+            assertThat((long) range.max() * 1000L).isEqualTo(LONGEST_ALLOWED_MS);
+        }
+    }
+
+    // ==================== UltiKits/UltiChat#40 review, maintainer decision 2026-09-29 ====================
+
+    /**
+     * A per-connection generation number was tried on this table for one review round and reverted
+     * on the next: {@code LAST_REPLY_TIME} is exactly the same shape of per-UUID state
+     * {@link ChatListener}'s anti-spam maps are, and the maintainer's final decision for both is the
+     * same -- a reconnect is not something either table needs to react to at all. This class'
+     * cooldown write was already unconditional before that generation number was ever added (this is
+     * the one table in this module that had the self-expiring, connection-blind shape from the start),
+     * so reverting it is a return to how it always worked, not a new design.
+     */
+    @Nested
+    @DisplayName("The cooldown write is unconditional -- no connection check of any kind (maintainer decision 2026-09-29)")
+    class ReconnectDoesNotAffectTheCooldownWrite {
+
+        @Test
+        @DisplayName("The write proceeds regardless of any prior connection history for this UUID")
+        void writeAlwaysProceeds() {
+            matchEverythingHelper();
+
+            listener.onPlayerChat(createChatEvent("test"));
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME).containsKey(playerUuid);
+            verify(player).sendMessage(anyString());
+        }
+
+        @Test
+        @DisplayName("AutoReplyListener declares no field of any connection-registry type")
+        void listenerHoldsNoConnectionRegistryReference() {
+            for (java.lang.reflect.Field field : AutoReplyListener.class.getDeclaredFields()) {
+                assertThat(field.getType().getSimpleName())
+                        .as("a leftover field would mean this class still depends on connection "
+                                + "tracking, contradicting this decision")
+                        .doesNotContain("ConnectionRegistry");
+            }
+        }
+
+        private void matchEverythingHelper() {
+            Map<String, Object> rule = createSimpleRule("Response");
+            when(autoReplyService.findMatch(anyString())).thenReturn(createMatchEntry("r1", rule));
+            when(autoReplyService.getResponse(rule)).thenReturn("Response");
+            when(autoReplyService.getCommands(rule)).thenReturn(Collections.<String>emptyList());
+        }
+    }
 }

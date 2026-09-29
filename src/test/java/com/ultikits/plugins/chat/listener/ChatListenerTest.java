@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.junit.jupiter.api.*;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.util.*;
 
@@ -71,6 +72,13 @@ class ChatListenerTest {
 
     private AsyncPlayerChatEvent createChatEventWithRecipients(String message, Set<Player> recipients) {
         return new AsyncPlayerChatEvent(false, player, message, recipients);
+    }
+
+    /** As {@link #createChatEvent}, but for a specific player object rather than the outer {@code player}. */
+    private AsyncPlayerChatEvent createChatEventFor(Player sender, String message) {
+        Set<Player> recipients = new HashSet<>();
+        recipients.add(sender);
+        return new AsyncPlayerChatEvent(false, sender, message, recipients);
     }
 
     // ==================== Anti-Spam Tests ====================
@@ -491,7 +499,7 @@ class ChatListenerTest {
         }
 
         @Test
-        @DisplayName("Should handle invalid sound name gracefully")
+        @DisplayName("A mention sound that is not one plays the default sound, which the load warning names")
         void shouldHandleInvalidSound() {
             chatConfig.setChatFormatEnabled(false);
             chatConfig.setAntiSpamEnabled(false);
@@ -506,11 +514,10 @@ class ChatListenerTest {
             List<Player> onlinePlayers = Arrays.asList(player, mentioned);
             doReturn(onlinePlayers).when(ChatTestHelper.getMockServer()).getOnlinePlayers();
 
-            // Should not throw
             AsyncPlayerChatEvent event = createChatEvent("@Alice hi");
             listener.onChat(event);
 
-            verify(mentioned, never()).playSound(any(org.bukkit.Location.class), any(org.bukkit.Sound.class), anyFloat(), anyFloat());
+            verify(mentioned).playSound(any(org.bukkit.Location.class), eq(com.cryptomorin.xseries.XSound.ENTITY_EXPERIENCE_ORB_PICKUP.get()), anyFloat(), anyFloat());
         }
 
         @Test
@@ -684,13 +691,25 @@ class ChatListenerTest {
     }
 
     /**
-     * {@code onChat} runs off the main thread, so the record it writes after the spam check can land
-     * after the quit handler's {@code AntiSpamService#cleanup} and re-create the quitter's entries,
-     * undoing the eviction (UltiKits/UltiChat#20). The listener must leave no entry for a sender who
-     * is no longer online once it has written.
+     * {@code onChat} runs off the main thread. Three different connection-scoped guards were tried
+     * here in turn, on three separate review rounds, and every one of them was the wrong shape of
+     * fix: {@code Player#isConnected()} (UltiKits/UltiChat#35) erased a reconnected player's own
+     * legitimate history; {@code Bukkit.getPlayer(UUID) == null} (the #40 review's own narrowing)
+     * left a stale write in place across a reconnect but otherwise still treated "a message landing
+     * after a reconnect" as something to react to; a per-connection generation number (the #40
+     * review, again) turned out to gate the write itself with a check-then-act race of its own.
+     * <p>
+     * The maintainer's final decision on this review (2026-09-29) is to stop treating this as a
+     * connection-scoped problem at all: anti-spam exists precisely to combine what the SAME player
+     * sends before and after a reconnect, so a message landing after a reconnect belongs in that
+     * player's own history, not something to be gated against. {@code recordMessage} is now
+     * unconditional, with no connection awareness anywhere in this class or in
+     * {@link AntiSpamService}; {@link AntiSpamService} expires its own entries purely by elapsed
+     * time (see its own tests for that). {@link PlayerChannelListenerTest} covers that quit no
+     * longer touches anti-spam state at all.
      */
     @Nested
-    @DisplayName("A record written after the sender left leaves no anti-spam entry (UltiKits/UltiChat#20)")
+    @DisplayName("Anti-spam recording is unconditional -- no connection check of any kind (UltiKits/UltiChat#20, #35, #40 review, maintainer decision 2026-09-29)")
     class RecordAfterQuit {
 
         private AntiSpamService realAntiSpam;
@@ -701,6 +720,7 @@ class ChatListenerTest {
             chatConfig.setAntiSpamEnabled(true);
             realAntiSpam = new AntiSpamService();
             ChatTestHelper.setField(realAntiSpam, "config", chatConfig);
+            ChatTestHelper.setField(realAntiSpam, "plugin", ChatTestHelper.getMockPlugin());
             realListener = new ChatListener(chatConfig, channelConfig,
                     realAntiSpam, channelService, emojiService);
         }
@@ -711,10 +731,8 @@ class ChatListenerTest {
         }
 
         @Test
-        @DisplayName("Sender still online: the message is recorded (control)")
-        void onlineSenderIsRecorded() throws Exception {
-            when(player.isOnline()).thenReturn(true);
-
+        @DisplayName("A message is recorded (control)")
+        void messageIsRecorded() throws Exception {
             realListener.onChat(createChatEvent("hello"));
 
             assertThat(map("lastMessageTime")).containsKey(playerUuid);
@@ -722,16 +740,116 @@ class ChatListenerTest {
         }
 
         @Test
-        @DisplayName("Sender gone by the time the record is written: neither map holds them afterwards")
-        void offlineSenderLeavesNoEntry() throws Exception {
-            when(player.isOnline()).thenReturn(false);
+        @DisplayName("Reconnecting does not bypass anti-spam: messages sent before and after a reconnect are counted together")
+        void reconnectDoesNotBypassAntiSpam() throws Exception {
+            chatConfig.setAntiSpamCooldown(0);
+            chatConfig.setAntiSpamMaxDuplicate(3);
+
+            // Three identical messages before a reconnect.
+            realListener.onChat(createChatEvent("spam"));
+            realListener.onChat(createChatEvent("spam"));
+            realListener.onChat(createChatEvent("spam"));
+
+            // The player disconnects and rejoins -- simulated by an independent PlayerChannelListener
+            // sharing no state with anti-spam at all, since quit no longer touches it (see
+            // PlayerChannelListenerTest). Nothing here needs to run for that to be true; the point of
+            // this test is that NOTHING erases realAntiSpam's state in between.
+
+            // A fourth identical message after the reconnect: if reconnecting reset this player's
+            // history, this would be accepted as a fresh start. It is refused instead -- the history
+            // from before the reconnect still counts.
+            AsyncPlayerChatEvent afterReconnect = createChatEvent("spam");
+            realListener.onChat(afterReconnect);
+
+            assertThat(afterReconnect.isCancelled())
+                    .as("the reconnect did not let a 4th identical message bypass duplicate detection")
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("An old connection's own chat processing never clears any state, whatever else has happened since")
+        void oldConnectionsProcessingNeverClearsState() throws Exception {
+            // Two messages recorded -- standing in for two different connections' own activity, in
+            // whatever order their async processing actually completes in. There is no code path in
+            // ChatListener or AntiSpamService that removes an entry as a side effect of recording a
+            // message; the only way either map loses an entry is elapsed time (AntiSpamServiceTest)
+            // or reading a message from a different, unrelated UUID (which cannot touch this one).
+            realListener.onChat(createChatEvent("first"));
+            Object firstRecordedTime = map("lastMessageTime").get(playerUuid);
+
+            Player another = ChatTestHelper.createMockPlayer("AnotherPlayer", UUID.randomUUID());
+            realListener.onChat(createChatEventFor(another, "unrelated player's own message"));
+
+            assertThat(map("lastMessageTime")).as("this player's own record is untouched").containsKey(playerUuid);
+            assertThat(map("lastMessageTime").get(playerUuid)).isEqualTo(firstRecordedTime);
+            Collection<?> recent = (Collection<?>) map("recentMessages").get(playerUuid);
+            assertThat(recent).as("nothing was cleared").hasSize(1);
+        }
+    }
+
+    // ==================== UltiKits/UltiChat#32 ====================
+
+    /**
+     * The line a player sees is {@code String.format(format, displayName, message)}; these tests
+     * apply that last step themselves, so they read what is shown, not an intermediate string.
+     */
+    @Nested
+    @DisplayName("A display name is inserted as literal text, never as part of the template (UltiKits/UltiChat#32)")
+    class DisplayNameIsLiteral {
+
+        private String shownLine(String displayName, String format) {
+            chatConfig.setChatFormatEnabled(true);
+            chatConfig.setChatFormat(format);
+            chatConfig.setAntiSpamEnabled(false);
+            chatConfig.setMentionsEnabled(false);
+            channelConfig.setEnabled(false);
+            when(player.getDisplayName()).thenReturn(displayName);
 
             AsyncPlayerChatEvent event = createChatEvent("hello");
-            realListener.onChat(event);
+            listener.onChat(event);
+            return String.format(event.getFormat(), displayName, event.getMessage());
+        }
 
-            assertThat(event.isCancelled()).as("the message itself is not refused").isFalse();
-            assertThat(map("lastMessageTime")).doesNotContainKey(playerUuid);
-            assertThat(map("recentMessages")).doesNotContainKey(playerUuid);
+        @Test
+        @DisplayName("a display name containing {message} does not repeat the message")
+        void messageTokenStaysLiteral() {
+            assertThat(shownLine("Evil {message}", "{displayname} says: {message}"))
+                    .isEqualTo("Evil {message} says: hello");
+        }
+
+        @Test
+        @DisplayName("a display name containing a format specifier or a percent sign is shown as written")
+        void formatSpecifierStaysLiteral() {
+            assertThat(shownLine("Nick %2$s 100%", "{displayname} says: {message}"))
+                    .isEqualTo("Nick %2$s 100% says: hello");
+        }
+
+        @Test
+        @DisplayName("with PlaceholderAPI installed, a placeholder in a display name is not expanded")
+        void placeholderStaysLiteral() {
+            org.bukkit.plugin.PluginManager pluginManager = Bukkit.getPluginManager();
+            when(pluginManager.getPlugin("PlaceholderAPI")).thenReturn(mock(org.bukkit.plugin.Plugin.class));
+            try (MockedStatic<me.clip.placeholderapi.PlaceholderAPI> papi =
+                         mockStatic(me.clip.placeholderapi.PlaceholderAPI.class)) {
+                papi.when(() -> me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(any(Player.class), anyString()))
+                        .thenAnswer(inv -> ((String) inv.getArgument(1)).replace("%server_name%", "SECRET"));
+
+                assertThat(shownLine("Nick %server_name%", "[%server_name%] {displayname}: {message}"))
+                        .as("the operator's own placeholder expands; the player's does not")
+                        .isEqualTo("[SECRET] Nick %server_name%: hello");
+            }
+        }
+
+        @Test
+        @DisplayName("control: '&' colour codes in a display name are still shown as colour")
+        void colourCodesStillTranslate() {
+            assertThat(shownLine("&cRed", "{displayname}: {message}")).isEqualTo("\u00a7cRed: hello");
+        }
+
+        @Test
+        @DisplayName("control: an ordinary display name shows as before")
+        void ordinaryDisplayName() {
+            assertThat(shownLine("Fancy", "{displayname} says: {message}")).isEqualTo("Fancy says: hello");
         }
     }
 }

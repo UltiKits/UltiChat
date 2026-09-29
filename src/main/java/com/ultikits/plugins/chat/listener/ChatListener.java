@@ -100,15 +100,19 @@ public class ChatListener implements Listener {
             player.sendMessage(ChatColor.RED + ChatColor.translateAlternateColorCodes('&', spamReason));
             return true;
         }
+        // Always recorded, unconditionally, with no connection or session check of any kind here or
+        // anywhere else in this method (UltiKits/UltiChat#40 review, maintainer decision 2026-09-29,
+        // switching approach rather than adding a fourth connection-scoped guard on top of three that
+        // each failed differently: Player#isConnected() (#35) erased a reconnected session's own
+        // legitimate state; Bukkit.getPlayer(UUID) == null (the #40 review's own narrowing) left a
+        // stale write in place across a reconnect; a per-connection generation number (the #40
+        // review, again) turned out to gate the write itself with a check-then-act race of its own.
+        // All three treated "a message from before a reconnect landing after it" as something to be
+        // gated against. It never was: anti-spam exists precisely to combine what the SAME player
+        // sends before and after a reconnect, so this write belongs in that player's own history
+        // regardless of when it lands. AntiSpamService now expires an entry purely by elapsed time,
+        // with no connection check anywhere in the chain -- see its own class-level notes.
         antiSpamService.recordMessage(player.getUniqueId(), message);
-        // This runs off the main thread, so the record above can land after the quit handler's
-        // AntiSpamService#cleanup and re-create the quitter's entries (UltiKits/UltiChat#20).
-        // Observe after writing: a sender who has left keeps no entry. A record written while the
-        // quitter is still online for the rest of the quit event is swept by
-        // PlayerChannelListener#onPlayerQuit on the next tick.
-        if (!player.isOnline()) {
-            antiSpamService.cleanup(player.getUniqueId());
-        }
         return false;
     }
 
@@ -131,9 +135,11 @@ public class ChatListener implements Listener {
             }
         }
 
-        // Replace placeholders
+        // Replace placeholders. The display name is text the player may control (a nickname), so
+        // it holds only a marker until every template step has run, and then goes in as literal
+        // text: a "{message}" or a "%placeholder%" in it is shown as written (UltiKits/UltiChat#32).
         format = format.replace("{player}", "%1$s");
-        format = format.replace("{displayname}", player.getDisplayName());
+        format = format.replace("{displayname}", DISPLAY_NAME_MARKER);
         format = format.replace("{message}", "%2$s");
 
         // Translate color codes in format
@@ -147,7 +153,23 @@ public class ChatListener implements Listener {
         // Escape stray % chars that aren't format specifiers
         format = escapeFormatString(format);
 
-        event.setFormat(format);
+        event.setFormat(format.replace(DISPLAY_NAME_MARKER, literalDisplayName(player)));
+    }
+
+    /**
+     * Stands in for {@code {displayname}} while the format is filled. It holds no '%', '{', '}' or
+     * '&', so no template step changes it, and no operator writes it.
+     */
+    private static final String DISPLAY_NAME_MARKER = "\u0000displayname\u0000";
+
+    /**
+     * The player's display name as it goes into the finished format: its '&' colour codes are
+     * translated, as they were when the name was part of the template, and every '%' is doubled so
+     * the chat line's own formatting shows it as a single '%' and treats nothing in it as a
+     * specifier.
+     */
+    private static String literalDisplayName(Player player) {
+        return ChatColor.translateAlternateColorCodes('&', player.getDisplayName()).replace("%", "%%");
     }
 
     /**
@@ -186,9 +208,13 @@ public class ChatListener implements Listener {
         if (soundName == null || soundName.isEmpty()) {
             return;
         }
-        // Invalid sound name — silently ignore (empty Optional short-circuits, nothing is played)
-        XSound.matchXSound(soundName).ifPresent(xSound ->
-                player.playSound(player.getLocation(), xSound.get(), 1.0f, 1.0f));
+        // A name that is no sound plays the shipped sound instead; the operator is told at load
+        // (UltiChat#warnAboutUnusableValues). An empty value, above, is silence by choice.
+        XSound sound = XSound.matchXSound(soundName)
+                .orElseGet(() -> XSound.matchXSound(ChatConfig.DEFAULT_MENTION_SOUND).orElse(null));
+        if (sound != null) {
+            player.playSound(player.getLocation(), sound.get(), 1.0f, 1.0f);
+        }
     }
 
     /**

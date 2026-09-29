@@ -3,10 +3,12 @@ package com.ultikits.plugins.chat.service;
 import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.Autowired;
+import com.ultikits.ultitools.annotations.Scheduled;
 import com.ultikits.ultitools.annotations.Service;
 import org.bukkit.entity.Player;
 
-import java.util.LinkedList;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,7 +37,68 @@ public class AntiSpamService {
      * Package-private and non-final so a test can move time explicitly instead of sleeping.
      */
     LongSupplier clock = System::currentTimeMillis;
-    private final Map<UUID, LinkedList<RecentMessage>> recentMessages = new ConcurrentHashMap<>();
+
+    /**
+     * Every value here is treated as immutable once published: {@link #recordMessage} and
+     * {@link #isDuplicate} only ever install a brand new {@link List} via
+     * {@link Map#compute(Object, java.util.function.BiFunction)}, never mutate a retained list in
+     * place. This is deliberate, not merely simpler: a mutable, shared list let a concurrent append
+     * and a read-then-delete self-eviction race with each other and orphan a freshly accepted
+     * message (UltiKits/UltiChat#40 review, coordinator ruling 2026-09-29). {@code compute} holds
+     * this map's per-key lock for its whole remapping function, so "decide whether this entry is
+     * still valid" and "replace or remove it" happen as one atomic step, for both this table and
+     * {@link #recentMessages} below -- there is no "read a snapshot, then separately delete it"
+     * step anywhere in this class any more.
+     */
+    private final Map<UUID, List<RecentMessage>> recentMessages = new ConcurrentHashMap<>();
+
+    /**
+     * The longest {@code anti-spam.cooldown} this field's own {@code @Range} allows, in
+     * milliseconds. An entry older than this cannot still be blocking anyone under ANY value that
+     * setting could be reloaded to, so evicting it here loses nothing -- the same reasoning
+     * {@code AutoReplyListener}'s own cooldown table already uses for its {@code KEEP_MS}. Pinned
+     * against the annotation by {@code AntiSpamServiceTest#cooldownRangeMatchesTheSelfEvictionWindow}.
+     */
+    private static final long MAX_COOLDOWN_MS = 60_000L;
+
+    /**
+     * The longest {@code anti-spam.duplicate-window} this field's own {@code @Range} allows, in
+     * milliseconds. Used as the eviction ceiling for a retained-message entry ONLY while
+     * {@code anti-spam.duplicate-window} is currently a positive, finite value: a player who has not
+     * sent an accepted message in longer than this, under ANY finite value the setting could ever be
+     * reloaded to, can never have {@link #isDuplicate}'s comparison reach their retained history
+     * again, so keeping it past this point is memory, not history. Pinned by
+     * {@code AntiSpamServiceTest#duplicateWindowRangeMatchesTheSelfEvictionWindow}.
+     */
+    private static final long MAX_DUPLICATE_WINDOW_MS = 600_000L;
+
+    /**
+     * The eviction ceiling used instead of {@link #MAX_DUPLICATE_WINDOW_MS} while
+     * {@code anti-spam.duplicate-window} is currently {@code 0} -- the shipped default, documented
+     * as no window-based expiry on duplicate matching (UltiKits/UltiChat#14).
+     * {@code MAX_DUPLICATE_WINDOW_MS} cannot be used unconditionally here: applying it while the
+     * setting is 0 would drop the history of every player quiet for more than ten minutes,
+     * which is not a rare edge case -- it is the default configuration, and an ordinary gap
+     * in ordinary play (UltiKits/UltiChat#40 review, Codex round 6).
+     * <p>
+     * This ceiling is a memory bound, and it IS observable: a player who sends no message for
+     * 24 hours loses their duplicate history, so the same message is accepted again afterwards.
+     * The maintainer decided (2026-09-29, #40 review) to keep it and to document it: {@code 0}
+     * means no window-based expiry, but a player's duplicate history is cleared after 24 hours
+     * without messages. A truly unbounded history would reopen UltiKits/UltiChat#20 (a table
+     * that only grows) for the shipped default. Pinned by
+     * {@code AntiSpamServiceTest#unlimitedDuplicateWindowHousekeepingCeilingIsFarLongerThanAnyRealisticSession}.
+     */
+    private static final long UNLIMITED_DUPLICATE_WINDOW_HOUSEKEEPING_MS = 86_400_000L;
+
+    /**
+     * How often {@link #sweepExpiredEntries()} runs, in ticks (60 seconds). A literal period, not
+     * config-bound: this module's {@code plugin.yml} does not declare the {@code api-version: 630}
+     * a config-bound {@code @Scheduled} period needs (see the framework's own {@code @Scheduled}
+     * javadoc), and this interval is not something an operator has any reason to tune, so no config
+     * key is introduced for it (UltiKits/UltiChat#40 review, coordinator ruling 2026-09-29).
+     */
+    private static final int SWEEP_PERIOD_TICKS = 1200;
 
     /**
      * One accepted message kept for duplicate detection, with the time it was sent, so that a copy
@@ -92,6 +155,16 @@ public class AntiSpamService {
             return null;
         }
         long elapsed = clock.getAsLong() - lastTime;
+        if (elapsed >= MAX_COOLDOWN_MS) {
+            // Self-eviction on read, purely by elapsed time -- not a connection check of any kind
+            // (UltiKits/UltiChat#40 review, maintainer decision 2026-09-29). Safe as a plain
+            // conditional remove, unlike recentMessages below: Long is immutable, so
+            // remove(key, value) comparing by value can never discard a concurrently-written fresh
+            // timestamp -- a racing put() installs a genuinely different Long, and the comparison
+            // simply no-ops instead of deleting it.
+            lastMessageTime.remove(playerId, lastTime);
+            return null;
+        }
         long cooldownMs = config.getAntiSpamCooldown() * 1000L;
         if (elapsed < cooldownMs) {
             return plugin.i18n("spam_cooldown");
@@ -101,6 +174,14 @@ public class AntiSpamService {
 
     /**
      * Record a message for duplicate detection and update cooldown timestamp.
+     * <p>
+     * Always writes, unconditionally: there is no connection or session check anywhere in this
+     * method, or anywhere else in this class. The retained-message list for {@code playerId} is
+     * replaced wholesale, inside {@link Map#compute}, rather than mutated in place -- appending and
+     * trimming to {@code anti-spam.max-duplicate} both happen on the new copy, so no other reader
+     * (in particular {@link #isDuplicate}'s own {@code compute} call) can ever observe a half-built
+     * list. Table-wide eviction of players who stop chatting entirely is not this method's job any
+     * more; see {@link #sweepExpiredEntries()}.
      * 记录消息用于重复检测，并更新冷却时间戳。
      *
      * @param playerId the player UUID
@@ -113,17 +194,53 @@ public class AntiSpamService {
         long now = clock.getAsLong();
         lastMessageTime.put(playerId, now);
 
-        LinkedList<RecentMessage> messages =
-                recentMessages.computeIfAbsent(playerId, k -> new LinkedList<RecentMessage>());
-        messages.addLast(new RecentMessage(message, now));
+        int configuredMaxDuplicate = config.getAntiSpamMaxDuplicate();
+        int maxDuplicate = configuredMaxDuplicate <= 0 ? 3 : configuredMaxDuplicate;
+        recentMessages.compute(playerId, (uuid, existing) -> {
+            List<RecentMessage> updated = existing == null
+                    ? new ArrayList<>(maxDuplicate + 1)
+                    : new ArrayList<>(existing);
+            updated.add(new RecentMessage(message, now));
+            while (updated.size() > maxDuplicate) {
+                updated.remove(0);
+            }
+            return updated;
+        });
+    }
 
-        int maxDuplicate = config.getAntiSpamMaxDuplicate();
-        if (maxDuplicate <= 0) {
-            maxDuplicate = 3;
-        }
-        while (messages.size() > maxDuplicate) {
-            messages.removeFirst();
-        }
+    /**
+     * Periodic, low-frequency sweep of both tables, replacing the full-table scan this class used
+     * to run on every single accepted chat message -- a measured concern, since that made the
+     * module's highest-frequency hot path linear in the tracked population. Neither table's
+     * correctness depends on this method: {@link #checkCooldown} and {@link #isDuplicate} both
+     * still self-evict a stale entry on their own read path regardless of how recently this last
+     * ran, so a player sitting a few seconds past their own ceiling before this next fires is
+     * observably no different from one already swept. This exists purely so a UUID that stops
+     * chatting entirely -- and so never triggers its own read-side eviction again -- does not hold
+     * either table open for the life of the server (UltiKits/UltiChat#20, closed here by elapsed
+     * time instead of connection lifecycle; UltiKits/UltiChat#40 review, coordinator ruling
+     * 2026-09-29, replacing the per-write sweep this same rule previously ran).
+     */
+    @Scheduled(period = SWEEP_PERIOD_TICKS, async = false)
+    public void sweepExpiredEntries() {
+        long now = clock.getAsLong();
+        lastMessageTime.entrySet().removeIf(entry -> now - entry.getValue() >= MAX_COOLDOWN_MS);
+        long duplicateEvictionCeilingMs = duplicateWindowEvictionCeilingMs();
+        recentMessages.entrySet().removeIf(entry -> {
+            List<RecentMessage> retained = entry.getValue();
+            return retained.isEmpty() || now - retained.get(retained.size() - 1).sentAt >= duplicateEvictionCeilingMs;
+        });
+    }
+
+    /**
+     * {@link #MAX_DUPLICATE_WINDOW_MS} while {@code anti-spam.duplicate-window} is currently a
+     * positive, finite value; {@link #UNLIMITED_DUPLICATE_WINDOW_HOUSEKEEPING_MS} while it is
+     * {@code 0}. See the two constants' own javadoc for why this distinction exists at all.
+     */
+    private long duplicateWindowEvictionCeilingMs() {
+        return config.getAntiSpamDuplicateWindow() > 0
+                ? MAX_DUPLICATE_WINDOW_MS
+                : UNLIMITED_DUPLICATE_WINDOW_HOUSEKEEPING_MS;
     }
 
     /**
@@ -160,51 +277,52 @@ public class AntiSpamService {
     }
 
     /**
-     * Remove all tracked state for a player (call on quit).
-     * 清除玩家的所有追踪状态（退出时调用）。
-     *
-     * @param playerId the player UUID
-     */
-    public void cleanup(UUID playerId) {
-        if (playerId == null) {
-            return;
-        }
-        lastMessageTime.remove(playerId);
-        recentMessages.remove(playerId);
-    }
-
-    /**
      * Check if a message is a duplicate of recent messages within the configured window.
      * <p>
      * A message is a duplicate when at least {@code anti-spam.max-duplicate} of the player's
      * retained messages (the last {@code max-duplicate} accepted ones) are identical to it. With a
      * positive {@code anti-spam.duplicate-window}, a retained copy sent longer ago than that many
-     * seconds stops counting. A window of {@code 0} (the default) means no time limit: every retained
-     * copy counts however old, which is exactly the rule before UltiKits/UltiChat#14, when the window
-     * was never read.
+     * seconds stops counting. A window of {@code 0} (the default) means no window-based expiry: every
+     * retained copy counts however old, the counting rule before UltiKits/UltiChat#14, when the window
+     * was never read -- but a player's duplicate history is cleared after 24 hours without messages,
+     * the separate memory-bound ceiling this method also applies while the window is {@code 0} (see
+     * {@link #duplicateWindowEvictionCeilingMs()}).
+     * <p>
+     * The staleness check and the read it gates are one atomic {@link Map#compute} call: the
+     * decision "is this entry too old to matter" and the action "remove it" happen inside the same
+     * remapping function, which this map's {@code compute} runs under this key's own lock. There is
+     * no separate "read a snapshot, then call {@code remove} on it later" step -- the shape that let
+     * a concurrent {@link #recordMessage} append land, unobserved, between this method's read and
+     * its own later removal (UltiKits/UltiChat#40 review, coordinator ruling 2026-09-29).
      */
     private boolean isDuplicate(UUID playerId, String message) {
-        LinkedList<RecentMessage> messages = recentMessages.get(playerId);
-        if (messages == null || messages.isEmpty()) {
-            return false;
-        }
-
-        int maxDuplicate = config.getAntiSpamMaxDuplicate();
-        if (maxDuplicate <= 0) {
-            return false;
-        }
-
-        // Count how many of the recent messages match and are still inside the window (if any)
+        long now = clock.getAsLong();
+        int configuredMaxDuplicate = config.getAntiSpamMaxDuplicate();
         long windowMs = config.getAntiSpamDuplicateWindow() * 1000L;
         boolean timeLimited = windowMs > 0;
-        long now = clock.getAsLong();
-        int duplicateCount = 0;
-        for (RecentMessage recent : messages) {
-            boolean inWindow = !timeLimited || now - recent.sentAt <= windowMs;
-            if (inWindow && message.equals(recent.text)) {
-                duplicateCount++;
+        long evictionCeilingMs = duplicateWindowEvictionCeilingMs();
+
+        int[] matchCount = {0};
+        recentMessages.compute(playerId, (uuid, messages) -> {
+            if (messages == null || messages.isEmpty()) {
+                return null;
             }
-        }
-        return duplicateCount >= maxDuplicate;
+            if (now - messages.get(messages.size() - 1).sentAt >= evictionCeilingMs) {
+                return null;
+            }
+            if (configuredMaxDuplicate <= 0) {
+                return messages;
+            }
+            int count = 0;
+            for (RecentMessage recent : messages) {
+                boolean inWindow = !timeLimited || now - recent.sentAt <= windowMs;
+                if (inWindow && message.equals(recent.text)) {
+                    count++;
+                }
+            }
+            matchCount[0] = count;
+            return messages;
+        });
+        return configuredMaxDuplicate > 0 && matchCount[0] >= configuredMaxDuplicate;
     }
 }

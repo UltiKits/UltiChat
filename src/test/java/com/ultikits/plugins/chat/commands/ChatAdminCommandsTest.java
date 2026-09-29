@@ -429,4 +429,274 @@ class ChatAdminCommandsTest {
             assertThat(captor.getAllValues()).anyMatch(msg -> msg.contains("reload"));
         }
     }
+
+    // ==================== UltiKits/UltiChat#25 ====================
+
+    @Nested
+    @DisplayName("A rule name containing '.' is refused, naming the character (UltiKits/UltiChat#25)")
+    class DottedRuleName {
+
+        @Test
+        @DisplayName("add refuses my.rule, says why, and never reaches the service")
+        void addRefusesADottedName() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+            when(mockPlugin.i18n("autoreply_invalid_name"))
+                    .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+
+            commands.onAutoReplyAdd(sender, "my.rule", "hi");
+
+            verify(mockAutoReplyService, never()).addRule(anyString(), anyString(), anyString());
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender).sendMessage(sent.capture());
+            assertThat(sent.getValue()).contains("my.rule").contains("'.'");
+            assertThat(sent.getValue()).doesNotContain("added");
+        }
+
+        @Test
+        @DisplayName("control: a name without a dot is added")
+        void undottedNameIsAdded() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onAutoReplyAdd(sender, "my-rule", "hi");
+
+            verify(mockAutoReplyService).addRule("my-rule", "my-rule", "hi");
+        }
+    }
+
+    // ==================== UltiKits/UltiChat#26 ====================
+
+    /**
+     * Driven through the framework's own {@code BaseCommandExecutor#onCommand} dispatch, so the
+     * command's format decides how the arguments are bound -- a direct method call would bypass it.
+     */
+    @Nested
+    @DisplayName("A response and a keyword can be sentences (UltiKits/UltiChat#26)")
+    class SentenceArguments {
+
+        private org.bukkit.command.ConsoleCommandSender console;
+        private com.ultikits.ultitools.UltiTools ultiTools;
+
+        @BeforeEach
+        void liveServer() throws Exception {
+            com.ultikits.plugins.chat.utils.ChatTestHelper.setUp();
+            console = mock(org.bukkit.command.ConsoleCommandSender.class);
+            when(console.hasPermission(anyString())).thenReturn(true);
+            when(console.isOp()).thenReturn(true);
+            when(console.getName()).thenReturn("CONSOLE");
+            ultiTools = mock(com.ultikits.ultitools.UltiTools.class);
+            when(ultiTools.i18n(anyString())).thenAnswer(inv -> inv.getArgument(0));
+        }
+
+        @AfterEach
+        void stopServer() throws Exception {
+            com.ultikits.plugins.chat.utils.ChatTestHelper.tearDown();
+        }
+
+        /**
+         * Dispatches {@code /uchat <args>} through {@code onCommand}. The matched method, its
+         * parameters as the framework built them from the format, and the validators all run for
+         * real; only the final hand-off to the scheduler is replaced by calling the matched method
+         * on the spot, since the scheduler's one-tick deferral is not what is under test.
+         */
+        private void run(String... args) throws Exception {
+            ChatAdminCommands dispatched = spy(commands);
+            java.lang.reflect.Method execute = com.ultikits.ultitools.abstracts.command.BaseCommandExecutor.class
+                    .getDeclaredMethod("executeCommand",
+                            com.ultikits.ultitools.abstracts.command.CommandContext.class,
+                            java.lang.reflect.Method.class, Object[].class,
+                            com.ultikits.ultitools.abstracts.command.validation.ValidatorChain.ChainValidationResult.class);
+            execute.setAccessible(true);
+            execute.invoke(doAnswer(invocation -> {
+                java.lang.reflect.Method matched = invocation.getArgument(1);
+                Object[] params = invocation.getArgument(2);
+                return matched.invoke(dispatched, params);
+            }).when(dispatched), any(), any(), any(), any());
+
+            org.bukkit.command.Command bukkitCommand = mock(org.bukkit.command.Command.class);
+            when(bukkitCommand.getName()).thenReturn("uchat");
+            try (org.mockito.MockedStatic<com.ultikits.ultitools.UltiTools> ut =
+                         mockStatic(com.ultikits.ultitools.UltiTools.class)) {
+                ut.when(com.ultikits.ultitools.UltiTools::getInstance).thenReturn(ultiTools);
+                dispatched.onCommand(console, bukkitCommand, "uchat", args);
+            }
+        }
+
+        @Test
+        @DisplayName("autoreply add welcome Welcome to the server stores the whole sentence")
+        void addTakesTheRestOfTheLine() throws Exception {
+            run("autoreply", "add", "welcome", "Welcome", "to", "the", "server");
+
+            verify(mockAutoReplyService).addRule("welcome", "welcome", "Welcome to the server");
+        }
+
+        @Test
+        @DisplayName("control: a one-word response is stored as before")
+        void oneWordResponse() throws Exception {
+            run("autoreply", "add", "greet", "hello");
+
+            verify(mockAutoReplyService).addRule("greet", "greet", "hello");
+        }
+
+        @Test
+        @DisplayName("autoreply setkeyword server-ip server IP sets the phrase")
+        void setKeywordTakesAPhrase() throws Exception {
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("server-ip", new HashMap<String, Object>());
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            run("autoreply", "setkeyword", "server-ip", "server", "IP");
+
+            verify(mockAutoReplyService).setKeyword("server-ip", "server IP");
+        }
+    }
+
+    // ==================== UltiKits/UltiChat#29 ====================
+
+    /**
+     * A panel configuration update replaces the whole rule map (the framework sets the field
+     * reflectively). A spy whose {@code save()} swaps the map reproduces that landing between a
+     * command's change and its save, single-threaded and without timing.
+     */
+    @Nested
+    @DisplayName("A rule map replaced by the panel during the save is reported as not applied (UltiKits/UltiChat#29)")
+    class ReplacedByPanel {
+
+        private com.ultikits.plugins.chat.config.AutoReplyConfig config;
+        private ChatAdminCommands realCommands;
+        private Map<String, Map<String, Object>> panelRules;
+        private CommandSender sender;
+
+        @BeforeEach
+        void realService() throws Exception {
+            config = spy(new com.ultikits.plugins.chat.config.AutoReplyConfig());
+            Map<String, Map<String, Object>> rules = new LinkedHashMap<>();
+            Map<String, Object> existing = new HashMap<>();
+            existing.put("keyword", "old");
+            existing.put("response", "Old");
+            rules.put("existing", existing);
+            config.setRules(rules);
+            AutoReplyService service = new AutoReplyService();
+            java.lang.reflect.Field field = AutoReplyService.class.getDeclaredField("config");
+            field.setAccessible(true);
+            field.set(service, config);
+            realCommands = new ChatAdminCommands(mockPlugin, service);
+
+            panelRules = new LinkedHashMap<>();
+            Map<String, Object> panelRule = new HashMap<>();
+            panelRule.put("keyword", "panel");
+            panelRule.put("response", "From the panel");
+            panelRules.put("from-panel", panelRule);
+
+            when(mockPlugin.i18n("autoreply_not_applied"))
+                    .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+            sender = mock(CommandSender.class);
+        }
+
+        private void panelReplacesTheRulesDuringTheSave() throws Exception {
+            doAnswer(invocation -> {
+                config.setRules(panelRules);
+                return null;
+            }).when(config).save();
+        }
+
+        private String reply() {
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender).sendMessage(sent.capture());
+            return sent.getValue();
+        }
+
+        private String notApplied(String rule) {
+            return org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                    com.ultikits.plugins.chat.i18n.CatalogueText.text("en", "autoreply_not_applied").replace("{0}", rule));
+        }
+
+        @Test
+        @DisplayName("add: not applied, and the panel's rules are left exactly as the panel wrote them")
+        void add() throws Exception {
+            panelReplacesTheRulesDuringTheSave();
+
+            realCommands.onAutoReplyAdd(sender, "greet", "Hello");
+
+            String reply = reply();
+            assertThat(reply).as("no success is reported").doesNotContain("added");
+            assertThat(reply).isEqualTo(notApplied("greet"));
+            assertThat(config.getRules()).isSameAs(panelRules).containsOnlyKeys("from-panel");
+        }
+
+        @Test
+        @DisplayName("setkeyword: not applied")
+        void setKeyword() throws Exception {
+            panelReplacesTheRulesDuringTheSave();
+
+            realCommands.onAutoReplySetKeyword(sender, "existing", "new keyword");
+
+            String reply = reply();
+            assertThat(reply).as("no success is reported").doesNotContain("keyword set");
+            assertThat(reply).isEqualTo(notApplied("existing"));
+        }
+
+        @Test
+        @DisplayName("remove: not applied")
+        void remove() throws Exception {
+            panelReplacesTheRulesDuringTheSave();
+
+            realCommands.onAutoReplyRemove(sender, "existing");
+
+            String reply = reply();
+            assertThat(reply).as("no success is reported").doesNotContain("removed");
+            assertThat(reply).isEqualTo(notApplied("existing"));
+        }
+
+        @Test
+        @DisplayName("control: a save the panel does not interrupt reports success")
+        void uninterruptedSaveSucceeds() throws Exception {
+            doNothing().when(config).save();
+
+            realCommands.onAutoReplyAdd(sender, "greet", "Hello");
+
+            assertThat(reply()).contains("added");
+            assertThat(config.getRules()).containsKey("greet");
+        }
+    }
+
+    // ==================== UltiKits/UltiChat#39 ====================
+
+    @Nested
+    @DisplayName("A rule name or keyword is shown as written, even when it contains a placeholder (UltiKits/UltiChat#39)")
+    class PlaceholdersFilledOnce {
+
+        @Test
+        @DisplayName("autoreply list: a name containing {1} and a keyword containing {3} stay literal")
+        void listLineIsFilledInOnePass() {
+            CommandSender sender = mock(CommandSender.class);
+            Map<String, Map<String, Object>> rules = new LinkedHashMap<>();
+            Map<String, Object> rule = new HashMap<>();
+            rule.put("keyword", "kw{3}");
+            rule.put("mode", "contains");
+            rule.put("response", "resp");
+            rules.put("a{1}b", rule);
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            commands.onAutoReplyList(sender);
+
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender, atLeastOnce()).sendMessage(sent.capture());
+            assertThat(sent.getAllValues()).contains("a{1}b: kw{3} [contains] -> resp");
+        }
+
+        @Test
+        @DisplayName("autoreply setkeyword: a name containing {1} stays literal")
+        void keywordSetLineIsFilledInOnePass() throws Exception {
+            CommandSender sender = mock(CommandSender.class);
+            Map<String, Map<String, Object>> rules = new HashMap<>();
+            rules.put("r{1}", new HashMap<String, Object>());
+            when(mockAutoReplyService.getRules()).thenReturn(rules);
+
+            commands.onAutoReplySetKeyword(sender, "r{1}", "k");
+
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender).sendMessage(sent.capture());
+            assertThat(sent.getValue()).isEqualTo("Rule 'r{1}' keyword set to 'k'.");
+        }
+    }
 }

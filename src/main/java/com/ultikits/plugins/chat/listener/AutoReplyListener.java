@@ -4,6 +4,7 @@ import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.service.AutoReplyService;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.EventListener;
+import com.ultikits.ultitools.annotations.Scheduled;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -32,9 +33,24 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AutoReplyListener implements Listener {
 
     /**
-     * Records the last time each player triggered an auto-reply for cooldown.
+     * Records the last time each player triggered an auto-reply for cooldown. An entry older than
+     * the longest cooldown the setting accepts can no longer block anyone, so it is dropped when it
+     * is read and whenever a reply is recorded; the table holds only players who triggered a reply
+     * within that window (UltiKits/UltiChat#34). An entry past the current cooldown but inside that
+     * window is kept, so raising the cooldown and reloading still counts it.
      */
     static final Map<UUID, Long> LAST_REPLY_TIME = new ConcurrentHashMap<>();
+
+    private static final long KEEP_MS = AutoReplyConfig.MAX_COOLDOWN_SECONDS * 1000L;
+
+    /**
+     * How often {@link #sweepExpiredEntries()} runs, in ticks (60 seconds). A literal period, not
+     * config-bound, matching {@code AntiSpamService}'s own housekeeping task and for the same
+     * reason: this module's {@code plugin.yml} does not declare the {@code api-version: 630} a
+     * config-bound {@code @Scheduled} period needs, and this interval is not something an operator
+     * has any reason to tune.
+     */
+    private static final int SWEEP_PERIOD_TICKS = 1200;
 
     @Autowired
     private AutoReplyConfig config;
@@ -72,7 +88,29 @@ public class AutoReplyListener implements Listener {
         sendResponse(player, rule);
         executeCommands(player, autoReplyService.getCommands(rule));
 
+        // Always written, unconditionally -- no connection or session check, matching
+        // AntiSpamService's own approach (UltiKits/UltiChat#40 review, maintainer decision
+        // 2026-09-29): a reply triggered just before a reconnect belongs on this player's own
+        // cooldown record regardless of when this write lands. No full-table sweep here any more --
+        // see sweepExpiredEntries() (UltiKits/UltiChat#40 review, Codex round 6, confirmed
+        // pre-existing rather than caused by any round of this saga: on a server with N players who
+        // triggered a reply recently, every subsequent matching message traversed all N entries,
+        // making this hot path quadratic in the active population -- present since UltiKits/UltiChat#34
+        // added this table, untouched by every round of the reconnect-race review).
         LAST_REPLY_TIME.put(player.getUniqueId(), System.currentTimeMillis());
+    }
+
+    /**
+     * Periodic, low-frequency sweep, replacing the full-table scan this class used to run on every
+     * matching chat message. {@link #isOnCooldown} still self-evicts a stale entry on its own read
+     * path regardless of how recently this last ran, so this exists only so a UUID that stops
+     * triggering replies entirely does not hold this table open for the life of the server
+     * (UltiKits/UltiChat#34; UltiKits/UltiChat#40 review, Codex round 6).
+     */
+    @Scheduled(period = SWEEP_PERIOD_TICKS, async = false)
+    public void sweepExpiredEntries() {
+        long now = System.currentTimeMillis();
+        LAST_REPLY_TIME.values().removeIf(time -> now - time >= KEEP_MS);
     }
 
     private boolean isOnCooldown(UUID playerId) {
@@ -80,8 +118,13 @@ public class AutoReplyListener implements Listener {
         if (lastTime == null) {
             return false;
         }
+        long elapsed = System.currentTimeMillis() - lastTime;
+        if (elapsed >= KEEP_MS) {
+            LAST_REPLY_TIME.remove(playerId, lastTime);
+            return false;
+        }
         long cooldownMs = config.getCooldown() * 1000L;
-        return (System.currentTimeMillis() - lastTime) < cooldownMs;
+        return elapsed < cooldownMs;
     }
 
     private boolean hasRulePermission(Player player, Map<String, Object> rule) {

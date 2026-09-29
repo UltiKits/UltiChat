@@ -38,10 +38,16 @@ public class AutoReplyConfig extends AbstractConfigEntity {
         SHIPPED_RULES = Collections.unmodifiableMap(rules);
     }
 
+    /**
+     * The longest {@code autoreply.cooldown} the setting accepts, in seconds. The auto-reply
+     * cooldown table keeps an entry for this long, so a raised cooldown still counts it.
+     */
+    public static final int MAX_COOLDOWN_SECONDS = 300;
+
     @ConfigEntry(path = "autoreply.enabled", comment = "Enable auto-reply / 启用自动回复")
     private boolean enabled = true;
 
-    @Range(min = 0, max = 300)
+    @Range(min = 0, max = MAX_COOLDOWN_SECONDS)
     @ConfigEntry(path = "autoreply.cooldown", comment = "Global cooldown between auto-replies (seconds) / 全局冷却(秒)")
     private int cooldown = 10;
 

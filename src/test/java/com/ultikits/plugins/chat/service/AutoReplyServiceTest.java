@@ -699,4 +699,22 @@ class AutoReplyServiceTest {
             assertThat(service.findMatch("test message")).isNotNull();
         }
     }
+
+    // ==================== UltiKits/UltiChat#25 ====================
+
+    @Nested
+    @DisplayName("addRule refuses a name containing '.', for callers that bypass the command (UltiKits/UltiChat#25)")
+    class DottedRuleName {
+
+        @Test
+        @DisplayName("my.rule is refused before anything changes or is written")
+        void dottedNameIsRefused() throws Exception {
+            assertThatThrownBy(() -> service.addRule("my.rule", "hi", "Hello"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("my.rule");
+
+            assertThat(config.getRules()).doesNotContainKey("my.rule");
+            verify(config, never()).save();
+        }
+    }
 }

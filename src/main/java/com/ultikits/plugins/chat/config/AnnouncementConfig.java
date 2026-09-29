@@ -76,8 +76,14 @@ public class AnnouncementConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "announcements.bossbar.duration", comment = "Boss bar display duration (seconds) / Boss栏显示时长(秒)")
     private int bossBarDuration = 10;
 
+    /**
+     * The shipped {@code announcements.bossbar.color}, also used when the configured value names no
+     * boss-bar colour.
+     */
+    public static final String DEFAULT_BOSS_BAR_COLOR = "BLUE";
+
     @ConfigEntry(path = "announcements.bossbar.color", comment = "Boss bar color / Boss栏颜色")
-    private String bossBarColor = "BLUE";
+    private String bossBarColor = DEFAULT_BOSS_BAR_COLOR;
 
     @ConfigEntry(path = "announcements.bossbar.messages", comment = "Boss bar messages / Boss栏公告内容")
     private List<String> bossBarMessages = new ArrayList<>(SHIPPED_BOSSBAR_MESSAGES);

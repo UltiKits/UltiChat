@@ -30,8 +30,8 @@ Standalone chat module extracted from UltiEssentials with 8 features: auto-reply
 |------|------|------|
 | `/uchat reload` | `ultichat.admin` | 重载配置 / Reload configs |
 | `/uchat autoreply list` | `ultichat.admin` | 列出自动回复规则 / List auto-reply rules |
-| `/uchat autoreply add <name> <response>` | `ultichat.admin` | 添加规则 / Add rule |
-| `/uchat autoreply setkeyword <name> <keyword>` | `ultichat.admin` | 修改规则关键词 / Change a rule's keyword |
+| `/uchat autoreply add <name> <response...>` | `ultichat.admin` | 添加规则（回复可为一句话）/ Add rule (the response may be a sentence) |
+| `/uchat autoreply setkeyword <name> <keyword...>` | `ultichat.admin` | 修改规则关键词（可为词组）/ Change a rule's keyword (may be a phrase) |
 | `/uchat autoreply remove <name>` | `ultichat.admin` | 移除规则 / Remove rule |
 
 ### 频道命令 / Channel Commands
