@@ -4,6 +4,7 @@ import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.service.AutoReplyService;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.EventListener;
+import com.ultikits.ultitools.annotations.Scheduled;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -41,6 +42,15 @@ public class AutoReplyListener implements Listener {
     static final Map<UUID, Long> LAST_REPLY_TIME = new ConcurrentHashMap<>();
 
     private static final long KEEP_MS = AutoReplyConfig.MAX_COOLDOWN_SECONDS * 1000L;
+
+    /**
+     * How often {@link #sweepExpiredEntries()} runs, in ticks (60 seconds). A literal period, not
+     * config-bound, matching {@code AntiSpamService}'s own housekeeping task and for the same
+     * reason: this module's {@code plugin.yml} does not declare the {@code api-version: 630} a
+     * config-bound {@code @Scheduled} period needs, and this interval is not something an operator
+     * has any reason to tune.
+     */
+    private static final int SWEEP_PERIOD_TICKS = 1200;
 
     @Autowired
     private AutoReplyConfig config;
@@ -81,10 +91,26 @@ public class AutoReplyListener implements Listener {
         // Always written, unconditionally -- no connection or session check, matching
         // AntiSpamService's own approach (UltiKits/UltiChat#40 review, maintainer decision
         // 2026-09-29): a reply triggered just before a reconnect belongs on this player's own
-        // cooldown record regardless of when this write lands.
+        // cooldown record regardless of when this write lands. No full-table sweep here any more --
+        // see sweepExpiredEntries() (UltiKits/UltiChat#40 review, Codex round 6, confirmed
+        // pre-existing rather than caused by any round of this saga: on a server with N players who
+        // triggered a reply recently, every subsequent matching message traversed all N entries,
+        // making this hot path quadratic in the active population -- present since UltiKits/UltiChat#34
+        // added this table, untouched by every round of the reconnect-race review).
+        LAST_REPLY_TIME.put(player.getUniqueId(), System.currentTimeMillis());
+    }
+
+    /**
+     * Periodic, low-frequency sweep, replacing the full-table scan this class used to run on every
+     * matching chat message. {@link #isOnCooldown} still self-evicts a stale entry on its own read
+     * path regardless of how recently this last ran, so this exists only so a UUID that stops
+     * triggering replies entirely does not hold this table open for the life of the server
+     * (UltiKits/UltiChat#34; UltiKits/UltiChat#40 review, Codex round 6).
+     */
+    @Scheduled(period = SWEEP_PERIOD_TICKS, async = false)
+    public void sweepExpiredEntries() {
         long now = System.currentTimeMillis();
         LAST_REPLY_TIME.values().removeIf(time -> now - time >= KEEP_MS);
-        LAST_REPLY_TIME.put(player.getUniqueId(), now);
     }
 
     private boolean isOnCooldown(UUID playerId) {

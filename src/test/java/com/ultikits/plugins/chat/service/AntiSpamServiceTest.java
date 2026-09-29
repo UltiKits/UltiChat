@@ -669,8 +669,37 @@ class AntiSpamServiceTest {
         }
 
         @Test
-        @DisplayName("A duplicate-detection entry is cleared once it is older than the longest duplicate-window this setting could ever be reloaded to, even with duplicate-window: 0 (unlimited)")
-        void duplicateEntryExpiresPastItsOwnCeilingEvenWhenUnlimited() throws Exception {
+        @DisplayName("A duplicate-detection entry is cleared once older than the longest duplicate-window this setting could ever be reloaded to, while that window is finite")
+        void duplicateEntryExpiresPastItsOwnCeilingWhileFinite() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(300); // a finite, positive value
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            now[0] += 600_000L; // exactly the @Range(max = 600) ceiling in seconds
+
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "spam"))
+                    .as("an entry this old cannot be reached by ANY finite duplicate-window value")
+                    .isNull();
+
+            @SuppressWarnings("unchecked")
+            Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
+            assertThat(recentMessages).doesNotContainKey(playerId);
+        }
+
+        /**
+         * UltiKits/UltiChat#40 review, Codex round 6: applying the 600-second ceiling unconditionally,
+         * regardless of the setting's own value, silently contradicted {@code anti-spam.duplicate-window:
+         * 0}'s documented "no time limit" promise for the shipped default -- not a rare edge case, since
+         * 0 is what every server ships with. Confirmed pre-existing (present unchanged since the prior
+         * round, which only changed how eviction is performed, not this comparison), fixed directly.
+         */
+        @Test
+        @DisplayName("With duplicate-window: 0 (unlimited), a retained history survives the 600-second ceiling -- 'no time limit' is honoured for any realistic gap")
+        void unlimitedDuplicateWindowSurvivesTheFiniteCeiling() throws Exception {
             UUID playerId = UUID.randomUUID();
             long[] now = manualClock();
             config.setAntiSpamCooldown(0);
@@ -679,16 +708,45 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
-            now[0] += 600_000L; // exactly the @Range(max = 600) ceiling in seconds
+            now[0] += 600_000L; // exactly the FINITE ceiling -- must NOT evict while unlimited
 
             assertThat(service.checkSpam(createPlayerWithId(playerId), "spam"))
-                    .as("an entry this old cannot be reached by ANY duplicate-window value, "
-                            + "unlimited included -- it is memory, not history, kept past this point")
+                    .as("'no time limit' must remain true for any gap a real player could produce")
+                    .isEqualTo(ZH_DUPLICATE);
+        }
+
+        @Test
+        @DisplayName("With duplicate-window: 0 (unlimited), a retained history is still eventually reclaimed for memory hygiene, past the far-longer housekeeping ceiling")
+        void unlimitedDuplicateWindowExpiresPastTheHousekeepingCeiling() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(0);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            now[0] += 86_400_000L; // the housekeeping ceiling, far longer than any realistic session
+
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "spam"))
+                    .as("eventually reclaimed regardless -- this is memory hygiene, not a promise about "
+                            + "how long \"no time limit\" lasts within a session")
                     .isNull();
 
             @SuppressWarnings("unchecked")
             Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
             assertThat(recentMessages).doesNotContainKey(playerId);
+        }
+
+        @Test
+        @DisplayName("The unlimited-duplicate-window housekeeping ceiling is far longer than any realistic play session")
+        void unlimitedDuplicateWindowHousekeepingCeilingIsFarLongerThanAnyRealisticSession() throws Exception {
+            long housekeepingMs = (Long) ChatTestHelper.getStaticField(AntiSpamService.class,
+                    "UNLIMITED_DUPLICATE_WINDOW_HOUSEKEEPING_MS");
+            long finiteCeilingMs = (Long) ChatTestHelper.getStaticField(AntiSpamService.class,
+                    "MAX_DUPLICATE_WINDOW_MS");
+            assertThat(housekeepingMs).isGreaterThan(finiteCeilingMs);
+            assertThat(housekeepingMs).as("a day, not ten minutes").isEqualTo(86_400_000L);
         }
 
         @Test

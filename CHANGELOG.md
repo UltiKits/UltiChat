@@ -212,6 +212,31 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   因此任何读取者都不可能看到一个正在构建中的中间状态。取消每次写入时的整表扫描，改为新增一个低频的定时清理任务
   （每分钟一次）承担该项收尾工作，使两张表依然不会只增不减，但不再让每一条聊天消息都为扫描其他所有被追踪的玩家付出代价。
 
+- Two further defects in the time-based expiry are fixed, both pre-existing (present, unchanged, since
+  the round before the one immediately above) rather than caused by either of the two commits directly
+  before this one: the 600-second self-eviction ceiling was being applied to a player's retained
+  duplicate-message history even while `anti-spam.duplicate-window` is `0` -- the shipped default,
+  documented and advertised as "no time limit" -- so any player quiet for as little as ten minutes,
+  an ordinary gap in ordinary play, silently lost history the setting promised would never expire; and
+  `anti-spam.auto-reply`'s own cooldown table scanned every tracked player on every single matching
+  reply, an avoidable cost this module's other tables had already been corrected to avoid. The first is
+  fixed by using a separate, much longer housekeeping ceiling (24 hours, far beyond any realistic play
+  session) whenever `duplicate-window` is currently `0`, so "no time limit" remains true for every
+  duplicate-matching decision a player could actually observe, while memory is still eventually
+  reclaimed for a UUID that stops chatting altogether; a positive, finite `duplicate-window` is
+  unaffected and still uses the earlier 600-second ceiling. The second is fixed by moving that table's
+  per-reply sweep to the same low-frequency scheduled task pattern this module's other tables now use,
+  rather than scanning on every reply.
+- 修复时间过期机制中的另外两个缺陷，二者都是此前就已存在的问题（自上一条修复之前的那一轮起就未曾改变），而不是由紧邻
+  的前两次提交引入：即使 `anti-spam.duplicate-window` 为 `0`——出厂默认值，文档中宣称并标明为"不限时"——600 秒的
+  自我过期上限此前仍会被应用于玩家保留的重复消息历史，导致只要沉默短短十分钟（日常游玩中很常见的间隔）就会悄悄丢失
+  该设置本应永不过期的历史；此外，`anti-spam.auto-reply` 自身的冷却表在每一次匹配到的自动回复上都会扫描所有被追踪的
+  玩家，这项本可避免的开销，在本模块其他表中早已被修正过。第一个问题的修复方式是：只要 `duplicate-window` 当前为
+  `0`，就改用一个更长得多的、单独的收尾清理上限（24 小时，远超任何现实的游玩时段），使"不限时"对玩家在游玩中能实际
+  观察到的任何重复判定都保持为真，同时仍能为彻底停止聊天的玩家最终回收内存；配置为正数、有限值的 `duplicate-window`
+  不受影响，仍沿用原有的 600 秒上限。第二个问题的修复方式是：将该表按回复触发的扫描迁移到与本模块其他表相同的低频
+  定时任务模式，而不再是每次回复都扫描一次。
+
 - A chat format using `{displayname}` inserts the player's display name as written. The name was put
   into the format before `{message}` and PlaceholderAPI were filled, so a nickname containing
   `{message}` repeated the message, and one containing a PlaceholderAPI placeholder such as

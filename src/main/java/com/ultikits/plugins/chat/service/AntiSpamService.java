@@ -63,14 +63,33 @@ public class AntiSpamService {
 
     /**
      * The longest {@code anti-spam.duplicate-window} this field's own {@code @Range} allows, in
-     * milliseconds. {@code 0} (the shipped default) means duplicate matching among RETAINED messages
-     * never times out on its own -- that comparison, in {@link #isDuplicate}, is unchanged by this
-     * constant. But a player who has not sent an accepted message in longer than this, under ANY
-     * duplicate-window value the setting could ever be reloaded to, can never have that comparison
-     * reach their retained history again, so keeping it past this point is memory, not history.
-     * Pinned by {@code AntiSpamServiceTest#duplicateWindowRangeMatchesTheSelfEvictionWindow}.
+     * milliseconds. Used as the eviction ceiling for a retained-message entry ONLY while
+     * {@code anti-spam.duplicate-window} is currently a positive, finite value: a player who has not
+     * sent an accepted message in longer than this, under ANY finite value the setting could ever be
+     * reloaded to, can never have {@link #isDuplicate}'s comparison reach their retained history
+     * again, so keeping it past this point is memory, not history. Pinned by
+     * {@code AntiSpamServiceTest#duplicateWindowRangeMatchesTheSelfEvictionWindow}.
      */
     private static final long MAX_DUPLICATE_WINDOW_MS = 600_000L;
+
+    /**
+     * The eviction ceiling used instead of {@link #MAX_DUPLICATE_WINDOW_MS} while
+     * {@code anti-spam.duplicate-window} is currently {@code 0} -- the shipped default, documented
+     * and advertised as "no time limit" on duplicate matching (UltiKits/UltiChat#14).
+     * {@code MAX_DUPLICATE_WINDOW_MS} cannot be used unconditionally here: applying it while the
+     * setting is 0 silently contradicts that promise for every player quiet for more than ten
+     * minutes, which is not a rare edge case -- it is the default configuration, and an ordinary gap
+     * in ordinary play (UltiKits/UltiChat#40 review, Codex round 6, confirmed pre-existing from the
+     * prior round rather than caused by this one: this same unconditional ceiling was already applied
+     * regardless of the setting's value before this round, which only changed how eviction is
+     * performed, not this comparison). A day is far longer than any realistic play session --
+     * "no time limit" remains true for every duplicate-matching decision a player could actually
+     * observe -- while still eventually reclaiming memory for a UUID that stops chatting altogether,
+     * which is what {@code anti-spam.duplicate-window: 0} was never meant to make literal (that
+     * would reopen UltiKits/UltiChat#20 for the shipped default). Pinned by
+     * {@code AntiSpamServiceTest#unlimitedDuplicateWindowHousekeepingCeilingIsFarLongerThanAnyRealisticSession}.
+     */
+    private static final long UNLIMITED_DUPLICATE_WINDOW_HOUSEKEEPING_MS = 86_400_000L;
 
     /**
      * How often {@link #sweepExpiredEntries()} runs, in ticks (60 seconds). A literal period, not
@@ -206,10 +225,22 @@ public class AntiSpamService {
     public void sweepExpiredEntries() {
         long now = clock.getAsLong();
         lastMessageTime.entrySet().removeIf(entry -> now - entry.getValue() >= MAX_COOLDOWN_MS);
+        long duplicateEvictionCeilingMs = duplicateWindowEvictionCeilingMs();
         recentMessages.entrySet().removeIf(entry -> {
             List<RecentMessage> retained = entry.getValue();
-            return retained.isEmpty() || now - retained.get(retained.size() - 1).sentAt >= MAX_DUPLICATE_WINDOW_MS;
+            return retained.isEmpty() || now - retained.get(retained.size() - 1).sentAt >= duplicateEvictionCeilingMs;
         });
+    }
+
+    /**
+     * {@link #MAX_DUPLICATE_WINDOW_MS} while {@code anti-spam.duplicate-window} is currently a
+     * positive, finite value; {@link #UNLIMITED_DUPLICATE_WINDOW_HOUSEKEEPING_MS} while it is
+     * {@code 0}. See the two constants' own javadoc for why this distinction exists at all.
+     */
+    private long duplicateWindowEvictionCeilingMs() {
+        return config.getAntiSpamDuplicateWindow() > 0
+                ? MAX_DUPLICATE_WINDOW_MS
+                : UNLIMITED_DUPLICATE_WINDOW_HOUSEKEEPING_MS;
     }
 
     /**
@@ -253,7 +284,9 @@ public class AntiSpamService {
      * positive {@code anti-spam.duplicate-window}, a retained copy sent longer ago than that many
      * seconds stops counting. A window of {@code 0} (the default) means no time limit: every retained
      * copy counts however old, which is exactly the rule before UltiKits/UltiChat#14, when the window
-     * was never read. That comparison is unchanged here.
+     * was never read. That comparison is unaffected by the entry-eviction ceiling below, which uses a
+     * far longer, separate constant while the window is {@code 0} for exactly this reason (see
+     * {@link #duplicateWindowEvictionCeilingMs()}).
      * <p>
      * The staleness check and the read it gates are one atomic {@link Map#compute} call: the
      * decision "is this entry too old to matter" and the action "remove it" happen inside the same
@@ -267,13 +300,14 @@ public class AntiSpamService {
         int configuredMaxDuplicate = config.getAntiSpamMaxDuplicate();
         long windowMs = config.getAntiSpamDuplicateWindow() * 1000L;
         boolean timeLimited = windowMs > 0;
+        long evictionCeilingMs = duplicateWindowEvictionCeilingMs();
 
         int[] matchCount = {0};
         recentMessages.compute(playerId, (uuid, messages) -> {
             if (messages == null || messages.isEmpty()) {
                 return null;
             }
-            if (now - messages.get(messages.size() - 1).sentAt >= MAX_DUPLICATE_WINDOW_MS) {
+            if (now - messages.get(messages.size() - 1).sentAt >= evictionCeilingMs) {
                 return null;
             }
             if (configuredMaxDuplicate <= 0) {

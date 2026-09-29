@@ -530,22 +530,48 @@ class AutoReplyListenerTest {
         }
 
         @Test
-        @DisplayName("a reply drops other players' entries older than the longest allowed cooldown")
-        void replySweepsExpiredEntries() {
+        @DisplayName("a reply no longer sweeps other players' entries as a side effect (UltiKits/UltiChat#40 review, Codex round 6): the scheduled sweep does it instead")
+        void replyDoesNotSweepOtherPlayersEntries() {
             matchEverything();
+            UUID other = UUID.randomUUID();
+            long now = System.currentTimeMillis();
+            AutoReplyListener.LAST_REPLY_TIME.put(other, now - LONGEST_ALLOWED_MS - 1_000L);
+
+            listener.onPlayerChat(createChatEvent("test"));
+
+            assertThat(AutoReplyListener.LAST_REPLY_TIME)
+                    .as("an unrelated write no longer re-touches another player's own entry at all")
+                    .containsKey(other)
+                    .containsKey(playerUuid);
+        }
+
+        @Test
+        @DisplayName("the scheduled sweep drops other players' entries older than the longest allowed cooldown, once called")
+        void scheduledSweepDropsExpiredEntries() {
             UUID gone = UUID.randomUUID();
             UUID recent = UUID.randomUUID();
             long now = System.currentTimeMillis();
             AutoReplyListener.LAST_REPLY_TIME.put(gone, now - LONGEST_ALLOWED_MS - 1_000L);
             AutoReplyListener.LAST_REPLY_TIME.put(recent, now - 20_000L);
 
-            listener.onPlayerChat(createChatEvent("test"));
+            listener.sweepExpiredEntries();
 
             assertThat(AutoReplyListener.LAST_REPLY_TIME)
                     .doesNotContainKey(gone)
                     .as("past the current 10-second cooldown, but a raised cooldown could still reach it")
-                    .containsKey(recent)
-                    .containsKey(playerUuid);
+                    .containsKey(recent);
+        }
+
+        @Test
+        @DisplayName("the scheduled sweep is annotated with a literal, fixed period -- not config-bound")
+        void scheduledSweepIsLiteralNotConfigBound() throws Exception {
+            java.lang.reflect.Method sweep = AutoReplyListener.class.getDeclaredMethod("sweepExpiredEntries");
+            com.ultikits.ultitools.annotations.Scheduled annotation =
+                    sweep.getAnnotation(com.ultikits.ultitools.annotations.Scheduled.class);
+            assertThat(annotation).as("must be @Scheduled at all").isNotNull();
+            assertThat(annotation.period()).isEqualTo(1200);
+            assertThat(annotation.async()).isFalse();
+            assertThat(annotation.periodKey()).as("literal, not config-bound").isEmpty();
         }
 
         @Test
