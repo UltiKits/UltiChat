@@ -533,7 +533,7 @@ class JoinQuitListenerTest {
         }
 
         @Test
-        @DisplayName("the first-join, join and quit texts get the same treatment")
+        @DisplayName("the join message gets the same treatment (every text goes through the same method)")
         void joinAndQuitTextsToo() {
             when(config.getJoinMessageFormat()).thenReturn("%online_players% online, %max_players% max");
 
