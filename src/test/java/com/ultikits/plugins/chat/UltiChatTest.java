@@ -663,6 +663,56 @@ class UltiChatTest {
         }
 
         @Test
+        @DisplayName("When every defined channel needs a permission the warning says no channel is open to every player, and names the configured name")
+        void everyDefinedChannelNeedsAPermission(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "global", true);
+            ChannelConfig channels = plugin.getConfig(ChannelConfig.class);
+            Map<String, Object> staff = new HashMap<String, Object>();
+            staff.put("permission", "ultichat.channel.staff");
+            Map<String, Map<String, Object>> defs = new LinkedHashMap<String, Map<String, Object>>();
+            defs.put("staff", staff);
+            channels.setChannels(defs);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("defines no channel that every player may join")
+                    .contains("\"global\"").doesNotContain("channel 'staff'");
+        }
+
+        @Test
+        @DisplayName("With a gated channel first, the warning names the first open channel, not the gated one")
+        void warningNamesAnOpenChannel(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "ghost", true);
+            ChannelConfig channels = plugin.getConfig(ChannelConfig.class);
+            Map<String, Object> staff = new HashMap<String, Object>();
+            staff.put("permission", "ultichat.channel.staff");
+            Map<String, Object> local = new HashMap<String, Object>();
+            local.put("permission", "");
+            Map<String, Map<String, Object>> defs = new LinkedHashMap<String, Map<String, Object>>();
+            defs.put("staff", staff);
+            defs.put("local", local);
+            channels.setChannels(defs);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("channel 'local'").doesNotContain("channel 'staff'");
+        }
+
+        @Test
+        @DisplayName("The none-open warning does not claim that every player, switched or not, shares the one channel")
+        void noneDefinedWarningClaimsOnlyWhatIsTrue(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "global", true);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("new players are all placed in the one undefined channel")
+                    .doesNotContain("every player shares");
+        }
+
+        @Test
         @DisplayName("A default that names a defined channel is quiet")
         void definedDefaultIsQuiet(@TempDir File dir) {
             UltiChat control = pluginWith(dir, "staff", true, "local", "staff");
