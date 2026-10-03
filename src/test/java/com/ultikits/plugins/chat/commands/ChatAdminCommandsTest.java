@@ -38,6 +38,10 @@ class ChatAdminCommandsTest {
         when(mockPlugin.i18n("autoreply_list_entry")).thenReturn("{0}: {1} [{2}] -> {3}");
         when(mockPlugin.i18n("autoreply_keyword_set")).thenReturn("Rule '{0}' keyword set to '{1}'.");
 
+        when(mockPlugin.i18n("config_reload_partial")).thenReturn("partial: {0}");
+        when(mockPlugin.i18n("config_reload_failed")).thenReturn("failed: {0}");
+        when(mockPlugin.reloadWithReport()).thenReturn(new com.ultikits.ultitools.abstracts.ReloadReport());
+
         commands = new ChatAdminCommands(mockPlugin, mockAutoReplyService);
     }
 
@@ -68,7 +72,45 @@ class ChatAdminCommandsTest {
 
             commands.onReload(sender);
 
-            verify(mockPlugin).reloadSelf();
+            verify(mockPlugin).reloadWithReport();
+        }
+
+        @Test
+        @DisplayName("A partial reload is answered with the parts that did not reload, never with success (#48)")
+        void partialReloadIsNotSuccess() {
+            com.ultikits.ultitools.abstracts.ReloadReport report = new com.ultikits.ultitools.abstracts.ReloadReport();
+            report.partial("announcements are still on the old schedule");
+            report.partial("the language setting changed");
+            when(mockPlugin.reloadWithReport()).thenReturn(report);
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onReload(sender);
+
+            assertSentMessageContaining(sender, "partial: announcements are still on the old schedule; the language setting changed");
+            assertNoSentMessageContaining(sender, "config_reloaded");
+        }
+
+        @Test
+        @DisplayName("A reload that throws is answered with the cause, and the exception does not escape (#48)")
+        void failedReloadNamesTheCause() {
+            when(mockPlugin.reloadWithReport()).thenThrow(new IllegalStateException("chat.yml: bad value"));
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onReload(sender);
+
+            assertSentMessageContaining(sender, "failed: chat.yml: bad value");
+            assertNoSentMessageContaining(sender, "config_reloaded");
+        }
+
+        @Test
+        @DisplayName("A failure with no message is answered with its type")
+        void failureWithoutMessageNamesTheType() {
+            when(mockPlugin.reloadWithReport()).thenThrow(new IllegalStateException());
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onReload(sender);
+
+            assertSentMessageContaining(sender, "failed: IllegalStateException");
         }
 
         @Test
