@@ -97,25 +97,38 @@ public class JoinQuitListener implements Listener {
     }
 
     /**
-     * Parse PlaceholderAPI placeholders with basic fallbacks.
+     * Stands in for {@code {displayname}} while PlaceholderAPI runs. It holds no '%', so no expansion
+     * touches it, and no operator writes it.
+     */
+    private static final String DISPLAY_NAME_MARKER = "\u0000displayname\u0000";
+
+    /**
+     * Fills the module's own placeholders, then hands the text to PlaceholderAPI when it is installed
+     * (UltiKits/UltiChat#42).
+     * <p>
+     * The module's own tokens ({@code %player_name%}, {@code {player}}, {@code {displayname}},
+     * {@code %online_players%}, {@code %max_players%}) are replaced first and in one pass, because no
+     * PlaceholderAPI expansion provides the last two: handing the text over first left them literal
+     * in the shipped welcome line. The display name is a nickname the player may have chosen, so it
+     * goes in as a marker while PlaceholderAPI runs and is put in as written afterwards: a
+     * {@code %token%} inside it is shown as written, never expanded.
      */
     String parsePlaceholders(Player player, String text) {
         if (text == null) {
             return "";
         }
 
-        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
-            return PlaceholderAPI.setPlaceholders(player, text);
-        }
-
-        // Basic fallbacks when PlaceholderAPI is not installed, filled in one pass: a display name
-        // the player chose is inserted as written, never scanned for a later placeholder
-        return UltiChat.fillOnce(text,
+        String filled = UltiChat.fillOnce(text,
                 "%player_name%", player.getName(),
                 "{player}", player.getName(),
-                "{displayname}", player.getDisplayName(),
+                "{displayname}", DISPLAY_NAME_MARKER,
                 "%online_players%", String.valueOf(Bukkit.getOnlinePlayers().size()),
                 "%max_players%", String.valueOf(Bukkit.getMaxPlayers()));
+
+        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
+            filled = PlaceholderAPI.setPlaceholders(player, filled);
+        }
+        return filled.replace(DISPLAY_NAME_MARKER, player.getDisplayName());
     }
 
     String colorize(String text) {

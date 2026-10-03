@@ -109,6 +109,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- With PlaceholderAPI installed, the join, quit and welcome texts now show the module's own
+  `%online_players%` and `%max_players%` as numbers. The shipped welcome line showed them as the
+  literal tokens, because the text went to PlaceholderAPI first and no expansion provides them. The
+  module's own placeholders are now filled first, in one pass, and PlaceholderAPI runs on the result;
+  a nickname that contains a `%token%` is still shown as written (UltiKits/UltiChat#42).
+- 装有 PlaceholderAPI 时，进入、退出和欢迎文本现在会把模块自己的 `%online_players%` 与 `%max_players%` 显示为数字。
+  出厂欢迎语此前把它们原样显示为占位符，因为文本先交给了 PlaceholderAPI，而没有任何扩展提供这两个占位符。
+  现在先一次性替换模块自己的占位符，再把结果交给 PlaceholderAPI；昵称里含有的 `%token%` 仍按原样显示（UltiKits/UltiChat#42）。
+
 - At `anti-spam.duplicate-window: 600` a repeat sent exactly 600 seconds after the newest of a
   player's retained copies is now refused as a duplicate, as the window says; the history was dropped
   one millisecond too early, so that repeat was accepted. The cooldown comparison was checked in the

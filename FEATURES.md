@@ -203,7 +203,7 @@ only to the joining player, and a server-wide first-join broadcast. All four sub
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
-| ultichat.joinquit.on-join | Override the join broadcast line, send a multi-line welcome message and a welcome title to the joining player only, and broadcast a server-wide first-join message the first time a never-before-seen player joins (`Player#hasPlayedBefore()`) | event | join the server as any player | n/a | n/a | player | brief | JoinQuitListener#onPlayerJoin |
+| ultichat.joinquit.on-join | Override the join broadcast line, send a multi-line welcome message and a welcome title to the joining player only, and broadcast a server-wide first-join message the first time a never-before-seen player joins (`Player#hasPlayedBefore()`). In every one of these texts (and the quit and title texts) the module's own `%player_name%`, `{player}`, `{displayname}`, `%online_players%` and `%max_players%` are filled first, in one pass, and PlaceholderAPI, when installed, expands the rest of the text; a nickname containing a `%token%` is shown as written (`UltiKits/UltiChat#42`) | event | join the server as any player | n/a | n/a | player | brief | JoinQuitListener#onPlayerJoin |
 | ultichat.joinquit.on-quit | Override the quit broadcast line | event | quit the server as any player | n/a | n/a | player | none | JoinQuitListener#onPlayerQuit |
 
 ## Scheduled Broadcasts
