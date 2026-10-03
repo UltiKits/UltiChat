@@ -134,8 +134,8 @@ public class UltiChat extends UltiToolsPlugin {
 
     /**
      * UltiKits/UltiChat#44: {@code channels.default-channel} naming no defined channel is named, with the
-     * channel new players are placed in instead ({@link ChannelService#resolveDefaultChannel}), once per
-     * load while channels are enabled. Both the configured name and the channel are the operator's own
+     * channel new players are placed in instead ({@link ChannelService#resolveDefaultChannel}: one that
+     * needs no permission), once per load while channels are enabled. Both the configured name and the channel are the operator's own
      * text, so the line is filled in one pass.
      */
     private void warnAboutUndefinedDefaultChannel() {

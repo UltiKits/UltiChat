@@ -35,11 +35,13 @@ public class ChannelService {
      * (UltiKits/UltiChat#44).
      * <p>
      * The configured {@code channels.default-channel} when a channel of that name is defined. When it
-     * is not, {@code global} if that is defined, otherwise the first defined channel in file order, so
-     * a new player is never placed in a channel that does not exist. When no channel is defined at all
-     * the configured name is kept: every player then shares that one undefined channel, whose chat is
-     * not filtered by range or world ({@link #filterRecipients} treats an undefined channel as having
-     * neither). Static so the load-time check can apply the same rule to the configuration directly.
+     * is not, {@code global} if that is defined and needs no permission, otherwise the first defined
+     * channel in file order that needs none, so a new player is never placed in a channel that does
+     * not exist, nor in one {@code /ch <name>} would refuse them. When no such channel is defined the
+     * configured name is kept: new players are then all placed in that one undefined channel, whose
+     * chat is not filtered by range or world ({@link #filterRecipients} treats an undefined channel as
+     * having neither). Static so the load-time check can apply the same rule to the configuration
+     * directly.
      *
      * @param config the channel configuration
      * @return the channel name new players are placed in
@@ -50,15 +52,27 @@ public class ChannelService {
         if (defined == null || defined.isEmpty() || isDefined(defined, configured)) {
             return configured;
         }
-        if (isDefined(defined, "global")) {
+        if (isOpen(defined.get("global"))) {
             return "global";
         }
         for (Map.Entry<String, Map<String, Object>> channel : defined.entrySet()) {
-            if (channel.getValue() != null) {
+            if (isOpen(channel.getValue())) {
                 return channel.getKey();
             }
         }
         return configured;
+    }
+
+    /**
+     * Whether a channel definition is open to every player: it exists and sets no {@code permission}
+     * (the rule {@link #hasChannelPermission} applies: a missing or empty permission means everyone).
+     */
+    private static boolean isOpen(Map<String, Object> def) {
+        if (def == null) {
+            return false;
+        }
+        Object permission = def.get("permission");
+        return permission == null || permission.toString().isEmpty();
     }
 
     /**

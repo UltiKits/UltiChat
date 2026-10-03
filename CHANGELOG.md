@@ -121,14 +121,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A `channels.default-channel` that names no channel defined under `channels.channels` is now named in
   the console when the module starts and on every reload (while channels are enabled), together with
-  the channel new players are placed in instead: `global` if it is defined, otherwise the first
-  defined channel in the file. Before, the setting was accepted without a word and new players were
-  placed in a channel that does not exist. With no channel defined at all, players still share the one
-  undefined channel and the warning says so (UltiKits/UltiChat#44).
+  the channel new players are placed in instead: `global` if it is defined and needs no permission,
+  otherwise the first channel in the file that needs none (a channel `/ch` would refuse them is never
+  chosen). Before, the setting was accepted without a word and new players were placed in a channel
+  that does not exist. With no such channel, new players are all placed in the one undefined channel
+  and the warning says so (UltiKits/UltiChat#44).
 - 当 `channels.default-channel` 指向 `channels.channels` 下没有定义的频道时，模块启动和每次重载时（频道启用的情况下）
-  会在控制台点名，并说明新玩家改为进入哪个频道：已定义 `global` 时用 `global`，否则用文件中第一个已定义的频道。
-  此前该设置被无声接受，新玩家被放进一个不存在的频道。完全没有定义任何频道时，玩家仍共用那一个未定义的频道，警告中会如实说明
-  （UltiKits/UltiChat#44）。
+  会在控制台点名，并说明新玩家改为进入哪个频道：已定义且不需要权限的 `global` 时用 `global`，否则用文件中第一个不需要权限的频道
+  （不会选中 `/ch` 会拒绝玩家加入的频道）。此前该设置被无声接受，新玩家被放进一个不存在的频道。没有这样的频道时，
+  新玩家都被放进那一个未定义的频道，警告中会如实说明（UltiKits/UltiChat#44）。
 
 - With PlaceholderAPI installed, the join, quit and welcome texts now show the module's own
   `%online_players%` and `%max_players%` as numbers. The shipped welcome line showed them as the
