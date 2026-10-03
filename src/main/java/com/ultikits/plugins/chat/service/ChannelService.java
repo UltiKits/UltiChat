@@ -1,8 +1,11 @@
 package com.ultikits.plugins.chat.service;
 
 import com.ultikits.plugins.chat.config.ChannelConfig;
+import com.ultikits.plugins.chat.UltiChat;
+import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.Service;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -19,6 +22,10 @@ public class ChannelService {
 
     @Autowired
     private ChannelConfig config;
+
+    /** The module, whose language file gives the move notice its text (UltiKits/UltiChat#45). */
+    @Autowired
+    private UltiToolsPlugin plugin;
 
     private final Map<UUID, String> playerChannels = new ConcurrentHashMap<>();
 
@@ -61,6 +68,34 @@ public class ChannelService {
             }
         }
         return configured;
+    }
+
+    /**
+     * Moves every player whose tracked channel is no longer defined into the channel
+     * {@link #resolveDefaultChannel} computes, and tells each online one in a single line
+     * (UltiKits/UltiChat#45). Called after a reload, when a channel may have been removed from
+     * {@code channels.channels}: an assignment is otherwise kept as written and points at a channel that
+     * does not exist. A player in a defined channel, or already in the fallback, is left alone.
+     */
+    public void moveFromRemovedChannels() {
+        Map<String, Map<String, Object>> defined = config.getChannels();
+        String target = resolveDefaultChannel(config);
+        for (Map.Entry<UUID, String> assignment : playerChannels.entrySet()) {
+            String current = assignment.getValue();
+            if (isDefined(defined, current) || target.equals(current)) {
+                continue;
+            }
+            if (!playerChannels.replace(assignment.getKey(), current, target)) {
+                continue;
+            }
+            Player player = Bukkit.getPlayer(assignment.getKey());
+            if (player != null) {
+                // One pass: a channel name is the operator's own text, shown as written.
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', UltiChat.fillOnce(
+                        plugin.i18n("channel_removed_moved"),
+                        "{0}", current, "{1}", getChannelDisplayName(target))));
+            }
+        }
     }
 
     /**

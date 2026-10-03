@@ -44,6 +44,23 @@ public class UltiChat extends UltiToolsPlugin {
     protected void onReload() {
         writeConfigTextInServerLanguage();
         warnAboutConfiguration();
+        moveFromRemovedChannels();
+    }
+
+    /**
+     * UltiKits/UltiChat#45: after a reload, a player whose tracked channel was removed from
+     * {@code channels.channels} is moved to the channel new players land in and told, while channels
+     * are enabled.
+     */
+    private void moveFromRemovedChannels() {
+        ChannelConfig channels = getConfig(ChannelConfig.class);
+        if (channels == null || !channels.isEnabled() || getContext() == null) {
+            return;
+        }
+        ChannelService service = getContext().getBean(ChannelService.class);
+        if (service != null) {
+            service.moveFromRemovedChannels();
+        }
     }
 
     /**

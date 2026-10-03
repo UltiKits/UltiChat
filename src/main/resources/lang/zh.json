@@ -13,6 +13,7 @@
   "channel_switched": "&a已切换到频道: {0}",
   "channel_no_permission": "&c你没有频道 {0} 的权限。",
   "channel_not_found": "&c频道 '{0}' 不存在。",
+  "channel_removed_moved": "&e频道 '{0}' 已不存在，你现在位于频道: {1}",
   "channel_list_header": "&6===== 聊天频道 =====",
   "channel_list_entry": "&7- {0} &7({1})",
   "channel_current": "&7当前频道: {0}",

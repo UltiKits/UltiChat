@@ -13,6 +13,7 @@
   "channel_switched": "&aSwitched to channel: {0}",
   "channel_no_permission": "&cYou don't have permission for channel {0}.",
   "channel_not_found": "&cChannel '{0}' not found.",
+  "channel_removed_moved": "&eThe channel '{0}' no longer exists. You are now in channel: {1}",
   "channel_list_header": "&6===== Chat Channels =====",
   "channel_list_entry": "&7- {0} &7({1})",
   "channel_current": "&7Current channel: {0}",

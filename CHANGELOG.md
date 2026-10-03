@@ -119,6 +119,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- After `/uchat reload` or `/ul reload`, a player who had switched into a channel that was removed
+  from `channels.channels` is moved to the channel new players land in (see the
+  `channels.default-channel` entry below: one that needs no permission) and told in one line. Before,
+  the player kept the removed channel: their chat had no range or world limit among only the players
+  holding that name, it no longer reached anyone else, and nothing was logged (UltiKits/UltiChat#45).
+- `/uchat reload` 或 `/ul reload` 之后，已切换到某个已从 `channels.channels` 删除的频道的玩家，会被移到新玩家所进入的频道
+  （见下方 `channels.default-channel` 条目：不需要权限的频道），并收到一行提示。此前该玩家仍留在被删除的频道里：
+  聊天只在持有同一名称的玩家之间、不受范围或世界限制，不再送达其他人，也没有任何日志（UltiKits/UltiChat#45）。
+
 - A `channels.default-channel` that names no channel defined under `channels.channels` is now named in
   the console when the module starts and on every reload (while channels are enabled), together with
   the channel new players are placed in instead: `global` if it is defined and needs no permission,
