@@ -109,6 +109,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- At `anti-spam.duplicate-window: 600` a repeat sent exactly 600 seconds after the newest of a
+  player's retained copies is now refused as a duplicate, as the window says; the history was dropped
+  one millisecond too early, so that repeat was accepted. The cooldown comparison was checked in the
+  same pass and already agrees with its own cleanup (UltiKits/UltiChat#41).
+- 在 `anti-spam.duplicate-window: 600` 时，与玩家保留的最新副本恰好相隔 600 秒的重复消息，现在按窗口设定被当作重复消息拦截；
+  此前历史记录被提早一毫秒清除，该重复消息会被放行。冷却时间的比较已在同一轮核对，与它自己的清理一致（UltiKits/UltiChat#41）。
+
 - A configuration value UltiChat cannot use is now named in the console when the module starts and
   on every reload, with what it does instead: an `announcements.bossbar.color` that is no boss-bar
   colour (blue is used), a `mentions.sound` that is no sound (the default sound now plays; it played
