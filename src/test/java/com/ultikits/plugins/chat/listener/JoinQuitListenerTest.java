@@ -8,9 +8,13 @@ import org.bukkit.Server;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.PluginManager;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import me.clip.placeholderapi.PlaceholderAPI;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.*;
@@ -464,6 +468,95 @@ class JoinQuitListenerTest {
             when(player.getDisplayName()).thenReturn("Nick %online_players%");
 
             assertThat(listener.parsePlaceholders(player, "Hello {displayname}")).isEqualTo("Hello Nick %online_players%");
+        }
+    }
+
+    // ==================== UltiKits/UltiChat#42 ====================
+
+    /**
+     * UltiKits/UltiChat#42: with PlaceholderAPI installed, {@code parsePlaceholders} used to return
+     * {@code PlaceholderAPI.setPlaceholders} straight away and never replaced the module's own
+     * {@code %online_players%} and {@code %max_players%}, which no expansion provides, so the shipped
+     * welcome line showed them literally. The module's own tokens are now filled first, in one pass,
+     * and the result goes to PlaceholderAPI.
+     */
+    @Nested
+    @DisplayName("With PlaceholderAPI installed (UltiKits/UltiChat#42)")
+    class WithPlaceholderApi {
+
+        private MockedStatic<PlaceholderAPI> papi;
+
+        @BeforeEach
+        void installPlaceholderApi() {
+            PluginManager pluginManager = Bukkit.getPluginManager();
+            Plugin placeholderApi = mock(Plugin.class);
+            when(pluginManager.getPlugin("PlaceholderAPI")).thenReturn(placeholderApi);
+            papi = mockStatic(PlaceholderAPI.class);
+            // Stands in for an expansion this module knows nothing about: %vault_eco_balance% is
+            // expanded wherever PlaceholderAPI sees it; every other token is left as it is, exactly
+            // as PlaceholderAPI leaves a token no installed expansion provides.
+            papi.when(() -> PlaceholderAPI.setPlaceholders(any(Player.class), anyString()))
+                    .thenAnswer(invocation -> ((String) invocation.getArgument(1)).replace("%vault_eco_balance%", "$5"));
+        }
+
+        @AfterEach
+        void removePlaceholderApi() {
+            papi.close();
+        }
+
+        @Test
+        @DisplayName("the shipped welcome line shows the online and maximum player counts, not the tokens")
+        void welcomeLineShowsTheCounts() {
+            when(config.isWelcomeEnabled()).thenReturn(true);
+            when(config.getWelcomeLines()).thenReturn(Arrays.asList("&7Online: &f%online_players%/%max_players%"));
+
+            listener.onPlayerJoin(createJoinEvent(player));
+
+            verify(player).sendMessage(ChatColor.translateAlternateColorCodes('&', "&7Online: &f0/100"));
+        }
+
+        @Test
+        @DisplayName("a PlaceholderAPI expansion still expands in the same line, after the module's own tokens")
+        void expansionsStillWork() {
+            assertThat(listener.parsePlaceholders(player, "%online_players%/%max_players% %vault_eco_balance% {player}"))
+                    .isEqualTo("0/100 $5 TestPlayer");
+        }
+
+        @Test
+        @DisplayName("a display name that contains an expansion token is shown as written, not expanded")
+        void displayNameIsNotExpandedByPlaceholderApi() {
+            when(player.getDisplayName()).thenReturn("Nick %vault_eco_balance%");
+
+            assertThat(listener.parsePlaceholders(player, "{displayname} has %vault_eco_balance%"))
+                    .as("the nickname stays literal, the operator's own token beside it is expanded")
+                    .isEqualTo("Nick %vault_eco_balance% has $5");
+        }
+
+        @Test
+        @DisplayName("the first-join, join and quit texts get the same treatment")
+        void joinAndQuitTextsToo() {
+            when(config.getJoinMessageFormat()).thenReturn("%online_players% online, %max_players% max");
+
+            PlayerJoinEvent event = createJoinEvent(player);
+            listener.onPlayerJoin(event);
+
+            assertThat(event.getJoinMessage()).isEqualTo("0 online, 100 max");
+        }
+    }
+
+    @Nested
+    @DisplayName("Without PlaceholderAPI the same welcome line shows the counts (control for #42)")
+    class WithoutPlaceholderApi {
+
+        @Test
+        @DisplayName("the shipped welcome line shows the online and maximum player counts")
+        void welcomeLineShowsTheCounts() {
+            when(config.isWelcomeEnabled()).thenReturn(true);
+            when(config.getWelcomeLines()).thenReturn(Arrays.asList("&7Online: &f%online_players%/%max_players%"));
+
+            listener.onPlayerJoin(createJoinEvent(player));
+
+            verify(player).sendMessage(ChatColor.translateAlternateColorCodes('&', "&7Online: &f0/100"));
         }
     }
 }
