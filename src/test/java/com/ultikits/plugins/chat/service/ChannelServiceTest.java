@@ -100,6 +100,55 @@ class ChannelServiceTest {
         }
     }
 
+    // ==================== default channel that names no defined channel (UltiKits/UltiChat#44) ====================
+
+    @Nested
+    @DisplayName("A default channel that names no defined channel (UltiKits/UltiChat#44)")
+    class UndefinedDefaultChannelTests {
+
+        @Test
+        @DisplayName("a new player lands in global when the default names nothing and global is defined")
+        void fallsBackToGlobal() {
+            when(config.getDefaultChannel()).thenReturn("lobby");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("global");
+        }
+
+        @Test
+        @DisplayName("a new player lands in the first defined channel in file order when global is not defined either")
+        void fallsBackToTheFirstDefinedChannel() {
+            Map<String, Map<String, Object>> defined = new LinkedHashMap<>();
+            defined.put("staff", new HashMap<String, Object>());
+            defined.put("local", new HashMap<String, Object>());
+            when(config.getChannels()).thenReturn(defined);
+            when(config.getDefaultChannel()).thenReturn("global");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("staff");
+        }
+
+        @Test
+        @DisplayName("a default that names a defined channel is used as written, global defined or not")
+        void definedDefaultIsUsed() {
+            when(config.getDefaultChannel()).thenReturn("local");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("local");
+        }
+
+        @Test
+        @DisplayName("with no channel defined the configured name stays, and chat reaches everyone, unfiltered by range or world")
+        void noChannelDefinedKeepsTheConfiguredNameAndChatStillReachesEveryone() {
+            when(config.getChannels()).thenReturn(new LinkedHashMap<String, Map<String, Object>>());
+            when(config.getDefaultChannel()).thenReturn("global");
+            World far = ChatTestHelper.createMockWorld("far");
+            Player sender = ChatTestHelper.createMockPlayer("Sender", UUID.randomUUID());
+            Player elsewhere = ChatTestHelper.createMockPlayerAt("Elsewhere", UUID.randomUUID(), far, 5000, 64, 5000);
+
+            assertThat(service.getPlayerChannel(sender.getUniqueId())).isEqualTo("global");
+            assertThat(service.filterRecipients(sender, new HashSet<>(Arrays.asList(sender, elsewhere))))
+                    .containsExactlyInAnyOrder(sender, elsewhere);
+        }
+    }
+
     // ==================== setPlayerChannel Tests ====================
 
     @Nested
