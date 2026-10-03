@@ -27,7 +27,46 @@ public class ChannelService {
      * Returns the default channel if the player has no assignment.
      */
     public String getPlayerChannel(UUID playerId) {
-        return playerChannels.getOrDefault(playerId, config.getDefaultChannel());
+        return playerChannels.getOrDefault(playerId, resolveDefaultChannel(config));
+    }
+
+    /**
+     * The channel a player with no assignment, and a player who has just joined, is placed in
+     * (UltiKits/UltiChat#44).
+     * <p>
+     * The configured {@code channels.default-channel} when a channel of that name is defined. When it
+     * is not, {@code global} if that is defined, otherwise the first defined channel in file order, so
+     * a new player is never placed in a channel that does not exist. When no channel is defined at all
+     * the configured name is kept: every player then shares that one undefined channel, whose chat is
+     * not filtered by range or world ({@link #filterRecipients} treats an undefined channel as having
+     * neither). Static so the load-time check can apply the same rule to the configuration directly.
+     *
+     * @param config the channel configuration
+     * @return the channel name new players are placed in
+     */
+    public static String resolveDefaultChannel(ChannelConfig config) {
+        String configured = config.getDefaultChannel();
+        Map<String, Map<String, Object>> defined = config.getChannels();
+        if (defined == null || defined.isEmpty() || isDefined(defined, configured)) {
+            return configured;
+        }
+        if (isDefined(defined, "global")) {
+            return "global";
+        }
+        for (Map.Entry<String, Map<String, Object>> channel : defined.entrySet()) {
+            if (channel.getValue() != null) {
+                return channel.getKey();
+            }
+        }
+        return configured;
+    }
+
+    /**
+     * Whether {@code name} is a defined channel: present under {@code channels.channels} with a
+     * definition, the rule {@link #getChannelDef} and {@code /ch <name>} already apply.
+     */
+    public static boolean isDefined(Map<String, Map<String, Object>> defined, String name) {
+        return name != null && defined != null && defined.get(name) != null;
     }
 
     /**
