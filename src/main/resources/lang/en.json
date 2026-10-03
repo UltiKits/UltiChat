@@ -21,6 +21,8 @@
   "spam_duplicate": "&cStop sending duplicate messages!",
   "spam_caps": "&cPlease reduce the amount of uppercase letters.",
   "config_reloaded": "&aUltiChat configuration reloaded.",
+  "config_reload_partial": "&eUltiChat reloaded partially; not reloaded: {0}",
+  "config_reload_failed": "&cUltiChat could not be reloaded: {0}",
   "command_description_channel": "Channel commands",
   "command_description_admin": "UltiChat admin commands",
   "player_only": "This command can only be used by players.",

@@ -134,7 +134,7 @@ oversight. `/ch help` and bare `/ch` reach `ChannelCommands#handleHelp` the iden
 
 | ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
 |---|---|---|---|---|---|---|---|---|
-| ultichat.uchat.reload | Reload every UltiChat configuration file from disk. A single-module reload: it does not re-read the framework's `language`, so after changing `language` run a bare `/ul reload` or restart for the config texts to follow it | command | `/uchat reload` | ultichat.admin | both | admin | brief | ChatAdminCommands#onReload |
+| ultichat.uchat.reload | Reload every UltiChat configuration file from disk, and answer with what the framework's reload reported: the success line only when every part reloaded, otherwise `UltiChat reloaded partially; not reloaded: <reasons>` or, when the reload threw, `UltiChat could not be reloaded: <cause>` (`UltiKits/UltiChat#48`). A single-module reload: it does not re-read the framework's `language`, so after changing `language` run a bare `/ul reload` or restart for the config texts to follow it | command | `/uchat reload` | ultichat.admin | both | admin | brief | ChatAdminCommands#onReload |
 
 ## Auto-Reply
 

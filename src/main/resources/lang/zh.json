@@ -21,6 +21,8 @@
   "spam_duplicate": "&c请勿重复发送消息！",
   "spam_caps": "&c请减少大写字母的使用。",
   "config_reloaded": "&aUltiChat 配置已重新加载。",
+  "config_reload_partial": "&eUltiChat 仅部分重新加载；未重新加载：{0}",
+  "config_reload_failed": "&cUltiChat 重新加载失败：{0}",
   "command_description_channel": "频道命令",
   "command_description_admin": "UltiChat 管理命令",
   "player_only": "此命令只能由玩家使用。",

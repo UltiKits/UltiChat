@@ -119,6 +119,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `/uchat reload` now reports what the framework's reload reported. A reload the framework finished
+  partially is answered with the parts that did not reload, and one that failed with its cause; the
+  reply `UltiChat configuration reloaded.` is only sent when every part reloaded. Before, the reply was
+  always success, and a failing reload surfaced as an unhandled error (UltiKits/UltiChat#48).
+- `/uchat reload` 现在如实反映框架的重载结果。框架只完成部分重载时，回复未重载的部分；重载失败时回复失败原因；
+  只有全部重载成功才回复「UltiChat 配置已重新加载」。此前回复总是成功，重载失败时还会表现为未处理的错误
+  （UltiKits/UltiChat#48）。
+
 - After `/uchat reload` or `/ul reload`, a player who had switched into a channel that was removed
   from `channels.channels` is moved to the channel new players land in (see the
   `channels.default-channel` entry below: one that needs no permission) and told in one line. Before,
