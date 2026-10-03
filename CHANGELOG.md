@@ -12,8 +12,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Saving an auto-reply rule from `/uchat autoreply` over a `config/autoreply.yml` whose values an
   operator changed on disk is now reported by the framework: one WARNING in the server log naming the
   file and the keys that were overwritten (framework message, English). It replaces UltiChat's own
-  line, which was translated by `language` and also fired when the file was only touched, comments
-  included, without a value changing; the save itself is unchanged (UltiTools-Reborn#527).
+  line, which was translated by `language` and also fired when only a comment or whitespace in the
+  file had changed, without a value changing; the save itself is unchanged (UltiTools-Reborn#527).
 - 通过 `/uchat autoreply` 保存自动回复规则时，如果 `config/autoreply.yml` 中有值被运维在磁盘上改过，现在由框架报告：
   服务器日志中一条点名文件与被覆盖键的 WARNING（框架消息，英文）。它取代了 UltiChat 自己的那一行
   （该行随 `language` 翻译，且文件只是被改动、甚至只改了注释而没有任何值变化时也会触发）；保存行为本身不变
@@ -135,10 +135,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `%online_players%` and `%max_players%` as numbers. The shipped welcome line showed them as the
   literal tokens, because the text went to PlaceholderAPI first and no expansion provides them. The
   module's own placeholders are now filled first, in one pass, and PlaceholderAPI runs on the result;
-  a nickname that contains a `%token%` is still shown as written (UltiKits/UltiChat#42).
+  a nickname that contains a `%token%` is still shown as written. The module's `{player}` and
+  `{displayname}` are filled in these texts too; with PlaceholderAPI installed they stayed literal
+  (UltiKits/UltiChat#42).
 - 装有 PlaceholderAPI 时，进入、退出和欢迎文本现在会把模块自己的 `%online_players%` 与 `%max_players%` 显示为数字。
   出厂欢迎语此前把它们原样显示为占位符，因为文本先交给了 PlaceholderAPI，而没有任何扩展提供这两个占位符。
-  现在先一次性替换模块自己的占位符，再把结果交给 PlaceholderAPI；昵称里含有的 `%token%` 仍按原样显示（UltiKits/UltiChat#42）。
+  现在先一次性替换模块自己的占位符，再把结果交给 PlaceholderAPI；昵称里含有的 `%token%` 仍按原样显示。
+  这些文本里模块自己的 `{player}` 与 `{displayname}` 现在也会被替换；装有 PlaceholderAPI 时它们此前同样原样显示
+  （UltiKits/UltiChat#42）。
 
 - At `anti-spam.duplicate-window: 600` a repeat sent exactly 600 seconds after the newest of a
   player's retained copies is now refused as a duplicate, as the window says; the history was dropped
