@@ -324,6 +324,11 @@ class UltiChatTest {
                 defs.put(nameThenFormat[i], def);
             }
             channels.setChannels(defs);
+            // These tests are about formats: the default channel names a defined one, so the
+            // default-channel check (UltiKits/UltiChat#44) stays quiet.
+            if (nameThenFormat.length > 0) {
+                channels.setDefaultChannel(nameThenFormat[0]);
+            }
             when(plugin.getConfig(ChatConfig.class)).thenReturn(chat);
             when(plugin.getConfig(ChannelConfig.class)).thenReturn(channels);
             when(plugin.registerSelf()).thenCallRealMethod();
@@ -570,6 +575,200 @@ class UltiChatTest {
             rule("fine", "^hel+o$", "REGEX");
             load(dir);
             assertThat(warnings()).isEmpty();
+        }
+    }
+
+    /**
+     * UltiKits/UltiChat#44: {@code channels.default-channel} naming a channel that is not defined used
+     * to be accepted without a word, and new players were placed in a channel that does not exist.
+     * It is now named at load and on every reload, together with the channel new players land in.
+     */
+    @Nested
+    @DisplayName("A default channel that names no defined channel is refused and named (UltiKits/UltiChat#44)")
+    class DefaultChannelWarning {
+
+        private PluginLogger logger;
+
+        private UltiChat pluginWith(File dir, String defaultChannel, boolean enabled, String... definedChannels) {
+            UltiChat plugin = mock(UltiChat.class);
+            logger = mock(PluginLogger.class);
+            when(plugin.getLogger()).thenReturn(logger);
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+            when(plugin.operatorConfigFile(anyString()))
+                    .thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
+            ChannelConfig channels = spy(new ChannelConfig());
+            try {
+                doNothing().when(channels).save();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+            Map<String, Map<String, Object>> defs = new LinkedHashMap<String, Map<String, Object>>();
+            for (String name : definedChannels) {
+                Map<String, Object> def = new HashMap<String, Object>();
+                def.put("display-name", "&f[" + name + "]");
+                defs.put(name, def);
+            }
+            channels.setChannels(defs);
+            channels.setDefaultChannel(defaultChannel);
+            channels.setEnabled(enabled);
+            when(plugin.getConfig(ChatConfig.class)).thenReturn(new ChatConfig());
+            when(plugin.getConfig(ChannelConfig.class)).thenReturn(channels);
+            when(plugin.registerSelf()).thenCallRealMethod();
+            doCallRealMethod().when(plugin).onReload();
+            return plugin;
+        }
+
+        private List<String> warnings() {
+            ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+            verify(logger, atLeast(0)).warn(captor.capture());
+            return captor.getAllValues();
+        }
+
+        @Test
+        @DisplayName("POSITIVE CONTROL: an undefined default with global defined warns once, naming file, key, the configured name and global")
+        void undefinedDefaultFallsBackToGlobal(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "lobby", true, "local", "global", "staff");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0))
+                    .contains(new File(dir, "config/channels.yml").getPath())
+                    .contains("channels.default-channel")
+                    .contains("\"lobby\"")
+                    .contains("channel 'global'");
+        }
+
+        @Test
+        @DisplayName("With global removed, the first defined channel in file order is the one named")
+        void undefinedDefaultFallsBackToTheFirstDefinedChannel(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "global", true, "local", "staff");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("\"global\"").contains("channel 'local'");
+        }
+
+        @Test
+        @DisplayName("With no channel defined at all the warning says every player shares the one undefined channel")
+        void noChannelDefinedAtAll(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "global", true);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("defines no channel").contains("\"global\"")
+                    .contains("not filtered by range or world");
+        }
+
+        @Test
+        @DisplayName("When every defined channel needs a permission the warning says no channel is open to every player, and names the configured name")
+        void everyDefinedChannelNeedsAPermission(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "global", true);
+            ChannelConfig channels = plugin.getConfig(ChannelConfig.class);
+            Map<String, Object> staff = new HashMap<String, Object>();
+            staff.put("permission", "ultichat.channel.staff");
+            Map<String, Map<String, Object>> defs = new LinkedHashMap<String, Map<String, Object>>();
+            defs.put("staff", staff);
+            channels.setChannels(defs);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("defines no channel that every player may join")
+                    .contains("\"global\"").doesNotContain("channel 'staff'");
+        }
+
+        @Test
+        @DisplayName("With a gated channel first, the warning names the first open channel, not the gated one")
+        void warningNamesAnOpenChannel(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "ghost", true);
+            ChannelConfig channels = plugin.getConfig(ChannelConfig.class);
+            Map<String, Object> staff = new HashMap<String, Object>();
+            staff.put("permission", "ultichat.channel.staff");
+            Map<String, Object> local = new HashMap<String, Object>();
+            local.put("permission", "");
+            Map<String, Map<String, Object>> defs = new LinkedHashMap<String, Map<String, Object>>();
+            defs.put("staff", staff);
+            defs.put("local", local);
+            channels.setChannels(defs);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("channel 'local'").doesNotContain("channel 'staff'");
+        }
+
+        @Test
+        @DisplayName("The none-open warning does not claim that every player, switched or not, shares the one channel")
+        void noneDefinedWarningClaimsOnlyWhatIsTrue(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "global", true);
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("new players are all placed in the one undefined channel")
+                    .doesNotContain("every player shares");
+        }
+
+        @Test
+        @DisplayName("A default that names a defined channel is quiet")
+        void definedDefaultIsQuiet(@TempDir File dir) {
+            UltiChat control = pluginWith(dir, "staff", true, "local", "staff");
+            control.registerSelf();
+            assertThat(warnings()).isEmpty();
+
+            // Control: the same wiring does warn once the default names nothing.
+            UltiChat plugin = pluginWith(dir, "ghost", true, "local", "staff");
+            plugin.registerSelf();
+            assertThat(warnings()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("With channels disabled the key is not used, so nothing is said")
+        void disabledChannelsAreQuiet(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "ghost", false, "local");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("The warning is repeated on reload")
+        void warnsOnReloadToo(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "ghost", true, "global");
+
+            plugin.onReload();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("\"ghost\"").contains("channel 'global'");
+        }
+
+        @Test
+        @DisplayName("A configured name that looks like a placeholder is named as written, not expanded")
+        void configuredNameIsNotReExpanded(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "a{USED}b{CHANNEL}", true, "global");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).hasSize(1);
+            assertThat(warnings().get(0)).contains("\"a{USED}b{CHANNEL}\"").contains("channel 'global'");
+        }
+
+        @Test
+        @DisplayName("Under language: zh the warning is the Chinese catalogue text")
+        void followsTheLanguageSetting(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "ghost", true, "global");
+            when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh"));
+            String expected = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "log_default_channel_undefined")
+                    .replace("{FILE}", new File(dir, "config/channels.yml").getPath())
+                    .replace("{CHANNEL}", "ghost").replace("{USED}", "global");
+
+            plugin.registerSelf();
+
+            assertThat(warnings()).containsExactly(expected);
         }
     }
 }

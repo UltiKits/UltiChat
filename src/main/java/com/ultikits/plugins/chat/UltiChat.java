@@ -128,7 +128,33 @@ public class UltiChat extends UltiToolsPlugin {
         RemovedConfigKeys.warnAboutLeftovers(this::operatorConfigFile, getLogger()::warn, this);
         warnIfDuplicateWindowShortened();
         warnAboutIncompleteChannelFormats();
+        warnAboutUndefinedDefaultChannel();
         warnAboutUnusableValues();
+    }
+
+    /**
+     * UltiKits/UltiChat#44: {@code channels.default-channel} naming no defined channel is named, with the
+     * channel new players are placed in instead ({@link ChannelService#resolveDefaultChannel}: one that
+     * needs no permission), once per load while channels are enabled. Both the configured name and the channel are the operator's own
+     * text, so the line is filled in one pass.
+     */
+    private void warnAboutUndefinedDefaultChannel() {
+        ChannelConfig channels = getConfig(ChannelConfig.class);
+        if (channels == null || !channels.isEnabled()) {
+            return;
+        }
+        Map<String, Map<String, Object>> defined = channels.getChannels();
+        String configured = channels.getDefaultChannel();
+        if (ChannelService.isDefined(defined, configured)) {
+            return;
+        }
+        String used = ChannelService.resolveDefaultChannel(channels);
+        String line = ChannelService.isDefined(defined, used)
+                ? i18n("log_default_channel_undefined") : i18n("log_default_channel_none_defined");
+        getLogger().warn(fillOnce(line,
+                "{FILE}", operatorConfigFile("config/channels.yml").getPath(),
+                "{CHANNEL}", String.valueOf(configured),
+                "{USED}", used));
     }
 
     /**

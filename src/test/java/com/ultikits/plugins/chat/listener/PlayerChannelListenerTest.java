@@ -77,6 +77,22 @@ class PlayerChannelListenerTest {
         }
 
         @Test
+        @DisplayName("A default that names no defined channel puts the new player in global, which is defined (UltiKits/UltiChat#44)")
+        void undefinedDefaultPlacesThePlayerInADefinedChannel() {
+            when(channelConfig.getDefaultChannel()).thenReturn("lobby");
+            Map<String, Map<String, Object>> defined = new java.util.LinkedHashMap<>();
+            defined.put("local", new java.util.HashMap<String, Object>());
+            defined.put("global", new java.util.HashMap<String, Object>());
+            when(channelConfig.getChannels()).thenReturn(defined);
+
+            UUID uuid = UUID.randomUUID();
+            Player player = ChatTestHelper.createMockPlayer("Player3", uuid);
+            listener.onPlayerJoin(new PlayerJoinEvent(player, "joined"));
+
+            verify(channelService).setPlayerChannel(uuid, "global");
+        }
+
+        @Test
         @DisplayName("Should handle multiple players joining")
         void shouldHandleMultiplePlayers() {
             UUID uuid1 = UUID.randomUUID();

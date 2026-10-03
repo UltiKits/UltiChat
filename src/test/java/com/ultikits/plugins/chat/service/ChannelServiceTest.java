@@ -100,6 +100,109 @@ class ChannelServiceTest {
         }
     }
 
+    // ==================== default channel that names no defined channel (UltiKits/UltiChat#44) ====================
+
+    @Nested
+    @DisplayName("A default channel that names no defined channel (UltiKits/UltiChat#44)")
+    class UndefinedDefaultChannelTests {
+
+        @Test
+        @DisplayName("a new player lands in global when the default names nothing and global is defined")
+        void fallsBackToGlobal() {
+            when(config.getDefaultChannel()).thenReturn("lobby");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("global");
+        }
+
+        @Test
+        @DisplayName("a new player lands in the first defined channel in file order when global is not defined either")
+        void fallsBackToTheFirstDefinedChannel() {
+            Map<String, Map<String, Object>> defined = new LinkedHashMap<>();
+            defined.put("staff", new HashMap<String, Object>());
+            defined.put("local", new HashMap<String, Object>());
+            when(config.getChannels()).thenReturn(defined);
+            when(config.getDefaultChannel()).thenReturn("global");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("staff");
+        }
+
+        private Map<String, Object> gated(String permission) {
+            Map<String, Object> def = new HashMap<>();
+            def.put("permission", permission);
+            return def;
+        }
+
+        @Test
+        @DisplayName("the fallback skips a channel that needs a permission: staff first in file order is not where new players land")
+        void fallbackSkipsAChannelThatNeedsAPermission() {
+            Map<String, Map<String, Object>> defined = new LinkedHashMap<>();
+            defined.put("staff", gated("ultichat.channel.staff"));
+            defined.put("survival", gated(""));
+            defined.put("local", new HashMap<String, Object>());
+            when(config.getChannels()).thenReturn(defined);
+            when(config.getDefaultChannel()).thenReturn("global");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("survival");
+        }
+
+        @Test
+        @DisplayName("a global channel that needs a permission is not the fallback either")
+        void aGatedGlobalIsNotTheFallback() {
+            Map<String, Map<String, Object>> defined = new LinkedHashMap<>();
+            defined.put("global", gated("ultichat.channel.global"));
+            defined.put("local", new HashMap<String, Object>());
+            when(config.getChannels()).thenReturn(defined);
+            when(config.getDefaultChannel()).thenReturn("lobby");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("local");
+        }
+
+        @Test
+        @DisplayName("when every defined channel needs a permission, the configured name stays and nobody is placed in a gated channel")
+        void everyChannelGatedKeepsTheConfiguredName() {
+            Map<String, Map<String, Object>> defined = new LinkedHashMap<>();
+            defined.put("staff", gated("ultichat.channel.staff"));
+            defined.put("vip", gated("ultichat.channel.vip"));
+            when(config.getChannels()).thenReturn(defined);
+            when(config.getDefaultChannel()).thenReturn("global");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("global");
+        }
+
+        @Test
+        @DisplayName("a default that names a defined channel is used as written, even one that needs a permission (an explicit choice)")
+        void explicitGatedDefaultIsUsedAsWritten() {
+            Map<String, Map<String, Object>> defined = new LinkedHashMap<>();
+            defined.put("staff", gated("ultichat.channel.staff"));
+            when(config.getChannels()).thenReturn(defined);
+            when(config.getDefaultChannel()).thenReturn("staff");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("staff");
+        }
+
+        @Test
+        @DisplayName("a default that names a defined channel is used as written, global defined or not")
+        void definedDefaultIsUsed() {
+            when(config.getDefaultChannel()).thenReturn("local");
+
+            assertThat(service.getPlayerChannel(UUID.randomUUID())).isEqualTo("local");
+        }
+
+        @Test
+        @DisplayName("with no channel defined the configured name stays, and chat reaches everyone, unfiltered by range or world")
+        void noChannelDefinedKeepsTheConfiguredNameAndChatStillReachesEveryone() {
+            when(config.getChannels()).thenReturn(new LinkedHashMap<String, Map<String, Object>>());
+            when(config.getDefaultChannel()).thenReturn("global");
+            World far = ChatTestHelper.createMockWorld("far");
+            Player sender = ChatTestHelper.createMockPlayer("Sender", UUID.randomUUID());
+            Player elsewhere = ChatTestHelper.createMockPlayerAt("Elsewhere", UUID.randomUUID(), far, 5000, 64, 5000);
+
+            assertThat(service.getPlayerChannel(sender.getUniqueId())).isEqualTo("global");
+            assertThat(service.filterRecipients(sender, new HashSet<>(Arrays.asList(sender, elsewhere))))
+                    .containsExactlyInAnyOrder(sender, elsewhere);
+        }
+    }
+
     // ==================== setPlayerChannel Tests ====================
 
     @Nested

@@ -38,7 +38,7 @@ public class PlayerChannelListener implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         channelService.setPlayerChannel(
                 event.getPlayer().getUniqueId(),
-                channelConfig.getDefaultChannel()
+                ChannelService.resolveDefaultChannel(channelConfig)
         );
     }
 
