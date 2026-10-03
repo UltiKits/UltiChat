@@ -679,7 +679,7 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
-            now[0] += 600_000L; // exactly the @Range(max = 600) ceiling in seconds
+            now[0] += 600_001L; // one millisecond past the @Range(max = 600) ceiling in seconds
 
             assertThat(service.checkSpam(createPlayerWithId(playerId), "spam"))
                     .as("an entry this old cannot be reached by ANY finite duplicate-window value")
@@ -726,7 +726,7 @@ class AntiSpamServiceTest {
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
             service.recordMessage(playerId, "spam");
-            now[0] += 86_400_000L; // the housekeeping ceiling, far longer than any realistic session
+            now[0] += 86_400_001L; // one millisecond past the housekeeping ceiling, far longer than any realistic session
 
             assertThat(service.checkSpam(createPlayerWithId(playerId), "spam"))
                     .as("eventually reclaimed regardless -- this is memory hygiene, not a promise about "
@@ -736,6 +736,100 @@ class AntiSpamServiceTest {
             @SuppressWarnings("unchecked")
             Map<UUID, ?> recentMessages = (Map<UUID, ?>) ChatTestHelper.getField(service, "recentMessages");
             assertThat(recentMessages).doesNotContainKey(playerId);
+        }
+
+        /**
+         * UltiKits/UltiChat#41: eviction used {@code >=} against the ceiling while the window comparison
+         * counts a copy that is at most {@code duplicate-window} seconds old ({@code <=}), so at
+         * {@code duplicate-window: 600} a copy exactly 600 000 ms old was dropped although the window
+         * would still count it.
+         */
+        @Test
+        @DisplayName("At duplicate-window: 600 a copy exactly 600 000 ms old is still counted; one millisecond later it is not (#41)")
+        void duplicateExactlyAtTheCeilingIsStillCounted() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(600);
+
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            service.recordMessage(playerId, "spam");
+            now[0] += 600_000L;
+
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "spam"))
+                    .as("the inclusive window comparison still counts a copy exactly 600 000 ms old")
+                    .isEqualTo(ZH_DUPLICATE);
+            assertThat(retained(playerId)).as("and nothing evicted the history").hasSize(3);
+
+            now[0] += 1L;
+
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "spam"))
+                    .as("control: one millisecond later no copy is inside the window, so the message passes")
+                    .isNull();
+            assertThat(retained(playerId)).as("control: and the entry is evicted").isNull();
+        }
+
+        @Test
+        @DisplayName("The scheduled sweep keeps a duplicate history exactly at the ceiling and removes it one millisecond later (#41)")
+        void scheduledSweepKeepsAnEntryExactlyAtTheCeiling() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamDuplicateWindow(600);
+
+            service.recordMessage(playerId, "spam");
+            now[0] += 600_000L;
+            service.sweepExpiredEntries();
+
+            assertThat(retained(playerId)).as("exactly at the ceiling the history is kept").isNotNull();
+
+            now[0] += 1L;
+            service.sweepExpiredEntries();
+
+            assertThat(retained(playerId)).as("control: one millisecond past the ceiling it is removed").isNull();
+        }
+
+        @Test
+        @DisplayName("With duplicate-window: 0 the housekeeping ceiling is also strict: kept at exactly 24 h, removed one millisecond later (#41)")
+        void unlimitedWindowHousekeepingCeilingIsStrict() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(0);
+            config.setAntiSpamDuplicateWindow(0);
+
+            service.recordMessage(playerId, "spam");
+            now[0] += 86_400_000L;
+            service.sweepExpiredEntries();
+
+            assertThat(retained(playerId)).isNotNull();
+
+            now[0] += 1L;
+            service.sweepExpiredEntries();
+
+            assertThat(retained(playerId)).as("control: one millisecond past it is removed").isNull();
+        }
+
+        /**
+         * The cooldown table's {@code >= MAX_COOLDOWN_MS} checked against the cooldown comparison, as
+         * #41 asks: a cooldown blocks only while the elapsed time is below {@code cooldown * 1000}, and
+         * the longest cooldown is 60 s, so at exactly 60 000 ms nothing blocks whether or not the entry
+         * is evicted -- the two comparisons agree and the table keeps its {@code >=}.
+         */
+        @Test
+        @DisplayName("At the longest cooldown (60 s) a message exactly 60 000 ms later passes, with or without eviction (#41 cooldown check)")
+        void cooldownBoundaryAgreesWithItsEviction() throws Exception {
+            UUID playerId = UUID.randomUUID();
+            long[] now = manualClock();
+            config.setAntiSpamCooldown(60);
+
+            service.recordMessage(playerId, "hello");
+            now[0] += 59_999L;
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "world"))
+                    .as("control: one millisecond before the cooldown ends it still blocks")
+                    .isEqualTo(ZH_COOLDOWN);
+
+            now[0] += 1L;
+            assertThat(service.checkSpam(createPlayerWithId(playerId), "world")).isNull();
         }
 
         @Test
@@ -762,7 +856,7 @@ class AntiSpamServiceTest {
             long[] now = manualClock();
 
             service.recordMessage(stale, "hello");
-            now[0] += 600_000L; // past both ceilings
+            now[0] += 600_001L; // past both ceilings
             service.recordMessage(fresh, "hi"); // an unrelated write
 
             @SuppressWarnings("unchecked")
@@ -799,7 +893,7 @@ class AntiSpamServiceTest {
             long[] now = manualClock();
 
             service.recordMessage(stale, "hello");
-            now[0] += 600_000L; // past both ceilings
+            now[0] += 600_001L; // past both ceilings
             service.recordMessage(fresh, "hi"); // no longer sweeps `stale`'s entry as a side effect
 
             service.sweepExpiredEntries();
