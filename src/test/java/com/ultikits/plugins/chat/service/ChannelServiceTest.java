@@ -203,6 +203,90 @@ class ChannelServiceTest {
         }
     }
 
+    // ==================== players in a channel that a reload removed (UltiKits/UltiChat#45) ====================
+
+    @Nested
+    @DisplayName("A player in a channel that a reload removed (UltiKits/UltiChat#45)")
+    class RemovedChannelTests {
+
+        private com.ultikits.ultitools.abstracts.UltiToolsPlugin plugin;
+        private final List<String> sent = new ArrayList<>();
+
+        @BeforeEach
+        void wire() throws Exception {
+            plugin = mock(com.ultikits.ultitools.abstracts.UltiToolsPlugin.class);
+            lenient().when(plugin.i18n("channel_removed_moved")).thenReturn("Channel '{0}' is gone; you are now in {1}");
+            ChatTestHelper.setField(service, "plugin", plugin);
+        }
+
+        private Player online(String name) {
+            UUID id = UUID.randomUUID();
+            Player player = ChatTestHelper.createMockPlayer(name, id);
+            lenient().doReturn(player).when(ChatTestHelper.getMockServer()).getPlayer(id);
+            lenient().doAnswer(inv -> sent.add(inv.getArgument(0))).when(player).sendMessage(anyString());
+            return player;
+        }
+
+        private Map<String, Object> gated(String permission) {
+            Map<String, Object> def = new HashMap<>();
+            def.put("permission", permission);
+            return def;
+        }
+
+        @Test
+        @DisplayName("a player switched into a removed channel is moved to the fallback #44 computes and told once")
+        void movedToTheFallbackAndTold() {
+            Player p = online("Alice");
+            service.setPlayerChannel(p.getUniqueId(), "gone");
+
+            service.moveFromRemovedChannels();
+
+            assertThat(service.getPlayerChannel(p.getUniqueId())).isEqualTo("global");
+            assertThat(sent).containsExactly("Channel 'gone' is gone; you are now in " + "\u00a7f[Global]");
+        }
+
+        @Test
+        @DisplayName("a player in a channel that is still defined is left alone and told nothing")
+        void definedChannelIsLeftAlone() {
+            Player p = online("Bob");
+            service.setPlayerChannel(p.getUniqueId(), "local");
+
+            service.moveFromRemovedChannels();
+
+            assertThat(service.getPlayerChannel(p.getUniqueId())).isEqualTo("local");
+            assertThat(sent).isEmpty();
+        }
+
+        @Test
+        @DisplayName("the fallback never is a channel that needs a permission")
+        void fallbackIsNeverGated() {
+            Map<String, Map<String, Object>> defined = new LinkedHashMap<>();
+            defined.put("staff", gated("ultichat.channel.staff"));
+            defined.put("survival", gated(""));
+            when(config.getChannels()).thenReturn(defined);
+            when(config.getDefaultChannel()).thenReturn("global");
+            Player p = online("Cara");
+            service.setPlayerChannel(p.getUniqueId(), "gone");
+
+            service.moveFromRemovedChannels();
+
+            assertThat(service.getPlayerChannel(p.getUniqueId())).isEqualTo("survival");
+        }
+
+        @Test
+        @DisplayName("a player moves silently when offline, and nobody is told twice by a second call")
+        void secondCallTellsNobody() {
+            Player p = online("Dan");
+            service.setPlayerChannel(p.getUniqueId(), "gone");
+
+            service.moveFromRemovedChannels();
+            sent.clear();
+            service.moveFromRemovedChannels();
+
+            assertThat(sent).isEmpty();
+        }
+    }
+
     // ==================== setPlayerChannel Tests ====================
 
     @Nested

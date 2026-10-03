@@ -713,6 +713,34 @@ class UltiChatTest {
         }
 
         @Test
+        @DisplayName("A reload moves players out of removed channels while channels are enabled (UltiKits/UltiChat#45)")
+        void reloadMovesPlayersOutOfRemovedChannels(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "global", true, "global");
+            com.ultikits.plugins.chat.service.ChannelService service = mock(com.ultikits.plugins.chat.service.ChannelService.class);
+            com.ultikits.ultitools.context.SimpleContainer container = mock(com.ultikits.ultitools.context.SimpleContainer.class);
+            when(plugin.getContext()).thenReturn(container);
+            when(container.getBean(com.ultikits.plugins.chat.service.ChannelService.class)).thenReturn(service);
+
+            plugin.onReload();
+
+            verify(service).moveFromRemovedChannels();
+        }
+
+        @Test
+        @DisplayName("With channels disabled a reload moves nobody")
+        void disabledReloadMovesNobody(@TempDir File dir) {
+            UltiChat plugin = pluginWith(dir, "global", false, "global");
+            com.ultikits.plugins.chat.service.ChannelService service = mock(com.ultikits.plugins.chat.service.ChannelService.class);
+            com.ultikits.ultitools.context.SimpleContainer container = mock(com.ultikits.ultitools.context.SimpleContainer.class);
+            when(plugin.getContext()).thenReturn(container);
+            when(container.getBean(com.ultikits.plugins.chat.service.ChannelService.class)).thenReturn(service);
+
+            plugin.onReload();
+
+            org.mockito.Mockito.verifyNoInteractions(service);
+        }
+
+        @Test
         @DisplayName("A default that names a defined channel is quiet")
         void definedDefaultIsQuiet(@TempDir File dir) {
             UltiChat control = pluginWith(dir, "staff", true, "local", "staff");
