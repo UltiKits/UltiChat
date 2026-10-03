@@ -33,7 +33,6 @@
   "help_admin_autoreply_setkeyword": "设置规则的关键词",
   "help_admin_autoreply_remove": "删除规则",
   "log_autoreply_save_failed": "修改自动回复规则 '{RULE}' 后无法保存 config/autoreply.yml；该更改已回滚",
-  "log_autoreply_file_overwritten": "配置文件 {FILE} 在服务器运行期间被修改或删除，但某条自动回复命令也在内存中修改了这份配置。内存中的配置已被保存，因此服务器运行期间对该文件所做的修改已被覆盖。",
   "log_channel_format_missing_both": "UltiChat：{FILE} 为频道 '{CHANNEL}' 设置了格式 \"{FORMAT}\"，当前版本会应用它，因此该频道的聊天行既不显示发送者名字，也不显示消息内容。修复方法：在格式中加入 {player} 或 {displayname}，并加入 {message}；或删除该格式以使用全局聊天格式（UltiKits/UltiChat#16）。",
   "log_channel_format_missing_sender": "UltiChat：{FILE} 为频道 '{CHANNEL}' 设置了格式 \"{FORMAT}\"，当前版本会应用它，因此该频道的聊天行不显示发送者名字。修复方法：在格式中加入 {player} 或 {displayname}；或删除该格式以使用全局聊天格式（UltiKits/UltiChat#16）。",
   "log_channel_format_missing_message": "UltiChat：{FILE} 为频道 '{CHANNEL}' 设置了格式 \"{FORMAT}\"，当前版本会应用它，因此该频道的聊天行不显示消息内容。修复方法：在格式中加入 {message}；或删除该格式以使用全局聊天格式（UltiKits/UltiChat#16）。",

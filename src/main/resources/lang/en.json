@@ -33,7 +33,6 @@
   "help_admin_autoreply_setkeyword": "Set a rule's keyword",
   "help_admin_autoreply_remove": "Remove rule",
   "log_autoreply_save_failed": "Could not save config/autoreply.yml after changing auto-reply rule '{RULE}'; the change has been rolled back",
-  "log_autoreply_file_overwritten": "Configuration file {FILE} was changed or removed on disk while the server was running, but an auto-reply command also changed this configuration in memory. The in-memory configuration was saved, so the changes made to the file while the server ran were overwritten.",
   "log_channel_format_missing_both": "UltiChat: {FILE} gives channel '{CHANNEL}' the format \"{FORMAT}\", which this version applies, so that channel's chat lines show no sender name and no message text. To fix it, add {player} or {displayname}, and add {message} to the format, or remove the format to use the global chat format (UltiKits/UltiChat#16).",
   "log_channel_format_missing_sender": "UltiChat: {FILE} gives channel '{CHANNEL}' the format \"{FORMAT}\", which this version applies, so that channel's chat lines show no sender name. To fix it, add {player} or {displayname} to the format, or remove the format to use the global chat format (UltiKits/UltiChat#16).",
   "log_channel_format_missing_message": "UltiChat: {FILE} gives channel '{CHANNEL}' the format \"{FORMAT}\", which this version applies, so that channel's chat lines show no message text. To fix it, add {message} to the format, or remove the format to use the global chat format (UltiKits/UltiChat#16).",

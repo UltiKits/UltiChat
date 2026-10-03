@@ -9,6 +9,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Saving an auto-reply rule from `/uchat autoreply` over a `config/autoreply.yml` whose values an
+  operator changed on disk is now reported by the framework: one WARNING in the server log naming the
+  file and the keys that were overwritten (framework message, English). It replaces UltiChat's own
+  line, which was translated by `language` and also fired when the file was only touched, comments
+  included, without a value changing; the save itself is unchanged (UltiTools-Reborn#527).
+- 通过 `/uchat autoreply` 保存自动回复规则时，如果 `config/autoreply.yml` 中有值被运维在磁盘上改过，现在由框架报告：
+  服务器日志中一条点名文件与被覆盖键的 WARNING（框架消息，英文）。它取代了 UltiChat 自己的那一行
+  （该行随 `language` 翻译，且文件只是被改动、甚至只改了注释而没有任何值变化时也会触发）；保存行为本身不变
+  （UltiTools-Reborn#527）。
+
 - `/uchat autoreply add <name> <response...>` takes the rest of the line as the response, and
   `/uchat autoreply setkeyword <name> <keyword...>` the rest of the line as the keyword, so a rule
   created by command can answer with a sentence and match a phrase. Both took a single word, and a
@@ -325,8 +335,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `language: zh` now applies to what was fixed English text: the `/ch` and `/uchat` help, the
   players-only refusal of `/ch` from the console, the two commands' descriptions (shown by `/help`),
   and the console lines about a channel format missing a sender or message token, an applied
-  `anti-spam.duplicate-window`, a key this version no longer reads, a failed `config/autoreply.yml`
-  save and an overwritten `config/autoreply.yml`. Their English wording is unchanged.
+  `anti-spam.duplicate-window`, a key this version no longer reads and a failed `config/autoreply.yml`
+  save. Their English wording is unchanged.
 - 反垃圾消息的拒绝提示现在跟随 `language` 设置。冷却、重复与大写字母过多三种拒绝提示原先在任何语言下都是写死的中文，
   而语言文件里其实已有它们；现在分别来自 `spam_cooldown`、`spam_duplicate` 与 `spam_caps`（`language: en` 下为
   `Please wait before sending another message.`、`Stop sending duplicate messages!`、
@@ -334,7 +344,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   略有不同（UltiKits/UltiChat#18）。
 - `language: zh` 现在也对原先写死为英文的内容生效：`/ch` 与 `/uchat` 的帮助、从控制台执行 `/ch` 时的「仅限玩家」提示、
   两个命令的描述（由 `/help` 显示），以及关于频道格式缺少发送者或消息占位符、已应用的 `anti-spam.duplicate-window`、
-  本版本不再读取的配置键、`config/autoreply.yml` 保存失败与被覆盖的控制台日志。它们的英文措辞不变。
+  本版本不再读取的配置键与 `config/autoreply.yml` 保存失败的控制台日志。它们的英文措辞不变。
 
 - The announcement interval settings `announcements.chat.interval`, `announcements.bossbar.interval`
   and `announcements.title.interval` in `config/announcements.yml` now take effect. They were

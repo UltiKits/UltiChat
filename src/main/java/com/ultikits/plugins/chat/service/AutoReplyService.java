@@ -1,11 +1,9 @@
 package com.ultikits.plugins.chat.service;
 
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
-import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.Service;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -327,8 +325,8 @@ public class AutoReplyService {
     /**
      * Writes the entity, and puts the rule set back as it was if the write fails.
      * <p>
-     * One implementation for all three mutating methods, so the save, the rollback and the
-     * operator-edit warning cannot drift apart between them. The rollback runs under
+     * One implementation for all three mutating methods, so the save and the rollback cannot
+     * drift apart between them. The rollback runs under
      * {@link #rulesLock}, so no chat thread observes a half-restored rule set.
      *
      * <p>
@@ -343,59 +341,22 @@ public class AutoReplyService {
      * @throws RulesReplacedException if the configuration no longer holds {@code changed}
      */
     private void saveOrRestore(Map<String, Map<String, Object>> changed, Rollback rollback) throws IOException {
-        final boolean overwritesOperatorEdit;
         try {
-            // Read before the write, and both under the entity's own monitor, exactly as
-            // ConfigManager#saveAll does. The ordering alone is not enough: a panel configuration
-            // write reaches AbstractConfigEntity#updateProperties on the WebSocket thread and writes
-            // the file under this same monitor, so between an unguarded read and the save it could
-            // land, be overwritten, and leave the read reporting "nothing was changed" -- losing the
-            // one warning this exists to produce. save() takes this monitor itself; holding it
-            // across both makes the pair atomic against that thread.
-            synchronized (config) {
-                overwritesOperatorEdit = config.isFileModifiedSinceSnapshot();
-                config.save();
-            }
+            // save() takes the entity's own monitor, and the framework reports an overwrite of a key an
+            // operator changed on disk itself (UltiTools-Reborn#527), so this method keeps no copy of
+            // that check and no monitor of its own.
+            config.save();
         } catch (IOException e) {
-            // Outside the monitor above on purpose: the rollback needs rulesLock and nothing else,
-            // so this class never holds the entity monitor and rulesLock at the same time and there
-            // is no lock order to get wrong.
+            // The rollback needs rulesLock and nothing else, so this class never holds the entity
+            // monitor and rulesLock at the same time and there is no lock order to get wrong.
             synchronized (rulesLock) {
                 rollback.run();
             }
             throw e;
         }
-        if (overwritesOperatorEdit) {
-            warnOperatorEditOverwritten();
-        }
         if (config.getRules() != changed) {
             throw new RulesReplacedException();
         }
-    }
-
-    /**
-     * Logs that this save wrote over a file somebody changed on disk while the server was running.
-     * <p>
-     * Overwriting is the contract -- a rule set changed by a command is what gets saved -- but it
-     * must not be silent, because the edit that is lost was somebody's work. The framework already
-     * says exactly this for the same event at shutdown
-     * ({@code ConfigManager#warnOperatorEditOverwritten}); this is that line, for the saves this
-     * module now performs during a command.
-     * <p>
-     * {@code isFileModifiedSinceSnapshot()} is the framework's own instrument and is marked
-     * {@code @ApiStatus.Internal}, so calling it from a module is a deliberate, recorded exception:
-     * the framework exposes no supported alternative, and the only other way to answer the question
-     * is for this module to keep a second fingerprint of the same file, which would be a copy of
-     * framework bookkeeping that drifts from it. Tracked as UltiKits/UltiTools-Reborn#527; when
-     * that lands -- a supported accessor, or the warning moved inside {@code save()} itself --
-     * this method goes away and the call with it. The call is safe either way -- it returns
-     * {@code false} when no snapshot has been taken.
-     */
-    private void warnOperatorEditOverwritten() {
-        UltiToolsPlugin plugin = config.getUltiToolsPlugin();
-        File file = new File(plugin.getResourceFolderPath(), config.getConfigFilePath());
-        plugin.getLogger().warn(plugin.i18n("log_autoreply_file_overwritten")
-                .replace("{FILE}", file.getAbsolutePath()));
     }
 
     /**
