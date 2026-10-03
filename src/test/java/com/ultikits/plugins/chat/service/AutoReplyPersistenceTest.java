@@ -19,8 +19,9 @@ import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -250,64 +251,51 @@ class AutoReplyPersistenceTest {
     }
 
     // ============================
-    // An overwrite of an operator's hand edit is not silent
+    // An overwrite of an operator's hand edit is not silent -- and the framework says so, once
+    // (UltiTools-Reborn#527: every framework save warns, so the module keeps no copy of that check)
     // ============================
 
     @Test
-    @DisplayName("Saving over a file that was edited on disk logs a warning naming the file")
-    void savingOverAnOperatorEditIsNotSilent() throws Exception {
+    @DisplayName("Saving over a key an operator changed on disk is reported exactly once, by the framework, and the module adds no second line")
+    void savingOverAnOperatorEditIsReportedOnceByTheFramework() throws Exception {
         PluginLogger logger = mock(PluginLogger.class);
         doReturn(logger).when(plugin).getLogger();
-        // The warning comes from the language file; the assertions quote its English text.
         org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
-        editTheFileBehindTheFrameworksBack();
+        List<String> frameworkWarnings = captureFrameworkWarnings();
+        try {
+            editAKeyBehindTheFrameworksBack();
 
-        service.addRule("greeting", "hi", "Hello there!");
+            service.addRule("greeting", "hi", "Hello there!");
+        } finally {
+            releaseFrameworkWarnings();
+        }
 
-        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
-        verify(logger).warn(captor.capture());
-        assertThat(captor.getValue())
-                .contains("autoreply.yml")
-                .contains("changed or removed on disk");
+        assertThat(frameworkWarnings).as("the framework's own overwrite warning").hasSize(1);
+        assertThat(frameworkWarnings.get(0)).contains("autoreply.yml").contains("operator-edited keys overwritten");
+        verify(logger, never()).warn(anyString());
         // The overwrite itself is still the contract, as it is for the framework's shutdown save.
         assertThat(readFromDisk()).containsKey("greeting");
     }
 
     @Test
-    @DisplayName("Under language: zh the overwrite warning is the Chinese catalogue text")
-    void overwriteWarningFollowsTheLanguageSetting() throws Exception {
-        PluginLogger logger = mock(PluginLogger.class);
-        doReturn(logger).when(plugin).getLogger();
-        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh")).when(plugin).i18n(anyString());
-        String template = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "log_autoreply_file_overwritten");
-        editTheFileBehindTheFrameworksBack();
-
-        service.addRule("greeting", "hi", "Hello there!");
-
-        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
-        verify(logger).warn(captor.capture());
-        String prefix = template.substring(0, template.indexOf("{FILE}"));
-        String suffix = template.substring(template.indexOf("{FILE}") + "{FILE}".length());
-        assertThat(captor.getValue()).startsWith(prefix).endsWith(suffix).contains("autoreply.yml");
-    }
-
-    @Test
-    @DisplayName("Saving over an untouched file logs nothing -- and the same logger does see a warning once the file is touched")
+    @DisplayName("Saving over an untouched file is quiet -- and the same capture does see the framework's warning once a key is changed on disk")
     void savingOverAnUntouchedFileIsQuiet() throws Exception {
         PluginLogger logger = mock(PluginLogger.class);
         doReturn(logger).when(plugin).getLogger();
-        // The warning comes from the language file; the assertions quote its English text.
         org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
+        List<String> frameworkWarnings = captureFrameworkWarnings();
+        try {
+            service.addRule("greeting", "hi", "Hello there!");
+            assertThat(frameworkWarnings).isEmpty();
+            verify(logger, never()).warn(anyString());
 
-        service.addRule("greeting", "hi", "Hello there!");
-
-        verify(logger, never()).warn(anyString());
-
-        // Control: the verification above could pass because nothing can ever reach this logger.
-        // Edit the file and save again; the same mock must now see exactly one warning.
-        editTheFileBehindTheFrameworksBack();
-        service.addRule("second", "yo", "Hello again!");
-        verify(logger).warn(anyString());
+            // Control: the assertions above could pass because nothing can ever reach this capture.
+            editAKeyBehindTheFrameworksBack();
+            service.addRule("second", "yo", "Hello again!");
+            assertThat(frameworkWarnings).hasSize(1);
+        } finally {
+            releaseFrameworkWarnings();
+        }
     }
 
     // ============================
@@ -371,35 +359,6 @@ class AutoReplyPersistenceTest {
     }
 
     // ============================
-    // The read and the write are one step, as the framework's own shutdown save makes them
-    // ============================
-
-    @Test
-    @DisplayName("The entity's monitor is already held when save() is entered, so the operator-edit read and the write cannot be split")
-    void theOperatorEditReadAndTheSaveShareTheEntityMonitor() throws Exception {
-        AutoReplyConfig probe = spy(live);
-        AtomicBoolean heldWhenSaveWasEntered = new AtomicBoolean(false);
-        doAnswer(invocation -> {
-            heldWhenSaveWasEntered.set(Thread.holdsLock(probe));
-            return invocation.callRealMethod();
-        }).when(probe).save();
-        ChatTestHelper.setField(service, "config", probe);
-
-        service.addRule("greeting", "hi", "Hello there!");
-
-        // save() takes this monitor itself, so a probe INSIDE the real method would read true
-        // either way. This probe sits at the boundary, before the real method runs, which is the
-        // only place the two revisions differ: without the synchronized (config) around the
-        // fingerprint read and the write, saveOrRestore's own frame holds nothing here.
-        assertThat(heldWhenSaveWasEntered.get()).isTrue();
-
-        // Controls: the probe ran, and the real save ran behind it -- so the assertion above is
-        // not passing because save() was never reached.
-        verify(probe).save();
-        assertThat(readFromDisk()).containsKey("greeting");
-    }
-
-    // ============================
     // Helpers
     // ============================
 
@@ -429,13 +388,46 @@ class AutoReplyPersistenceTest {
     }
 
     /**
-     * Appends a comment line straight to the file, the way an admin editing it over SSH would --
-     * behind the framework's back, so its snapshot no longer matches what is on disk.
+     * Changes a rule's keyword straight in the file, the way an admin editing it over SSH would --
+     * behind the framework's back, so the file no longer holds what the framework last wrote.
      */
-    private void editTheFileBehindTheFrameworksBack() throws Exception {
-        Files.write(configFile().toPath(),
-                "\n# edited on disk while the server was running\n".getBytes(StandardCharsets.UTF_8),
-                StandardOpenOption.APPEND);
+    private void editAKeyBehindTheFrameworksBack() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertThat(text).as("control: the keyword this edit replaces is in the file").contains("server IP");
+        Files.write(configFile().toPath(), text.replace("server IP", "server address").getBytes(StandardCharsets.UTF_8));
+    }
+
+    private java.util.logging.Handler frameworkHandler;
+
+    /** Collects the framework's own warnings for this entity class, which the framework logs itself. */
+    private List<String> captureFrameworkWarnings() {
+        List<String> messages = new ArrayList<>();
+        frameworkHandler = new java.util.logging.Handler() {
+            @Override
+            public void publish(java.util.logging.LogRecord record) {
+                if (record.getLevel().intValue() >= java.util.logging.Level.WARNING.intValue()) {
+                    messages.add(record.getMessage());
+                }
+            }
+
+            @Override
+            public void flush() {
+                // nothing is buffered
+            }
+
+            @Override
+            public void close() {
+                // nothing is held
+            }
+        };
+        java.util.logging.Logger.getLogger(com.ultikits.ultitools.abstracts.AbstractConfigEntity.class.getName())
+                .addHandler(frameworkHandler);
+        return messages;
+    }
+
+    private void releaseFrameworkWarnings() {
+        java.util.logging.Logger.getLogger(com.ultikits.ultitools.abstracts.AbstractConfigEntity.class.getName())
+                .removeHandler(frameworkHandler);
     }
 
     /**
