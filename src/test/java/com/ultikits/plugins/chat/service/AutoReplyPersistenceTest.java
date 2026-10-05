@@ -250,13 +250,15 @@ class AutoReplyPersistenceTest {
     }
 
     // ============================
-    // An overwrite of an operator's hand edit is not silent -- and the framework says so, once
-    // (UltiTools-Reborn#527: every framework save warns, so the module keeps no copy of that check)
+    // A command writes the rule it names, and only that rule (maintainer decision 2026-10-04, "what code may
+    // write, by file type": /autoreply writes only that rule). This replaces the 17-50 tests that pinned the
+    // framework's #527 "a save warns and overwrites" warning, which the 2026-10-04 table superseded
+    // (UltiKits/UltiChat#50).
     // ============================
 
     @Test
-    @DisplayName("Saving over a key an operator changed on disk is reported exactly once, by the framework, and the module adds no second line")
-    void savingOverAnOperatorEditIsReportedOnceByTheFramework() throws Exception {
+    @DisplayName("A rule the operator edited by hand since the load is replaced by the command's change to it, with no warning")
+    void aHandEditedRuleIsReplacedByTheCommandThatNamesIt() throws Exception {
         PluginLogger logger = mock(PluginLogger.class);
         doReturn(logger).when(plugin).getLogger();
         org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
@@ -264,33 +266,43 @@ class AutoReplyPersistenceTest {
         try {
             editAKeyBehindTheFrameworksBack();
 
-            service.addRule("greeting", "hi", "Hello there!");
+            service.setKeyword("server-ip", "ip please");
         } finally {
             releaseFrameworkWarnings();
         }
 
-        assertThat(frameworkWarnings).as("the framework's own overwrite warning").hasSize(1);
-        assertThat(frameworkWarnings.get(0)).contains("autoreply.yml").contains("operator-edited keys overwritten");
+        // The operator asked for this rule's keyword: the command's value is written for it.
+        Map<String, Object> onDisk = readFromDisk().get("server-ip");
+        assertThat(onDisk.get("keyword")).isEqualTo("ip please");
+        assertThat(onDisk.get("response")).isEqualTo("Server address: play.example.com");
+        assertThat(readFromDisk()).containsKey("rules-info");
+        assertThat(frameworkWarnings).as("an explicit operator change is not a warning").isEmpty();
         verify(logger, never()).warn(anyString());
-        // The overwrite itself is still the contract, as it is for the framework's shutdown save.
-        assertThat(readFromDisk()).containsKey("greeting");
     }
 
     @Test
-    @DisplayName("Saving over an untouched file is quiet -- and the same capture does see the framework's warning once a key is changed on disk")
-    void savingOverAnUntouchedFileIsQuiet() throws Exception {
+    @DisplayName("A rule the operator added by hand since the load stays when a command adds another -- quietly, and the same capture does see a framework warning")
+    void aHandAddedRuleStaysQuietly() throws Exception {
         PluginLogger logger = mock(PluginLogger.class);
         doReturn(logger).when(plugin).getLogger();
         org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
         List<String> frameworkWarnings = captureFrameworkWarnings();
         try {
+            addARuleBehindTheFrameworksBack();
+
             service.addRule("greeting", "hi", "Hello there!");
+
+            Map<String, Map<String, Object>> onDisk = readFromDisk();
+            assertThat(onDisk).containsKeys("server-ip", "rules-info", "custom", "greeting");
+            assertThat(onDisk.get("custom").get("response")).isEqualTo("Written by hand");
             assertThat(frameworkWarnings).isEmpty();
             verify(logger, never()).warn(anyString());
 
-            // Control: the assertions above could pass because nothing can ever reach this capture.
+            // Control: the capture can see a framework warning -- a module change to a value the operator has
+            // since edited on disk is not written by the module's own save(), and the framework says so.
             editAKeyBehindTheFrameworksBack();
-            service.addRule("second", "yo", "Hello again!");
+            live.getRules().get("server-ip").put("keyword", "changed by the module");
+            live.save();
             assertThat(frameworkWarnings).hasSize(1);
         } finally {
             releaseFrameworkWarnings();
@@ -394,6 +406,19 @@ class AutoReplyPersistenceTest {
         String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
         assertThat(text).as("control: the keyword this edit replaces is in the file").contains("server IP");
         Files.write(configFile().toPath(), text.replace("server IP", "server address").getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Adds a rule {@code custom} straight to the file, the way an admin editing it over SSH would, behind the
+     * framework's back.
+     */
+    private void addARuleBehindTheFrameworksBack() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        String anchor = "rules:\n";
+        assertThat(text).as("control: the rules section is in the file").contains(anchor);
+        String rule = "    custom:\n      keyword: custom\n      response: Written by hand\n";
+        Files.write(configFile().toPath(), text.replace(anchor, anchor + rule).getBytes(StandardCharsets.UTF_8));
+        assertThat(readFromDisk()).as("control: the hand-added rule parses").containsKey("custom");
     }
 
     private java.util.logging.Handler frameworkHandler;
