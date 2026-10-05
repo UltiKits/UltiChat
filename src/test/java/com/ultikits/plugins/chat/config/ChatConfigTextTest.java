@@ -589,6 +589,43 @@ class ChatConfigTextTest {
         assertThat(afterLines).contains(typo, handComment);
     }
 
+    /** As above, for {@code autoreply.yml}: only the example rules' keyword and response lines follow the language. */
+    @Test
+    @DisplayName("a language switch rewrites only the example rules' text in autoreply.yml; a typo value and a hand-written comment stay byte for byte")
+    void aLanguageSwitchRewritesOnlyTheExampleRulesText() throws Exception {
+        language[0] = "en";
+        extractShippedResources();
+        loadAll();
+        start();
+        String started = new String(bytes(AUTOREPLY), StandardCharsets.UTF_8);
+        String typo = "  cooldown: 1O";
+        String handComment = "    # the two examples below are ours, keep them";
+        assertThat(started).as("control: the lines this edit changes are in the file")
+                .contains("\n  cooldown: 10\n").contains("\n  rules:\n");
+        String edited = started.replace("\n  cooldown: 10\n", "\n" + typo + "\n")
+                .replace("\n  rules:\n", "\n  rules:\n" + handComment + "\n");
+        Files.write(file(AUTOREPLY).toPath(), edited.getBytes(StandardCharsets.UTF_8));
+
+        language[0] = "zh";
+        for (AbstractConfigEntity config : current.values()) {
+            config.init(plugin);
+        }
+        reload();
+
+        String after = new String(bytes(AUTOREPLY), StandardCharsets.UTF_8);
+        assertThat(after).as("control: the switch rewrote the example rules").isNotEqualTo(edited);
+        List<String> beforeLines = java.util.Arrays.asList(edited.split("\n", -1));
+        List<String> afterLines = java.util.Arrays.asList(after.split("\n", -1));
+        assertThat(afterLines).as("line count").hasSameSizeAs(beforeLines);
+        for (int i = 0; i < beforeLines.size(); i++) {
+            String trimmed = beforeLines.get(i).trim();
+            if (!trimmed.startsWith("keyword:") && !trimmed.startsWith("response:")) {
+                assertThat(afterLines.get(i)).as("line " + (i + 1)).isEqualTo(beforeLines.get(i));
+            }
+        }
+        assertThat(afterLines).contains(typo, handComment);
+    }
+
     @Test
     @DisplayName("onReload() after a language switch rewrites every built-in text in the new language, in both directions")
     void reloadFollowsALanguageSwitchBothWays() throws Exception {
