@@ -450,6 +450,37 @@ class ChatConfigTextTest {
         }
     }
 
+    /**
+     * Maintainer decision 2026-10-04 on the formerly shipped channel formats (plan 17-72, question 3: keep removing
+     * them, "继续删除"): a {@code format:} that is byte for byte one of the three is removed only through the
+     * framework's save rule, that is only while the file still holds exactly the text the module read there. An
+     * operator who changes that line on disk after the load keeps the change; the other, untouched legacy format is
+     * removed by the same start (the control).
+     */
+    @Test
+    @DisplayName("the removal of a formerly shipped channel format goes through the save rule: a format edited on disk after the load stays")
+    void legacyFormatRemovalGoesThroughTheSaveRule() throws Exception {
+        language[0] = "en";
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (Setting s : SETTINGS) {
+            values.put(s.path, s.text("en"));
+        }
+        values.put("channels.channels.global.format", "{display}&f: {message}");
+        values.put("channels.channels.local.format", "{display}&7: {message}");
+        prepare(values);
+        loadAll();
+        String loaded = new String(bytes(CHANNELS), StandardCharsets.UTF_8);
+        assertThat(loaded).as("control: the legacy format is in the file").contains("{display}&f: {message}");
+        Files.write(file(CHANNELS).toPath(),
+                loaded.replace("{display}&f: {message}", "{display}&a> {message}").getBytes(StandardCharsets.UTF_8));
+
+        start();
+
+        YamlConfiguration channels = yaml(CHANNELS);
+        assertThat(channels.getString("channels.channels.global.format")).isEqualTo("{display}&a> {message}");
+        assertThat(channels.contains("channels.channels.local.format")).as("control: the untouched legacy format is removed").isFalse();
+    }
+
     @Test
     @DisplayName("a materializing save keeps every operator channel and rule, with every key inside it, and every shipped channel's other keys")
     void operatorChannelsAndRulesSurviveASave() throws Exception {
