@@ -426,6 +426,32 @@ class ChatAdminCommandsTest {
             assertNoSentMessageContaining(sender, "removed");
         }
 
+        /**
+         * Maintainer decision 2026-10-05: a change the framework's write gate refuses is answered with "not saved"
+         * and why (a phrase without any configuration value), and the rule set was already rolled back by the
+         * service (UltiKits/UltiChat#50).
+         */
+        @Test
+        @DisplayName("a refused write says the rule was not saved and why, not the generic failure")
+        void aRefusedWriteSaysNotSavedAndWhy() throws Exception {
+            when(mockPlugin.i18n("autoreply_not_saved_refused"))
+                    .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+            CommandSender sender = mock(CommandSender.class);
+            doThrow(new com.ultikits.ultitools.config.ConfigWriteRefusedException("config/autoreply.yml",
+                    "the file uses YAML anchors, aliases or merge keys"))
+                    .when(mockAutoReplyService).addRule("greet", "greet", "Hello there!");
+
+            commands.onAutoReplyAdd(sender, "greet", "Hello there!");
+
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender).sendMessage(sent.capture());
+            assertThat(sent.getValue()).isEqualTo(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                    com.ultikits.plugins.chat.UltiChat.fillOnce(
+                            com.ultikits.plugins.chat.i18n.CatalogueText.text("en", "autoreply_not_saved_refused"),
+                            "{0}", "greet", "{1}", "the file uses YAML anchors, aliases or merge keys")));
+            assertNoSentMessageContaining(sender, "added");
+        }
+
         @Test
         @DisplayName("A save that succeeds still reports success -- the control for the three above")
         void aSucceedingSaveStillReportsSuccess() throws Exception {
@@ -638,7 +664,7 @@ class ChatAdminCommandsTest {
             doAnswer(invocation -> {
                 config.setRules(panelRules);
                 return null;
-            }).when(config).save();
+            }).when(config).saveOperatorMapEntry(anyString(), any(String[].class));
         }
 
         private String reply() {
@@ -692,7 +718,7 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("control: a save the panel does not interrupt reports success")
         void uninterruptedSaveSucceeds() throws Exception {
-            doNothing().when(config).save();
+            doNothing().when(config).saveOperatorMapEntry(anyString(), any(String[].class));
 
             realCommands.onAutoReplyAdd(sender, "greet", "Hello");
 

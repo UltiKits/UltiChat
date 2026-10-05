@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
@@ -153,13 +154,13 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).save();
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "greeting");
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
         Map<String, Map<String, Object>> onDisk = readFromDisk();
         assertThat(onDisk).containsKeys("server-ip", "rules-info");
         assertThat(onDisk).doesNotContainKey("greeting");
 
-        doNothing().when(failing).save();
+        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         service.addRule("greeting", "hi", "Hello there!");
         assertThat(failing.getRules()).containsKey("greeting");
     }
@@ -175,11 +176,11 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).save();
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "server-ip");
         assertThat(rule).containsExactlyEntriesOf(ruleSnapshot);
         assertThat(rule.get("keyword")).isEqualTo("server IP");
 
-        doNothing().when(failing).save();
+        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         service.setKeyword("server-ip", "changed");
         assertThat(failing.getRules().get("server-ip").get("keyword")).isEqualTo("changed");
     }
@@ -196,11 +197,11 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).save();
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "bare");
         assertThat(bare).doesNotContainKey("keyword");
         assertThat(bare).containsExactly(org.assertj.core.api.Assertions.entry("response", "Nothing to match on"));
 
-        doNothing().when(failing).save();
+        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         service.setKeyword("bare", "anything");
         assertThat(bare.get("keyword")).isEqualTo("anything");
     }
@@ -216,11 +217,11 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).save();
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "server-ip");
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
         assertThat(failing.getRules().get("server-ip")).isSameAs(serverIpInstance);
 
-        doNothing().when(failing).save();
+        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         service.removeRule("server-ip");
         assertThat(failing.getRules()).doesNotContainKey("server-ip");
     }
@@ -234,6 +235,7 @@ class AutoReplyPersistenceTest {
     void callsThatChangeNothingDoNotWrite() throws Exception {
         AutoReplyConfig quiet = spy(live);
         doNothing().when(quiet).save();
+        doNothing().when(quiet).saveOperatorMapEntry(anyString(), any(String[].class));
         ChatTestHelper.setField(service, "config", quiet);
 
         service.addRule("server-ip", "anything", "Refused, the name is taken");
@@ -244,9 +246,11 @@ class AutoReplyPersistenceTest {
         service.setKeyword("server-ip", "server IP");
 
         verify(quiet, never()).save();
+        verify(quiet, never()).saveOperatorMapEntry(anyString(), any(String[].class));
 
         service.addRule("greeting", "hi", "Hello there!");
-        verify(quiet).save();
+        verify(quiet).saveOperatorMapEntry("autoreply.rules", "greeting");
+        verify(quiet, never()).save();
     }
 
     // ============================
@@ -309,6 +313,60 @@ class AutoReplyPersistenceTest {
         }
     }
 
+    @Test
+    @DisplayName("remove of a rule the operator edited by hand removes it, and a rule edited by hand elsewhere stays")
+    void removeOfAHandEditedRuleRemovesItAndKeepsTheOthers() throws Exception {
+        editAKeyBehindTheFrameworksBack();
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertThat(text).as("control: the other rule's response is in the file").contains("Please check /rules for server rules.");
+        Files.write(configFile().toPath(), text.replace("Please check /rules for server rules.", "Read /rules first.")
+                .getBytes(StandardCharsets.UTF_8));
+
+        service.removeRule("server-ip");
+
+        Map<String, Map<String, Object>> onDisk = readFromDisk();
+        assertThat(onDisk).doesNotContainKey("server-ip");
+        assertThat(onDisk.get("rules-info").get("response")).isEqualTo("Read /rules first.");
+    }
+
+    @Test
+    @DisplayName("add keeps every line of the file the operator wrote, a hand-added rule and a hand-written comment included")
+    void addKeepsEveryLineOfTheFile() throws Exception {
+        addARuleBehindTheFrameworksBack();
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)
+                .replace("    custom:\n", "    # my own rule, keep it\n    custom:\n");
+        Files.write(configFile().toPath(), text.getBytes(StandardCharsets.UTF_8));
+
+        service.addRule("greeting", "hi", "Hello there!");
+
+        String after = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        List<String> afterLines = java.util.Arrays.asList(after.split("\n", -1));
+        int at = 0;
+        for (String line : text.split("\n", -1)) {
+            int found = afterLines.subList(at, afterLines.size()).indexOf(line);
+            assertThat(found).as("line kept, in order: " + line).isGreaterThanOrEqualTo(0);
+            at += found + 1;
+        }
+        assertThat(readFromDisk()).containsKeys("custom", "greeting", "server-ip", "rules-info");
+    }
+
+    @Test
+    @DisplayName("A write the framework refuses rolls the rule set back and is reported to the caller; the file is unchanged")
+    void aRefusedWriteRollsBackAndIsReported() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertThat(text).as("control: the keyword is in the file").contains("keyword: server IP");
+        String anchored = text.replace("keyword: server IP", "keyword: &ip server IP")
+                .replace("rules:\n", "rules:\n    alias-rule:\n      keyword: *ip\n      response: Same keyword\n");
+        Files.write(configFile().toPath(), anchored.getBytes(StandardCharsets.UTF_8));
+        Map<String, Map<String, Object>> snapshot = new LinkedHashMap<>(live.getRules());
+
+        assertThatThrownBy(() -> service.addRule("greeting", "hi", "Hello there!"))
+                .isInstanceOf(com.ultikits.ultitools.config.ConfigWriteRefusedException.class);
+
+        assertThat(live.getRules()).containsExactlyEntriesOf(snapshot);
+        assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)).isEqualTo(anchored);
+    }
+
     // ============================
     // The rule map is not read while it is being rebuilt
     // ============================
@@ -338,7 +396,7 @@ class AutoReplyPersistenceTest {
             insideSave.countDown();
             assertThat(releaseSave.await(5, TimeUnit.SECONDS)).isTrue();
             throw new IOException("simulated write failure");
-        }).when(failing).save();
+        }).when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         ChatTestHelper.setField(service, "config", failing);
 
         Object rulesLock = ChatTestHelper.getField(service, "rulesLock");
@@ -374,12 +432,13 @@ class AutoReplyPersistenceTest {
     // ============================
 
     /**
-     * A spy over the live config whose {@code save()} always fails, standing in for a read-only
-     * config directory or a full disk.
+     * A spy over the live config whose rule write ({@code saveOperatorMapEntry}) always fails, standing in
+     * for a read-only config directory or a full disk.
      */
     private AutoReplyConfig failingConfig() throws Exception {
         AutoReplyConfig failing = spy(live);
-        doThrow(new IOException("simulated write failure")).when(failing).save();
+        doThrow(new IOException("simulated write failure")).when(failing)
+                .saveOperatorMapEntry(anyString(), any(String[].class));
         ChatTestHelper.setField(service, "config", failing);
         return failing;
     }
