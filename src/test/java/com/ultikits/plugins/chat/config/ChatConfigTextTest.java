@@ -545,6 +545,50 @@ class ChatConfigTextTest {
 
     // ================================================================== reload
 
+    /**
+     * Write-gate sweep S5 (plan 17-72; maintainer decision 2026-10-04, "what code may write, by file type"): after a
+     * language switch the module's materializer save changes {@code channels.yml} only where a shipped channel's
+     * display name still held built-in text. A value the framework could not use (a typo) and a comment the
+     * operator wrote elsewhere in the same file stay byte for byte, as does every other line outside the
+     * re-rendered entries.
+     */
+    @Test
+    @DisplayName("a language switch rewrites only the shipped-text entries of channels.yml; a typo value and a hand-written comment stay byte for byte")
+    void aLanguageSwitchRewritesOnlyTheShippedTextEntries() throws Exception {
+        language[0] = "en";
+        extractShippedResources();
+        loadAll();
+        start();
+        String started = new String(bytes(CHANNELS), StandardCharsets.UTF_8);
+        String typo = "  enabled: ture";
+        String handComment = "  # new players start in global; staff is invite-only";
+        assertThat(started).as("control: the lines this edit changes are in the file")
+                .contains("\n  enabled: true\n").contains("\n  default-channel: global\n");
+        String edited = started.replace("\n  enabled: true\n", "\n" + typo + "\n")
+                .replace("\n  default-channel: global\n", "\n" + handComment + "\n  default-channel: global\n");
+        Files.write(file(CHANNELS).toPath(), edited.getBytes(StandardCharsets.UTF_8));
+
+        language[0] = "zh";
+        for (AbstractConfigEntity config : current.values()) {
+            config.init(plugin);
+        }
+        reload();
+
+        String after = new String(bytes(CHANNELS), StandardCharsets.UTF_8);
+        // Control: the switch did write a shipped channel's display name in the new language.
+        assertThat(after).isNotEqualTo(edited);
+        assertThat(yaml(CHANNELS).getString("channels.channels.global.display-name")).isNotEqualTo("&f[Global]");
+        List<String> beforeLines = java.util.Arrays.asList(edited.split("\n", -1));
+        List<String> afterLines = java.util.Arrays.asList(after.split("\n", -1));
+        assertThat(afterLines).as("line count").hasSameSizeAs(beforeLines);
+        for (int i = 0; i < beforeLines.size(); i++) {
+            if (!beforeLines.get(i).trim().startsWith("display-name:")) {
+                assertThat(afterLines.get(i)).as("line " + (i + 1)).isEqualTo(beforeLines.get(i));
+            }
+        }
+        assertThat(afterLines).contains(typo, handComment);
+    }
+
     @Test
     @DisplayName("onReload() after a language switch rewrites every built-in text in the new language, in both directions")
     void reloadFollowsALanguageSwitchBothWays() throws Exception {
