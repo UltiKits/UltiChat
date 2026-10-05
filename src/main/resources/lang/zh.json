@@ -8,6 +8,7 @@
   "autoreply_save_failed": "&c规则 '{0}' 保存失败，更改已回滚。请查看服务器日志。",
   "autoreply_not_saved_refused": "&c规则 '{0}' 未保存：{1}。更改已回滚；请按服务器日志的提示修正 config/autoreply.yml，然后重新执行该命令。",
   "autoreply_not_in_file": "&c规则 '{0}' 已不在 config/autoreply.yml 中，因此未保存任何内容。请执行 /uchat reload 载入文件的当前内容。",
+  "autoreply_file_unknown": "&c规则 '{0}' 未保存：无法读取 config/autoreply.yml 的当前内容。请执行 /uchat reload，然后重新执行该命令。",
   "log_autoreply_not_saved_refused": "自动回复规则 '{RULE}' 未保存，更改已回滚。{REASON}",
   "autoreply_not_applied": "&c对规则 '{0}' 的更改未生效：保存时面板替换了自动回复规则。请重新执行该命令。",
   "autoreply_list_header": "&6===== 自动回复规则 =====",

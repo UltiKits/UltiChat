@@ -139,6 +139,11 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             String msg = plugin.i18n("autoreply_exists").replace("{0}", name);
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
             return;
+        } catch (AutoReplyService.RulesFileUnknownException e) {
+            // The file cannot be read as it is now, so whether it holds the rule is unknown: never write blind.
+            String msg = plugin.i18n("autoreply_file_unknown").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
         } catch (AutoReplyService.RulesReplacedException e) {
             reportReplacedByPanel(sender, name);
             return;

@@ -115,7 +115,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   refuses a name the file already holds (`Rule '<name>' already exists.`), one an operator added by hand since the
   last reload included; `setkeyword` writes only that rule's keyword, so a hand edit of its response stays, and
   when the operator deleted the rule by hand it writes nothing and answers `Rule '<name>' is no longer in
-  config/autoreply.yml, so nothing was saved. Run /uchat reload to load the file as it is now.` Before, the
+  config/autoreply.yml, so nothing was saved. Run /uchat reload to load the file as it is now.` A rule name is
+  read whole, dots included. When the file cannot be read as it is now - deleted while the server runs, not
+  parseable, or without a rule map - `add` and `setkeyword` write nothing and ask for `/uchat reload`, so a
+  deleted file is never recreated by a command. Before, the
   commands saved the whole configuration: against the framework's 6.3.0 write rules a rule edited by hand was
   then not changed or removed while the command reported success, and a write the framework refused was
   reported as success. Now a refused write rolls the change back and is answered
@@ -127,7 +130,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   不写其他内容：其他每条规则（包括服务器运行期间服主手动添加或修改的规则）以及文件的其他每一行都逐字节保持不变。`add` 会拒绝文件中
   已有的规则名（包括上次重载后服主手动添加的规则），回复「规则 '<名称>' 已存在」；`setkeyword` 只写该规则的关键词，因此该规则
   响应内容的手动修改会保留；若服主已手动删除该规则，则不写入任何内容，并回复「规则 '<名称>' 已不在 config/autoreply.yml 中，
-  因此未保存任何内容。请执行 /uchat reload 载入文件的当前内容。」此前命令保存整个配置：在框架 6.3.0 的写入规则下，手动改过的规则不会被修改或删除，
+  因此未保存任何内容。请执行 /uchat reload 载入文件的当前内容。」规则名按整体读取（包括其中的点）。文件当前无法读取时
+  （服务器运行期间被删除、无法解析或没有规则映射），`add` 和 `setkeyword` 不写入任何内容并提示执行 `/uchat reload`，
+  因此被删除的文件不会被命令重新创建。此前命令保存整个配置：在框架 6.3.0 的写入规则下，手动改过的规则不会被修改或删除，
   命令却报告成功；框架拒绝的写入也被报告为成功。现在被拒绝的写入会回滚，并回复「规则 '<名称>' 未保存：<原因>。更改已回滚；
   请按服务器日志的提示修正 config/autoreply.yml，然后重新执行该命令。」模块自己关于覆盖服主修改的那一行，以及本版本早先用来
   取代它的框架覆盖警告（UltiTools-Reborn#527）都已不存在：服主写下的内容不再被覆盖（UltiKits/UltiChat#50）。

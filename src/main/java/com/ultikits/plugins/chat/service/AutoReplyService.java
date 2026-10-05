@@ -73,6 +73,19 @@ public class AutoReplyService {
     }
 
     /**
+     * Thrown by {@link #addRule} when {@code config/autoreply.yml} cannot be read as it is now - absent, unreadable,
+     * unparseable, or without a rule map - so whether it already holds the rule cannot be told. Nothing is changed or
+     * written; the command asks for a reload (confirmation top-up of plan 17-72).
+     */
+    public static final class RulesFileUnknownException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        RulesFileUnknownException(String name) {
+            super("config/autoreply.yml cannot be read as it is now; auto-reply rule '" + name + "' was not added");
+        }
+    }
+
+    /**
      * Thrown by {@link #setKeyword} when {@code config/autoreply.yml} no longer holds the rule - an operator
      * deleted it by hand since the last reload. Writing the keyword would bring back a rule the operator
      * removed, so nothing is changed or written and the command asks for a reload (UltiKits/UltiChat#50
@@ -217,6 +230,7 @@ public class AutoReplyService {
      *                                being saved; the change did not take effect
      * @throws RuleInFileException if the file already holds a rule of that name that this server has not
      *                             loaded; nothing is changed or written
+     * @throws RulesFileUnknownException if the file cannot be read as it is now; nothing is changed or written
      */
     public void addRule(String name, String keyword, String response) throws IOException {
         if (name.indexOf(UNUSABLE_NAME_CHARACTER) >= 0) {
@@ -224,7 +238,7 @@ public class AutoReplyService {
                     + UNUSABLE_NAME_CHARACTER + "': " + name);
         }
         // Read before taking rulesLock, so no chat thread waits for the file.
-        Set<String> inFile = ruleNamesInFile();
+        RulesInFile inFile = rulesInFile();
         final Map<String, Map<String, Object>> rules;
         final Map<String, Map<String, Object>> rulesBefore;
         final boolean rulesWereAbsent;
@@ -233,7 +247,10 @@ public class AutoReplyService {
             if (live != null && live.get(name) != null) {
                 return;
             }
-            if (inFile != null && inFile.contains(name)) {
+            if (inFile.unknown()) {
+                throw new RulesFileUnknownException(name);
+            }
+            if (inFile.holds(name)) {
                 throw new RuleInFileException(name);
             }
             rulesWereAbsent = live == null;
@@ -287,11 +304,12 @@ public class AutoReplyService {
      * @throws IOException if the configuration could not be written; the rule is left unchanged
      * @throws RulesReplacedException if a panel update replaced the rule map while the change was
      *                                being saved; the change did not take effect
-     * @throws RuleNotInFileException if the file no longer holds the rule; nothing is changed or written
+     * @throws RuleNotInFileException if the file no longer holds the rule, or cannot be read as it is now; nothing is
+     *                                changed or written
      */
     public void setKeyword(String name, String keyword) throws IOException {
         // Read before taking rulesLock, so no chat thread waits for the file.
-        Set<String> inFile = ruleNamesInFile();
+        RulesInFile inFile = rulesInFile();
         final Map<String, Map<String, Object>> rules;
         final Map<String, Object> rule;
         final boolean hadKeyword;
@@ -305,7 +323,8 @@ public class AutoReplyService {
             if (rule == null) {
                 return;
             }
-            if (inFile != null && !inFile.contains(name)) {
+            if (inFile.bound() && !inFile.holds(name)) {
+                // Absent from the file, or the file cannot be told: never write a rule back.
                 throw new RuleNotInFileException(name);
             }
 
@@ -426,25 +445,58 @@ public class AutoReplyService {
     }
 
     /**
-     * The names of the rules {@code config/autoreply.yml} holds right now, read without writing anything, or
-     * {@code null} when the configuration is not bound to a file or the file cannot be read or parsed - the
-     * write itself then refuses or fails and says why. Lets {@code add} and {@code setkeyword} decide existence
-     * from the file as well as from memory, so neither replaces a rule the operator added by hand nor writes back
-     * one the operator deleted (UltiKits/UltiChat#50 review).
+     * What {@code config/autoreply.yml} says right now about which rules it holds, read without writing anything.
+     * Lets {@code add} and {@code setkeyword} decide existence from the file as well as from memory, so neither
+     * replaces a rule the operator added by hand nor writes back a rule - or a whole file - the operator deleted
+     * (UltiKits/UltiChat#50 review).
+     * <p>
+     * Conservative by construction (confirmation top-up of plan 17-72, a route change after a causal chain): every
+     * map key is read whole ({@code pathSeparator('\0')}, so {@code 'play.example'} is one rule, as the framework
+     * reads it), and a file that is absent, unreadable, not UTF-8, does not parse, or whose {@code autoreply.rules}
+     * is not a map is "unknown". Unknown never lets a command write: {@code add} and {@code setkeyword} refuse and ask
+     * for a reload. A precondition on the framework's own write would make this read unnecessary
+     * (UltiKits/UltiTools-Reborn#623).
      */
-    private Set<String> ruleNamesInFile() {
+    private RulesInFile rulesInFile() {
         UltiToolsPlugin plugin = config.getUltiToolsPlugin();
         if (plugin == null || plugin.getResourceFolderPath() == null) {
-            return null;
+            // Not bound to a file (only in tests): there is no file to protect, and the write itself refuses.
+            return RulesInFile.UNBOUND;
         }
         File file = new File(plugin.getResourceFolderPath(), config.getConfigFilePath());
         try {
             YamlConfiguration yaml = new YamlConfiguration();
+            yaml.options().pathSeparator('\0');
             yaml.loadFromString(OperatorFiles.read(file).getText());
-            ConfigurationSection section = yaml.getConfigurationSection("autoreply.rules");
-            return section == null ? Collections.<String>emptySet() : section.getKeys(false);
+            ConfigurationSection autoreply = yaml.getConfigurationSection("autoreply");
+            ConfigurationSection rules = autoreply == null ? null : autoreply.getConfigurationSection("rules");
+            return rules == null ? RulesInFile.UNKNOWN : new RulesInFile(rules.getKeys(false));
         } catch (IOException | InvalidConfigurationException unreadable) {
-            return null;
+            return RulesInFile.UNKNOWN;
+        }
+    }
+
+    /** The rule names a file holds; {@link #UNKNOWN} when they cannot be told, {@link #UNBOUND} when there is no file. */
+    private static final class RulesInFile {
+        static final RulesInFile UNBOUND = new RulesInFile(null);
+        static final RulesInFile UNKNOWN = new RulesInFile(null);
+
+        private final Set<String> names;
+
+        private RulesInFile(Set<String> names) {
+            this.names = names;
+        }
+
+        boolean unknown() {
+            return this == UNKNOWN;
+        }
+
+        boolean bound() {
+            return this != UNBOUND;
+        }
+
+        boolean holds(String name) {
+            return names != null && names.contains(name);
         }
     }
 
