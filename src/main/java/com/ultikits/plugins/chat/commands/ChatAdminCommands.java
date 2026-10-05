@@ -134,6 +134,11 @@ public class ChatAdminCommands extends BaseCommandExecutor {
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
             return;
+        } catch (AutoReplyService.RuleInFileException e) {
+            // Added to the file by hand since the last reload: add creates, it does not replace (#50 review).
+            String msg = plugin.i18n("autoreply_exists").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
         } catch (AutoReplyService.RulesReplacedException e) {
             reportReplacedByPanel(sender, name);
             return;
@@ -182,6 +187,11 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             autoReplyService.setKeyword(name, keyword);
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
+            return;
+        } catch (AutoReplyService.RuleNotInFileException e) {
+            // Deleted from the file by hand since the last reload: writing the keyword would bring it back.
+            String msg = plugin.i18n("autoreply_not_in_file").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
             return;
         } catch (AutoReplyService.RulesReplacedException e) {
             reportReplacedByPanel(sender, name);
@@ -243,6 +253,10 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             // or uses YAML anchors - and logs a WARNING naming the file and why. Nothing was written and the rule
             // set is rolled back; the sender is told so and why, the reason holding no configuration value
             // (maintainer decision 2026-10-05, UltiKits/UltiChat#50).
+            // One WARNING with the framework's message (file and reason, no value), so the reply's pointer to the
+            // server log holds even for a refusal the framework itself does not log (#50 review, P3-3).
+            plugin.getLogger().warn(UltiChat.fillOnce(plugin.i18n("log_autoreply_not_saved_refused"),
+                    "{RULE}", name, "{REASON}", String.valueOf(cause.getMessage())));
             String msg = UltiChat.fillOnce(plugin.i18n("autoreply_not_saved_refused"),
                     "{0}", name, "{1}", ((ConfigWriteRefusedException) cause).getReason());
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
