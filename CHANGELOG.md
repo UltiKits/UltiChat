@@ -109,6 +109,83 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `/uchat autoreply add`, `setkeyword` and `remove` now write exactly the rule they name into
+  `config/autoreply.yml` - `remove` removes it - and nothing else: every other rule, one an operator added
+  or edited by hand while the server ran included, and every other line of the file stay byte for byte. `add`
+  refuses a name the file already holds (`Rule '<name>' already exists.`), one an operator added by hand since the
+  last reload included; `setkeyword` writes only that rule's keyword, so a hand edit of its response stays, and
+  when the operator deleted the rule by hand it writes nothing and answers `Rule '<name>' is no longer in
+  config/autoreply.yml, so nothing was saved. Run /uchat reload to load the file as it is now.` A rule name is
+  read whole, dots included. When the file cannot be read as it is now - deleted while the server runs, not
+  parseable, or without a rule map - `add` and `setkeyword` write nothing and ask for `/uchat reload`, so a
+  deleted file is never recreated by a command. Before, the
+  commands saved the whole configuration: against the framework's 6.3.0 write rules a rule edited by hand was
+  then not changed or removed while the command reported success, and a write the framework refused was
+  reported as success. Now a refused write rolls the change back and is answered
+  `Rule '<name>' was not saved: <reason>. The change was rolled back; fix config/autoreply.yml as the server
+  log says, then run the command again.` The module's own line about an overwritten operator edit, and the
+  framework's overwrite warning that replaced it earlier in this release (UltiTools-Reborn#527), are gone:
+  nothing the operator wrote is overwritten any more (UltiKits/UltiChat#50).
+- `/uchat autoreply add`、`setkeyword` 和 `remove` 现在只把被点名的那条规则写入 `config/autoreply.yml`（`remove` 则删除它），
+  不写其他内容：其他每条规则（包括服务器运行期间服主手动添加或修改的规则）以及文件的其他每一行都逐字节保持不变。`add` 会拒绝文件中
+  已有的规则名（包括上次重载后服主手动添加的规则），回复「规则 '<名称>' 已存在」；`setkeyword` 只写该规则的关键词，因此该规则
+  响应内容的手动修改会保留；若服主已手动删除该规则，则不写入任何内容，并回复「规则 '<名称>' 已不在 config/autoreply.yml 中，
+  因此未保存任何内容。请执行 /uchat reload 载入文件的当前内容。」规则名按整体读取（包括其中的点）。文件当前无法读取时
+  （服务器运行期间被删除、无法解析或没有规则映射），`add` 和 `setkeyword` 不写入任何内容并提示执行 `/uchat reload`，
+  因此被删除的文件不会被命令重新创建。此前命令保存整个配置：在框架 6.3.0 的写入规则下，手动改过的规则不会被修改或删除，
+  命令却报告成功；框架拒绝的写入也被报告为成功。现在被拒绝的写入会回滚，并回复「规则 '<名称>' 未保存：<原因>。更改已回滚；
+  请按服务器日志的提示修正 config/autoreply.yml，然后重新执行该命令。」模块自己关于覆盖服主修改的那一行，以及本版本早先用来
+  取代它的框架覆盖警告（UltiTools-Reborn#527）都已不存在：服主写下的内容不再被覆盖（UltiKits/UltiChat#50）。
+
+- `/uchat reload` now reports what the framework's reload reported. A reload the framework finished
+  partially is answered with the parts that did not reload, and one that failed with its cause; the
+  reply `UltiChat configuration reloaded.` is only sent when every part reloaded. Before, the reply was
+  always success, and a failing reload surfaced as an unhandled error (UltiKits/UltiChat#48).
+- `/uchat reload` 现在如实反映框架的重载结果。框架只完成部分重载时，回复未重载的部分；重载失败时回复失败原因；
+  只有全部重载成功才回复「UltiChat 配置已重新加载」。此前回复总是成功，重载失败时还会表现为未处理的错误
+  （UltiKits/UltiChat#48）。
+
+- After `/uchat reload` or `/ul reload`, a player who had switched into a channel that was removed
+  from `channels.channels` is moved to the channel new players land in (see the
+  `channels.default-channel` entry below: one that needs no permission) and told in one line. Before,
+  the player kept the removed channel: their chat had no range or world limit among only the players
+  holding that name, it no longer reached anyone else, and nothing was logged (UltiKits/UltiChat#45).
+- `/uchat reload` 或 `/ul reload` 之后，已切换到某个已从 `channels.channels` 删除的频道的玩家，会被移到新玩家所进入的频道
+  （见下方 `channels.default-channel` 条目：不需要权限的频道），并收到一行提示。此前该玩家仍留在被删除的频道里：
+  聊天只在持有同一名称的玩家之间、不受范围或世界限制，不再送达其他人，也没有任何日志（UltiKits/UltiChat#45）。
+
+- A `channels.default-channel` that names no channel defined under `channels.channels` is now named in
+  the console when the module starts and on every reload (while channels are enabled), together with
+  the channel new players are placed in instead: `global` if it is defined and needs no permission,
+  otherwise the first channel in the file that needs none (a channel `/ch` would refuse them is never
+  chosen). Before, the setting was accepted without a word and new players were placed in a channel
+  that does not exist. With no such channel, new players are all placed in the one undefined channel
+  and the warning says so (UltiKits/UltiChat#44).
+- 当 `channels.default-channel` 指向 `channels.channels` 下没有定义的频道时，模块启动和每次重载时（频道启用的情况下）
+  会在控制台点名，并说明新玩家改为进入哪个频道：已定义且不需要权限的 `global` 时用 `global`，否则用文件中第一个不需要权限的频道
+  （不会选中 `/ch` 会拒绝玩家加入的频道）。此前该设置被无声接受，新玩家被放进一个不存在的频道。没有这样的频道时，
+  新玩家都被放进那一个未定义的频道，警告中会如实说明（UltiKits/UltiChat#44）。
+
+- With PlaceholderAPI installed, the join, quit and welcome texts now show the module's own
+  `%online_players%` and `%max_players%` as numbers. The shipped welcome line showed them as the
+  literal tokens, because the text went to PlaceholderAPI first and no expansion provides them. The
+  module's own placeholders are now filled first, in one pass, and PlaceholderAPI runs on the result;
+  a nickname that contains a `%token%` is still shown as written. The module's `{player}` and
+  `{displayname}` are filled in these texts too; with PlaceholderAPI installed they stayed literal
+  (UltiKits/UltiChat#42).
+- 装有 PlaceholderAPI 时，进入、退出和欢迎文本现在会把模块自己的 `%online_players%` 与 `%max_players%` 显示为数字。
+  出厂欢迎语此前把它们原样显示为占位符，因为文本先交给了 PlaceholderAPI，而没有任何扩展提供这两个占位符。
+  现在先一次性替换模块自己的占位符，再把结果交给 PlaceholderAPI；昵称里含有的 `%token%` 仍按原样显示。
+  这些文本里模块自己的 `{player}` 与 `{displayname}` 现在也会被替换；装有 PlaceholderAPI 时它们此前同样原样显示
+  （UltiKits/UltiChat#42）。
+
+- At `anti-spam.duplicate-window: 600` a repeat sent exactly 600 seconds after the newest of a
+  player's retained copies is now refused as a duplicate, as the window says; the history was dropped
+  one millisecond too early, so that repeat was accepted. The cooldown comparison was checked in the
+  same pass and already agrees with its own cleanup (UltiKits/UltiChat#41).
+- 在 `anti-spam.duplicate-window: 600` 时，与玩家保留的最新副本恰好相隔 600 秒的重复消息，现在按窗口设定被当作重复消息拦截；
+  此前历史记录被提早一毫秒清除，该重复消息会被放行。冷却时间的比较已在同一轮核对，与它自己的清理一致（UltiKits/UltiChat#41）。
+
 - A configuration value UltiChat cannot use is now named in the console when the module starts and
   on every reload, with what it does instead: an `announcements.bossbar.color` that is no boss-bar
   colour (blue is used), a `mentions.sound` that is no sound (the default sound now plays; it played
@@ -298,8 +375,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `language: zh` now applies to what was fixed English text: the `/ch` and `/uchat` help, the
   players-only refusal of `/ch` from the console, the two commands' descriptions (shown by `/help`),
   and the console lines about a channel format missing a sender or message token, an applied
-  `anti-spam.duplicate-window`, a key this version no longer reads, a failed `config/autoreply.yml`
-  save and an overwritten `config/autoreply.yml`. Their English wording is unchanged.
+  `anti-spam.duplicate-window`, a key this version no longer reads and a failed `config/autoreply.yml`
+  save. Their English wording is unchanged.
 - 反垃圾消息的拒绝提示现在跟随 `language` 设置。冷却、重复与大写字母过多三种拒绝提示原先在任何语言下都是写死的中文，
   而语言文件里其实已有它们；现在分别来自 `spam_cooldown`、`spam_duplicate` 与 `spam_caps`（`language: en` 下为
   `Please wait before sending another message.`、`Stop sending duplicate messages!`、
@@ -307,7 +384,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   略有不同（UltiKits/UltiChat#18）。
 - `language: zh` 现在也对原先写死为英文的内容生效：`/ch` 与 `/uchat` 的帮助、从控制台执行 `/ch` 时的「仅限玩家」提示、
   两个命令的描述（由 `/help` 显示），以及关于频道格式缺少发送者或消息占位符、已应用的 `anti-spam.duplicate-window`、
-  本版本不再读取的配置键、`config/autoreply.yml` 保存失败与被覆盖的控制台日志。它们的英文措辞不变。
+  本版本不再读取的配置键与 `config/autoreply.yml` 保存失败的控制台日志。它们的英文措辞不变。
 
 - The announcement interval settings `announcements.chat.interval`, `announcements.bossbar.interval`
   and `announcements.title.interval` in `config/announcements.yml` now take effect. They were
@@ -380,17 +457,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   survive `/uchat reload` and `/ul reload`; previously only a clean server stop saved them, and
   either reload silently discarded every rule change made since that stop. If the file cannot be
   written, the rule set is left exactly as it was and the sender is told the rule could not be
-  saved instead of being told it was added, changed or removed. If the file was changed on disk
-  while the server was running, the save still wins -- that is the same contract the shutdown
-  save has always had -- but a warning in the server log now names the file whose edits were
-  overwritten, instead of the overwrite being silent (UltiKits/UltiChat#17).
+  saved instead of being told it was added, changed or removed. Only the rule the command names is
+  written; see UltiKits/UltiChat#50 above for what happens to the rest of the file
+  (UltiKits/UltiChat#17).
 - 使用 `/uchat autoreply add`、`/uchat autoreply setkeyword` 与 `/uchat autoreply remove`
   更改的自动回复规则，现在会在命令执行时立即写入 `config/autoreply.yml`，
   因此能在 `/uchat reload` 与 `/ul reload` 后保留；此前只有干净地停止服务器才会保存，
   任一 reload 都会静默丢弃自上次停止以来的所有规则更改。若文件无法写入，
   规则集会保持原样，且发送者会收到保存失败的提示，而不是被告知已添加、已更改或已移除。
-  若服务器运行期间文件在磁盘上被修改，保存仍会覆盖它——这与关机保存一直以来的行为相同——
-  但现在服务器日志会以警告指明被覆盖编辑的文件，而不再静默覆盖（UltiKits/UltiChat#17）。
+  只写入命令点名的规则；文件其余部分的处理见上文 UltiKits/UltiChat#50（UltiKits/UltiChat#17）。
 - Uninstalling this module (`/upm uninstall UltiTools-Chat`) now really removes its commands
   (`/uchat`, and `/ch`/`/channel` when channels are enabled) and stops its chat, join/quit, channel and
   auto-reply listeners from firing; this module has no unload work of its own. Previously this

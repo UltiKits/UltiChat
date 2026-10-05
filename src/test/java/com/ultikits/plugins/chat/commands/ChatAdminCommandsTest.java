@@ -38,6 +38,10 @@ class ChatAdminCommandsTest {
         when(mockPlugin.i18n("autoreply_list_entry")).thenReturn("{0}: {1} [{2}] -> {3}");
         when(mockPlugin.i18n("autoreply_keyword_set")).thenReturn("Rule '{0}' keyword set to '{1}'.");
 
+        when(mockPlugin.i18n("config_reload_partial")).thenReturn("partial: {0}");
+        when(mockPlugin.i18n("config_reload_failed")).thenReturn("failed: {0}");
+        when(mockPlugin.reloadWithReport()).thenReturn(new com.ultikits.ultitools.abstracts.ReloadReport());
+
         commands = new ChatAdminCommands(mockPlugin, mockAutoReplyService);
     }
 
@@ -68,7 +72,45 @@ class ChatAdminCommandsTest {
 
             commands.onReload(sender);
 
-            verify(mockPlugin).reloadSelf();
+            verify(mockPlugin).reloadWithReport();
+        }
+
+        @Test
+        @DisplayName("A partial reload is answered with the parts that did not reload, never with success (#48)")
+        void partialReloadIsNotSuccess() {
+            com.ultikits.ultitools.abstracts.ReloadReport report = new com.ultikits.ultitools.abstracts.ReloadReport();
+            report.partial("announcements are still on the old schedule");
+            report.partial("the language setting changed");
+            when(mockPlugin.reloadWithReport()).thenReturn(report);
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onReload(sender);
+
+            assertSentMessageContaining(sender, "partial: announcements are still on the old schedule; the language setting changed");
+            assertNoSentMessageContaining(sender, "config_reloaded");
+        }
+
+        @Test
+        @DisplayName("A reload that throws is answered with the cause, and the exception does not escape (#48)")
+        void failedReloadNamesTheCause() {
+            when(mockPlugin.reloadWithReport()).thenThrow(new IllegalStateException("chat.yml: bad value"));
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onReload(sender);
+
+            assertSentMessageContaining(sender, "failed: chat.yml: bad value");
+            assertNoSentMessageContaining(sender, "config_reloaded");
+        }
+
+        @Test
+        @DisplayName("A failure with no message is answered with its type")
+        void failureWithoutMessageNamesTheType() {
+            when(mockPlugin.reloadWithReport()).thenThrow(new IllegalStateException());
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onReload(sender);
+
+            assertSentMessageContaining(sender, "failed: IllegalStateException");
         }
 
         @Test
@@ -384,6 +426,32 @@ class ChatAdminCommandsTest {
             assertNoSentMessageContaining(sender, "removed");
         }
 
+        /**
+         * Maintainer decision 2026-10-05: a change the framework's write gate refuses is answered with "not saved"
+         * and why (a phrase without any configuration value), and the rule set was already rolled back by the
+         * service (UltiKits/UltiChat#50).
+         */
+        @Test
+        @DisplayName("a refused write says the rule was not saved and why, not the generic failure")
+        void aRefusedWriteSaysNotSavedAndWhy() throws Exception {
+            when(mockPlugin.i18n("autoreply_not_saved_refused"))
+                    .thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+            CommandSender sender = mock(CommandSender.class);
+            doThrow(new com.ultikits.ultitools.config.ConfigWriteRefusedException("config/autoreply.yml",
+                    "the file uses YAML anchors, aliases or merge keys"))
+                    .when(mockAutoReplyService).addRule("greet", "greet", "Hello there!");
+
+            commands.onAutoReplyAdd(sender, "greet", "Hello there!");
+
+            ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+            verify(sender).sendMessage(sent.capture());
+            assertThat(sent.getValue()).isEqualTo(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                    com.ultikits.plugins.chat.UltiChat.fillOnce(
+                            com.ultikits.plugins.chat.i18n.CatalogueText.text("en", "autoreply_not_saved_refused"),
+                            "{0}", "greet", "{1}", "the file uses YAML anchors, aliases or merge keys")));
+            assertNoSentMessageContaining(sender, "added");
+        }
+
         @Test
         @DisplayName("A save that succeeds still reports success -- the control for the three above")
         void aSucceedingSaveStillReportsSuccess() throws Exception {
@@ -596,7 +664,7 @@ class ChatAdminCommandsTest {
             doAnswer(invocation -> {
                 config.setRules(panelRules);
                 return null;
-            }).when(config).save();
+            }).when(config).saveOperatorMapEntry(anyString(), any(String[].class));
         }
 
         private String reply() {
@@ -650,7 +718,7 @@ class ChatAdminCommandsTest {
         @Test
         @DisplayName("control: a save the panel does not interrupt reports success")
         void uninterruptedSaveSucceeds() throws Exception {
-            doNothing().when(config).save();
+            doNothing().when(config).saveOperatorMapEntry(anyString(), any(String[].class));
 
             realCommands.onAutoReplyAdd(sender, "greet", "Hello");
 

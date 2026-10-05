@@ -71,6 +71,10 @@ public class AntiSpamService {
      * {@code AntiSpamServiceTest#duplicateWindowRangeMatchesTheSelfEvictionWindow}.
      */
     private static final long MAX_DUPLICATE_WINDOW_MS = 600_000L;
+    // Eviction against this ceiling and against the housekeeping ceiling below is strict (older than
+    // the ceiling, not at least as old): the window comparison in isDuplicate counts a copy that is AT
+    // MOST duplicate-window seconds old, so at duplicate-window: 600 a copy exactly 600 000 ms old must
+    // still be there to be counted (UltiKits/UltiChat#41).
 
     /**
      * The eviction ceiling used instead of {@link #MAX_DUPLICATE_WINDOW_MS} while
@@ -228,7 +232,7 @@ public class AntiSpamService {
         long duplicateEvictionCeilingMs = duplicateWindowEvictionCeilingMs();
         recentMessages.entrySet().removeIf(entry -> {
             List<RecentMessage> retained = entry.getValue();
-            return retained.isEmpty() || now - retained.get(retained.size() - 1).sentAt >= duplicateEvictionCeilingMs;
+            return retained.isEmpty() || now - retained.get(retained.size() - 1).sentAt > duplicateEvictionCeilingMs;
         });
     }
 
@@ -307,7 +311,7 @@ public class AntiSpamService {
             if (messages == null || messages.isEmpty()) {
                 return null;
             }
-            if (now - messages.get(messages.size() - 1).sentAt >= evictionCeilingMs) {
+            if (now - messages.get(messages.size() - 1).sentAt > evictionCeilingMs) {
                 return null;
             }
             if (configuredMaxDuplicate <= 0) {

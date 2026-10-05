@@ -5,13 +5,14 @@ import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
+import org.bukkit.command.CommandSender;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,8 +20,9 @@ import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
@@ -153,13 +156,13 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).save();
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "greeting");
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
         Map<String, Map<String, Object>> onDisk = readFromDisk();
         assertThat(onDisk).containsKeys("server-ip", "rules-info");
         assertThat(onDisk).doesNotContainKey("greeting");
 
-        doNothing().when(failing).save();
+        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         service.addRule("greeting", "hi", "Hello there!");
         assertThat(failing.getRules()).containsKey("greeting");
     }
@@ -175,11 +178,12 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).save();
+        // setkeyword writes only the keyword (#50 review, P3-1).
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "server-ip", "keyword");
         assertThat(rule).containsExactlyEntriesOf(ruleSnapshot);
         assertThat(rule.get("keyword")).isEqualTo("server IP");
 
-        doNothing().when(failing).save();
+        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         service.setKeyword("server-ip", "changed");
         assertThat(failing.getRules().get("server-ip").get("keyword")).isEqualTo("changed");
     }
@@ -191,16 +195,20 @@ class AutoReplyPersistenceTest {
         Map<String, Object> bare = new LinkedHashMap<>();
         bare.put("response", "Nothing to match on");
         failing.getRules().put("bare", bare);
+        // The rule is in the file too, as it would be after a reload: setkeyword refuses a rule the file lacks.
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        Files.write(configFile().toPath(), text.replace("  rules:\n", "  rules:\n    bare:\n      response: Nothing to match on\n")
+                .getBytes(StandardCharsets.UTF_8));
 
         assertThatThrownBy(() -> service.setKeyword("bare", "anything"))
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).save();
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "bare", "keyword");
         assertThat(bare).doesNotContainKey("keyword");
         assertThat(bare).containsExactly(org.assertj.core.api.Assertions.entry("response", "Nothing to match on"));
 
-        doNothing().when(failing).save();
+        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         service.setKeyword("bare", "anything");
         assertThat(bare.get("keyword")).isEqualTo("anything");
     }
@@ -216,11 +224,11 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).save();
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "server-ip");
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
         assertThat(failing.getRules().get("server-ip")).isSameAs(serverIpInstance);
 
-        doNothing().when(failing).save();
+        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         service.removeRule("server-ip");
         assertThat(failing.getRules()).doesNotContainKey("server-ip");
     }
@@ -234,6 +242,7 @@ class AutoReplyPersistenceTest {
     void callsThatChangeNothingDoNotWrite() throws Exception {
         AutoReplyConfig quiet = spy(live);
         doNothing().when(quiet).save();
+        doNothing().when(quiet).saveOperatorMapEntry(anyString(), any(String[].class));
         ChatTestHelper.setField(service, "config", quiet);
 
         service.addRule("server-ip", "anything", "Refused, the name is taken");
@@ -244,70 +253,341 @@ class AutoReplyPersistenceTest {
         service.setKeyword("server-ip", "server IP");
 
         verify(quiet, never()).save();
+        verify(quiet, never()).saveOperatorMapEntry(anyString(), any(String[].class));
 
         service.addRule("greeting", "hi", "Hello there!");
-        verify(quiet).save();
+        verify(quiet).saveOperatorMapEntry("autoreply.rules", "greeting");
+        verify(quiet, never()).save();
     }
 
     // ============================
-    // An overwrite of an operator's hand edit is not silent
+    // A command writes the rule it names, and only that rule (maintainer decision 2026-10-04, "what code may
+    // write, by file type": /autoreply writes only that rule). This replaces the 17-50 tests that pinned the
+    // framework's #527 "a save warns and overwrites" warning, which the 2026-10-04 table superseded
+    // (UltiKits/UltiChat#50).
     // ============================
 
     @Test
-    @DisplayName("Saving over a file that was edited on disk logs a warning naming the file")
-    void savingOverAnOperatorEditIsNotSilent() throws Exception {
+    @DisplayName("A rule the operator edited by hand since the load is replaced by the command's change to it, with no warning")
+    void aHandEditedRuleIsReplacedByTheCommandThatNamesIt() throws Exception {
         PluginLogger logger = mock(PluginLogger.class);
         doReturn(logger).when(plugin).getLogger();
-        // The warning comes from the language file; the assertions quote its English text.
         org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
-        editTheFileBehindTheFrameworksBack();
+        List<String> frameworkWarnings = captureFrameworkWarnings();
+        try {
+            editAKeyBehindTheFrameworksBack();
 
-        service.addRule("greeting", "hi", "Hello there!");
+            service.setKeyword("server-ip", "ip please");
+        } finally {
+            releaseFrameworkWarnings();
+        }
 
-        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
-        verify(logger).warn(captor.capture());
-        assertThat(captor.getValue())
-                .contains("autoreply.yml")
-                .contains("changed or removed on disk");
-        // The overwrite itself is still the contract, as it is for the framework's shutdown save.
-        assertThat(readFromDisk()).containsKey("greeting");
-    }
-
-    @Test
-    @DisplayName("Under language: zh the overwrite warning is the Chinese catalogue text")
-    void overwriteWarningFollowsTheLanguageSetting() throws Exception {
-        PluginLogger logger = mock(PluginLogger.class);
-        doReturn(logger).when(plugin).getLogger();
-        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh")).when(plugin).i18n(anyString());
-        String template = com.ultikits.plugins.chat.i18n.CatalogueText.text("zh", "log_autoreply_file_overwritten");
-        editTheFileBehindTheFrameworksBack();
-
-        service.addRule("greeting", "hi", "Hello there!");
-
-        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
-        verify(logger).warn(captor.capture());
-        String prefix = template.substring(0, template.indexOf("{FILE}"));
-        String suffix = template.substring(template.indexOf("{FILE}") + "{FILE}".length());
-        assertThat(captor.getValue()).startsWith(prefix).endsWith(suffix).contains("autoreply.yml");
-    }
-
-    @Test
-    @DisplayName("Saving over an untouched file logs nothing -- and the same logger does see a warning once the file is touched")
-    void savingOverAnUntouchedFileIsQuiet() throws Exception {
-        PluginLogger logger = mock(PluginLogger.class);
-        doReturn(logger).when(plugin).getLogger();
-        // The warning comes from the language file; the assertions quote its English text.
-        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
-
-        service.addRule("greeting", "hi", "Hello there!");
-
+        // The operator asked for this rule's keyword: the command's value is written for it.
+        Map<String, Object> onDisk = readFromDisk().get("server-ip");
+        assertThat(onDisk.get("keyword")).isEqualTo("ip please");
+        assertThat(onDisk.get("response")).isEqualTo("Server address: play.example.com");
+        assertThat(readFromDisk()).containsKey("rules-info");
+        assertThat(frameworkWarnings).as("an explicit operator change is not a warning").isEmpty();
         verify(logger, never()).warn(anyString());
+    }
 
-        // Control: the verification above could pass because nothing can ever reach this logger.
-        // Edit the file and save again; the same mock must now see exactly one warning.
-        editTheFileBehindTheFrameworksBack();
-        service.addRule("second", "yo", "Hello again!");
-        verify(logger).warn(anyString());
+    @Test
+    @DisplayName("A rule the operator added by hand since the load stays when a command adds another -- quietly, and the same capture does see a framework warning")
+    void aHandAddedRuleStaysQuietly() throws Exception {
+        PluginLogger logger = mock(PluginLogger.class);
+        doReturn(logger).when(plugin).getLogger();
+        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
+        List<String> frameworkWarnings = captureFrameworkWarnings();
+        try {
+            addARuleBehindTheFrameworksBack();
+
+            service.addRule("greeting", "hi", "Hello there!");
+
+            Map<String, Map<String, Object>> onDisk = readFromDisk();
+            assertThat(onDisk).containsKeys("server-ip", "rules-info", "custom", "greeting");
+            assertThat(onDisk.get("custom").get("response")).isEqualTo("Written by hand");
+            assertThat(frameworkWarnings).isEmpty();
+            verify(logger, never()).warn(anyString());
+
+            // Control: the capture can see a framework warning -- a module change to a value the operator has
+            // since edited on disk is not written by the module's own save(), and the framework says so.
+            editAKeyBehindTheFrameworksBack();
+            live.getRules().get("server-ip").put("keyword", "changed by the module");
+            live.save();
+            assertThat(frameworkWarnings).hasSize(1);
+        } finally {
+            releaseFrameworkWarnings();
+        }
+    }
+
+    @Test
+    @DisplayName("remove of a rule the operator edited by hand removes it, and a rule edited by hand elsewhere stays")
+    void removeOfAHandEditedRuleRemovesItAndKeepsTheOthers() throws Exception {
+        editAKeyBehindTheFrameworksBack();
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertThat(text).as("control: the other rule's response is in the file").contains("Please check /rules for server rules.");
+        Files.write(configFile().toPath(), text.replace("Please check /rules for server rules.", "Read /rules first.")
+                .getBytes(StandardCharsets.UTF_8));
+
+        service.removeRule("server-ip");
+
+        Map<String, Map<String, Object>> onDisk = readFromDisk();
+        assertThat(onDisk).doesNotContainKey("server-ip");
+        assertThat(onDisk.get("rules-info").get("response")).isEqualTo("Read /rules first.");
+    }
+
+    @Test
+    @DisplayName("add keeps every line of the file the operator wrote, a hand-added rule and a hand-written comment included")
+    void addKeepsEveryLineOfTheFile() throws Exception {
+        addARuleBehindTheFrameworksBack();
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)
+                .replace("    custom:\n", "    # my own rule, keep it\n    custom:\n");
+        Files.write(configFile().toPath(), text.getBytes(StandardCharsets.UTF_8));
+
+        service.addRule("greeting", "hi", "Hello there!");
+
+        String after = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        List<String> afterLines = java.util.Arrays.asList(after.split("\n", -1));
+        int at = 0;
+        for (String line : text.split("\n", -1)) {
+            int found = afterLines.subList(at, afterLines.size()).indexOf(line);
+            assertThat(found).as("line kept, in order: " + line).isGreaterThanOrEqualTo(0);
+            at += found + 1;
+        }
+        assertThat(readFromDisk()).containsKeys("custom", "greeting", "server-ip", "rules-info");
+    }
+
+    @Test
+    @DisplayName("A write the framework refuses rolls the rule set back and is reported to the caller; the file is unchanged")
+    void aRefusedWriteRollsBackAndIsReported() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertThat(text).as("control: the keyword is in the file").contains("keyword: server IP");
+        // An anchor alone is enough for the write gate to refuse; an alias placed before its anchor would make the file
+        // unparseable instead, which the module itself refuses before writing (confirmation top-up of plan 17-72).
+        String anchored = text.replace("keyword: server IP", "keyword: &ip server IP");
+        Files.write(configFile().toPath(), anchored.getBytes(StandardCharsets.UTF_8));
+        Map<String, Map<String, Object>> snapshot = new LinkedHashMap<>(live.getRules());
+
+        assertThatThrownBy(() -> service.addRule("greeting", "hi", "Hello there!"))
+                .isInstanceOf(com.ultikits.ultitools.config.ConfigWriteRefusedException.class);
+
+        assertThat(live.getRules()).containsExactlyEntriesOf(snapshot);
+        assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)).isEqualTo(anchored);
+    }
+
+    // ============================
+    // Gate-1 top-up of plan 17-72 (UltiKits/UltiChat#50): existence is decided by the file as well as by
+    // memory, setkeyword writes only the keyword, a refusal is logged, and every command keeps the rest of the
+    // file byte for byte. Driven through the real command on real files.
+    // ============================
+
+    @Test
+    @DisplayName("add of a name the file already holds (added by hand since the load) is refused as existing, and nothing is written")
+    void addOfARuleTheFileAlreadyHoldsIsRefused() throws Exception {
+        addARuleBehindTheFrameworksBack();
+        byte[] before = Files.readAllBytes(configFile().toPath());
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplyAdd(sender, "custom", new String[] {"From", "the", "command"});
+
+        assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_exists").replace("{0}", "custom")));
+        assertThat(Files.readAllBytes(configFile().toPath())).as("the hand-added rule is not replaced").isEqualTo(before);
+        assertThat(live.getRules()).as("nothing was added in memory").doesNotContainKey("custom");
+    }
+
+    @Test
+    @DisplayName("setkeyword of a rule the operator deleted by hand is not written back; the reply says it is not in the file")
+    void setKeywordOfARuleDeletedByHandIsNotWrittenBack() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        String rulesInfo = "    rules-info:\n      mode: contains\n      case-sensitive: false\n"
+                + "      response: Please check /rules for server rules.\n      keyword: rules\n";
+        assertThat(text).as("control: the rule's block is in the file").contains(rulesInfo);
+        byte[] deleted = text.replace(rulesInfo, "").getBytes(StandardCharsets.UTF_8);
+        Files.write(configFile().toPath(), deleted);
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(sender, "rules-info", new String[] {"rrr"});
+
+        assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "rules-info")));
+        assertThat(Files.readAllBytes(configFile().toPath())).as("the deletion stays").isEqualTo(deleted);
+        assertThat(live.getRules().get("rules-info").get("keyword")).as("memory unchanged").isEqualTo("rules");
+    }
+
+    @Test
+    @DisplayName("setkeyword writes only the keyword: a hand edit of the same rule's response stays, every other byte too")
+    void setKeywordWritesOnlyTheKeyword() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertThat(text).as("control: the response line is in the file").contains("      response: 'Server address: play.example.com'\n");
+        String edited = text.replace("      response: 'Server address: play.example.com'\n", "      response: Hand-written address\n")
+                .replace("  rules:\n", "  rules:\n    # kept by hand\n");
+        Files.write(configFile().toPath(), edited.getBytes(StandardCharsets.UTF_8));
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(sender, "server-ip", new String[] {"ip", "please"});
+
+        assertThat(lastReply(sender)).isEqualTo(colour(com.ultikits.plugins.chat.UltiChat.fillOnce(
+                text("autoreply_keyword_set"), "{0}", "server-ip", "{1}", "ip please")));
+        String after = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertOnlyLinesDiffer(edited, after, "      keyword: server IP");
+        assertThat(readFromDisk().get("server-ip").get("keyword")).isEqualTo("ip please");
+        assertThat(readFromDisk().get("server-ip").get("response")).isEqualTo("Hand-written address");
+    }
+
+    @Test
+    @DisplayName("remove deletes exactly the named rule's lines: a hand comment, a sibling's hand edit and an unrelated typo stay byte for byte")
+    void removeDeletesExactlyTheNamedRule() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        String serverIp = "    server-ip:\n      mode: contains\n      case-sensitive: false\n"
+                + "      response: 'Server address: play.example.com'\n      keyword: server IP\n";
+        assertThat(text).as("control: the rule's block is in the file").contains(serverIp).contains("  cooldown: 10\n");
+        String edited = text.replace("  cooldown: 10\n", "  cooldown: 1O\n")
+                .replace("      response: Please check /rules for server rules.\n", "      response: Read /rules first.\n")
+                .replace("    rules-info:\n", "    # kept by hand\n    rules-info:\n");
+        Files.write(configFile().toPath(), edited.getBytes(StandardCharsets.UTF_8));
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplyRemove(sender, "server-ip");
+
+        assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_removed").replace("{0}", "server-ip")));
+        assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8))
+                .isEqualTo(edited.replace(serverIp, ""));
+    }
+
+    @Test
+    @DisplayName("a refused write is logged once with its reason, so the reply's pointer to the server log always holds")
+    void aRefusedWriteIsLoggedWithItsReason() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        Files.write(configFile().toPath(), text.replace("keyword: server IP", "keyword: &ip server IP")
+                .getBytes(StandardCharsets.UTF_8));
+        PluginLogger logger = mock(PluginLogger.class);
+        doReturn(logger).when(plugin).getLogger();
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplyAdd(sender, "greeting", new String[] {"hello"});
+
+        ArgumentCaptor<String> warned = ArgumentCaptor.forClass(String.class);
+        verify(logger).warn(warned.capture());
+        assertThat(warned.getValue()).contains("greeting").contains("anchors").contains("autoreply.yml");
+    }
+
+    // ============================
+    // Confirmation top-up of plan 17-72 (route change after a causal chain): the module's existence read keeps every
+    // map key whole and treats any file it cannot read as "unknown", and unknown never lets add or setkeyword write.
+    // Behaviour is asserted before the reply, so a run without the fix fails on the file or the rule set.
+    // ============================
+
+    @Test
+    @DisplayName("the whole file deleted while running: setkeyword and add write nothing, the file stays absent, and both ask for a reload")
+    void aDeletedFileIsNeverRecreatedBySetKeywordOrAdd() throws Exception {
+        Files.delete(configFile().toPath());
+        CommandSender keyword = mock(CommandSender.class);
+        CommandSender add = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(keyword, "server-ip", new String[] {"ip"});
+        commands().onAutoReplyAdd(add, "greeting", new String[] {"hello"});
+
+        assertThat(configFile()).as("the file the operator deleted is not recreated").doesNotExist();
+        assertThat(live.getRules()).doesNotContainKey("greeting");
+        assertThat(live.getRules().get("server-ip").get("keyword")).isEqualTo("server IP");
+        assertThat(lastReply(keyword)).contains("/uchat reload")
+                .isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "server-ip")));
+        assertThat(lastReply(add)).contains("/uchat reload")
+                .isEqualTo(colour(text("autoreply_file_unknown").replace("{0}", "greeting")));
+    }
+
+    @Test
+    @DisplayName("a rule name holding a dot is read whole: setkeyword on it works, and add of its first segment is not refused")
+    void aDottedRuleNameIsReadWhole() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        String dotted = text.replace("  rules:\n", "  rules:\n    'play.example':\n      keyword: pe\n      response: Dotted\n");
+        Files.write(configFile().toPath(), dotted.getBytes(StandardCharsets.UTF_8));
+        live.init(plugin);
+        assertThat(live.getRules()).as("control: the framework reads the key whole").containsKey("play.example");
+        CommandSender keyword = mock(CommandSender.class);
+        CommandSender add = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(keyword, "play.example", new String[] {"newkw"});
+        String afterKeyword = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        commands().onAutoReplyAdd(add, "play", new String[] {"hello"});
+
+        assertOnlyLinesDiffer(dotted, afterKeyword, "      keyword: pe");
+        assertThat(readFromDisk().get("play.example").get("keyword")).isEqualTo("newkw");
+        assertThat(readFromDisk()).as("add of the first segment is not mistaken for the dotted rule").containsKey("play");
+        assertThat(lastReply(keyword)).isEqualTo(colour(com.ultikits.plugins.chat.UltiChat.fillOnce(
+                text("autoreply_keyword_set"), "{0}", "play.example", "{1}", "newkw")));
+        assertThat(lastReply(add)).isEqualTo(colour(text("autoreply_added").replace("{0}", "play")));
+    }
+
+    @Test
+    @DisplayName("a file that does not parse, or whose rules are not a map: setkeyword and add write nothing and ask for a reload")
+    @SuppressWarnings("PMD.AvoidAccessibilityAlteration") // installs a running-server UltiTools, which always has a logger
+    void anUnreadableRuleSetRefusesBoth() throws Exception {
+        // The framework logs an unreadable file through UltiTools#getLogger(), as on a running server.
+        Field instance = com.ultikits.ultitools.UltiTools.class.getDeclaredField("ultiTools");
+        instance.setAccessible(true);
+        Object previous = instance.get(null);
+        com.ultikits.ultitools.UltiTools ultiTools = mock(com.ultikits.ultitools.UltiTools.class);
+        org.mockito.Mockito.lenient().when(ultiTools.getLogger()).thenReturn(java.util.logging.Logger.getLogger("UltiTools"));
+        instance.set(null, ultiTools);
+        try {
+            refusesBothOnAnUnreadableRuleSet();
+        } finally {
+            instance.set(null, previous);
+        }
+    }
+
+    private void refusesBothOnAnUnreadableRuleSet() throws Exception {
+        for (String broken : new String[] {"autoreply:\n  rules: [unclosed\n", "autoreply:\n  rules: not a map\n"}) {
+            Files.write(configFile().toPath(), broken.getBytes(StandardCharsets.UTF_8));
+            CommandSender keyword = mock(CommandSender.class);
+            CommandSender add = mock(CommandSender.class);
+
+            commands().onAutoReplySetKeyword(keyword, "server-ip", new String[] {"ip"});
+            commands().onAutoReplyAdd(add, "greeting", new String[] {"hello"});
+
+            assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)).as(broken).isEqualTo(broken);
+            assertThat(live.getRules()).as(broken).doesNotContainKey("greeting");
+            assertThat(lastReply(keyword)).as(broken).contains("/uchat reload")
+                    .isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "server-ip")));
+            assertThat(lastReply(add)).as(broken).contains("/uchat reload")
+                    .isEqualTo(colour(text("autoreply_file_unknown").replace("{0}", "greeting")));
+        }
+    }
+
+    private com.ultikits.plugins.chat.commands.ChatAdminCommands commands() {
+        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
+        return new com.ultikits.plugins.chat.commands.ChatAdminCommands(plugin, service);
+    }
+
+    private static String text(String key) {
+        return com.ultikits.plugins.chat.i18n.CatalogueText.text("en", key);
+    }
+
+    private static String colour(String text) {
+        return org.bukkit.ChatColor.translateAlternateColorCodes('&', text);
+    }
+
+    private static String lastReply(CommandSender sender) {
+        ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+        verify(sender, org.mockito.Mockito.atLeastOnce()).sendMessage(sent.capture());
+        return sent.getValue();
+    }
+
+    /** {@code after} has the same lines as {@code before}, except that exactly the line {@code changed} differs. */
+    private static void assertOnlyLinesDiffer(String before, String after, String changed) {
+        List<String> b = java.util.Arrays.asList(before.split("\n", -1));
+        List<String> a = java.util.Arrays.asList(after.split("\n", -1));
+        assertThat(a).as("line count").hasSameSizeAs(b);
+        int differing = 0;
+        for (int i = 0; i < b.size(); i++) {
+            if (b.get(i).equals(changed)) {
+                assertThat(a.get(i)).as("the named line changed").isNotEqualTo(changed);
+                differing++;
+            } else {
+                assertThat(a.get(i)).as("line " + (i + 1)).isEqualTo(b.get(i));
+            }
+        }
+        assertThat(differing).as("control: the named line is in the file once").isEqualTo(1);
     }
 
     // ============================
@@ -339,7 +619,7 @@ class AutoReplyPersistenceTest {
             insideSave.countDown();
             assertThat(releaseSave.await(5, TimeUnit.SECONDS)).isTrue();
             throw new IOException("simulated write failure");
-        }).when(failing).save();
+        }).when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
         ChatTestHelper.setField(service, "config", failing);
 
         Object rulesLock = ChatTestHelper.getField(service, "rulesLock");
@@ -371,45 +651,17 @@ class AutoReplyPersistenceTest {
     }
 
     // ============================
-    // The read and the write are one step, as the framework's own shutdown save makes them
-    // ============================
-
-    @Test
-    @DisplayName("The entity's monitor is already held when save() is entered, so the operator-edit read and the write cannot be split")
-    void theOperatorEditReadAndTheSaveShareTheEntityMonitor() throws Exception {
-        AutoReplyConfig probe = spy(live);
-        AtomicBoolean heldWhenSaveWasEntered = new AtomicBoolean(false);
-        doAnswer(invocation -> {
-            heldWhenSaveWasEntered.set(Thread.holdsLock(probe));
-            return invocation.callRealMethod();
-        }).when(probe).save();
-        ChatTestHelper.setField(service, "config", probe);
-
-        service.addRule("greeting", "hi", "Hello there!");
-
-        // save() takes this monitor itself, so a probe INSIDE the real method would read true
-        // either way. This probe sits at the boundary, before the real method runs, which is the
-        // only place the two revisions differ: without the synchronized (config) around the
-        // fingerprint read and the write, saveOrRestore's own frame holds nothing here.
-        assertThat(heldWhenSaveWasEntered.get()).isTrue();
-
-        // Controls: the probe ran, and the real save ran behind it -- so the assertion above is
-        // not passing because save() was never reached.
-        verify(probe).save();
-        assertThat(readFromDisk()).containsKey("greeting");
-    }
-
-    // ============================
     // Helpers
     // ============================
 
     /**
-     * A spy over the live config whose {@code save()} always fails, standing in for a read-only
-     * config directory or a full disk.
+     * A spy over the live config whose rule write ({@code saveOperatorMapEntry}) always fails, standing in
+     * for a read-only config directory or a full disk.
      */
     private AutoReplyConfig failingConfig() throws Exception {
         AutoReplyConfig failing = spy(live);
-        doThrow(new IOException("simulated write failure")).when(failing).save();
+        doThrow(new IOException("simulated write failure")).when(failing)
+                .saveOperatorMapEntry(anyString(), any(String[].class));
         ChatTestHelper.setField(service, "config", failing);
         return failing;
     }
@@ -429,13 +681,59 @@ class AutoReplyPersistenceTest {
     }
 
     /**
-     * Appends a comment line straight to the file, the way an admin editing it over SSH would --
-     * behind the framework's back, so its snapshot no longer matches what is on disk.
+     * Changes a rule's keyword straight in the file, the way an admin editing it over SSH would --
+     * behind the framework's back, so the file no longer holds what the framework last wrote.
      */
-    private void editTheFileBehindTheFrameworksBack() throws Exception {
-        Files.write(configFile().toPath(),
-                "\n# edited on disk while the server was running\n".getBytes(StandardCharsets.UTF_8),
-                StandardOpenOption.APPEND);
+    private void editAKeyBehindTheFrameworksBack() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertThat(text).as("control: the keyword this edit replaces is in the file").contains("server IP");
+        Files.write(configFile().toPath(), text.replace("server IP", "server address").getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Adds a rule {@code custom} straight to the file, the way an admin editing it over SSH would, behind the
+     * framework's back.
+     */
+    private void addARuleBehindTheFrameworksBack() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        String anchor = "rules:\n";
+        assertThat(text).as("control: the rules section is in the file").contains(anchor);
+        String rule = "    custom:\n      keyword: custom\n      response: Written by hand\n";
+        Files.write(configFile().toPath(), text.replace(anchor, anchor + rule).getBytes(StandardCharsets.UTF_8));
+        assertThat(readFromDisk()).as("control: the hand-added rule parses").containsKey("custom");
+    }
+
+    private java.util.logging.Handler frameworkHandler;
+
+    /** Collects the framework's own warnings for this entity class, which the framework logs itself. */
+    private List<String> captureFrameworkWarnings() {
+        List<String> messages = new ArrayList<>();
+        frameworkHandler = new java.util.logging.Handler() {
+            @Override
+            public void publish(java.util.logging.LogRecord record) {
+                if (record.getLevel().intValue() >= java.util.logging.Level.WARNING.intValue()) {
+                    messages.add(record.getMessage());
+                }
+            }
+
+            @Override
+            public void flush() {
+                // nothing is buffered
+            }
+
+            @Override
+            public void close() {
+                // nothing is held
+            }
+        };
+        java.util.logging.Logger.getLogger(com.ultikits.ultitools.abstracts.AbstractConfigEntity.class.getName())
+                .addHandler(frameworkHandler);
+        return messages;
+    }
+
+    private void releaseFrameworkWarnings() {
+        java.util.logging.Logger.getLogger(com.ultikits.ultitools.abstracts.AbstractConfigEntity.class.getName())
+                .removeHandler(frameworkHandler);
     }
 
     /**

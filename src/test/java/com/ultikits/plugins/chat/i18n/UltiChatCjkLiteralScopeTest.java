@@ -26,8 +26,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * or listed, with a written reason, in {@code src/test/resources/i18n/cjk-literal-exemptions.tsv}.
  * <p>
  * Detection contract, the same as the framework's {@code .github/scripts/check-cjk-scope.sh}: the
- * CJK Unified Ideographs block, U+4E00 through U+9FFF, and nothing wider. Unlike that script, this
- * guard is about literals, not comments: comments never count, and every string, character and
+ * Han script (extensions and compatibility ideographs included), CJK Symbols and Punctuation
+ * (U+3000 through U+303F) and Halfwidth and Fullwidth Forms (U+FF00 through U+FFEF); kana is outside
+ * it. Unlike that script, this guard is about literals, not comments: comments never count, and every string, character and
  * text-block literal counts after its Unicode and escape sequences are decoded. The literals come
  * from {@code javac}'s own syntax tree ({@link I18nSourceScanner}), not from a pattern match.
  * <p>
@@ -463,6 +464,58 @@ class UltiChatCjkLiteralScopeTest {
         void fieldDefaultStillCounts() {
             assertThat(check("@ConfigEntry(path = \"p\", comment = \"\u6ce8\u91ca\") private String s = \"\u4e2d\";"))
                     .singleElement().asString().contains("\"\u4e2d\"");
+        }
+    }
+
+    @Nested
+    @DisplayName("the detection contract (the framework's check-cjk-scope.sh)")
+    class DetectionContract {
+
+        private String ofCodePoint(int codePoint) {
+            return "a" + new String(Character.toChars(codePoint)) + "b";
+        }
+
+        @Test
+        @DisplayName("a CJK Unified Ideograph (U+4E2D) is detected")
+        void unifiedIdeograph() {
+            assertThat(I18nSourceScanner.containsCjk(ofCodePoint(0x4E2D))).isTrue();
+        }
+
+        @Test
+        @DisplayName("an Extension A ideograph (U+3400) is detected")
+        void extensionA() {
+            assertThat(I18nSourceScanner.containsCjk(ofCodePoint(0x3400))).isTrue();
+        }
+
+        @Test
+        @DisplayName("a supplementary-plane ideograph (U+20000) is detected")
+        void supplementaryPlane() {
+            assertThat(I18nSourceScanner.containsCjk(ofCodePoint(0x20000))).isTrue();
+        }
+
+        @Test
+        @DisplayName("a compatibility ideograph (U+F900) is detected")
+        void compatibilityIdeograph() {
+            assertThat(I18nSourceScanner.containsCjk(ofCodePoint(0xF900))).isTrue();
+        }
+
+        @Test
+        @DisplayName("CJK symbols and punctuation (U+3001) are detected")
+        void cjkPunctuation() {
+            assertThat(I18nSourceScanner.containsCjk(ofCodePoint(0x3001))).isTrue();
+        }
+
+        @Test
+        @DisplayName("a full-width form (U+FF1A) is detected")
+        void fullWidthForm() {
+            assertThat(I18nSourceScanner.containsCjk(ofCodePoint(0xFF1A))).isTrue();
+        }
+
+        @Test
+        @DisplayName("kana (U+3042) is outside the contract, and plain ASCII is not detected")
+        void kanaAndAsciiAreNotDetected() {
+            assertThat(I18nSourceScanner.containsCjk(ofCodePoint(0x3042))).isFalse();
+            assertThat(I18nSourceScanner.containsCjk("plain: text, 1.5")).isFalse();
         }
     }
 }

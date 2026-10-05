@@ -4,6 +4,10 @@ import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.Service;
+import com.ultikits.ultitools.config.OperatorFiles;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.IOException;
@@ -55,12 +59,53 @@ public class AutoReplyService {
     }
 
     /**
+     * Thrown by {@link #addRule} when {@code config/autoreply.yml} already holds a rule of that name that
+     * this server has not loaded - an operator added it by hand since the last reload. {@code add} asks to
+     * create a rule, not to replace one, so nothing is changed or written and the command answers as for any
+     * existing rule (never-overwrite rule of 2026-10-04; UltiKits/UltiChat#50 review).
+     */
+    public static final class RuleInFileException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        RuleInFileException(String name) {
+            super("config/autoreply.yml already holds auto-reply rule '" + name + "'");
+        }
+    }
+
+    /**
+     * Thrown by {@link #addRule} when {@code config/autoreply.yml} cannot be read as it is now - absent, unreadable,
+     * unparseable, or without a rule map - so whether it already holds the rule cannot be told. Nothing is changed or
+     * written; the command asks for a reload (confirmation top-up of plan 17-72).
+     */
+    public static final class RulesFileUnknownException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        RulesFileUnknownException(String name) {
+            super("config/autoreply.yml cannot be read as it is now; auto-reply rule '" + name + "' was not added");
+        }
+    }
+
+    /**
+     * Thrown by {@link #setKeyword} when {@code config/autoreply.yml} no longer holds the rule - an operator
+     * deleted it by hand since the last reload. Writing the keyword would bring back a rule the operator
+     * removed, so nothing is changed or written and the command asks for a reload (UltiKits/UltiChat#50
+     * review).
+     */
+    public static final class RuleNotInFileException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        RuleNotInFileException(String name) {
+            super("config/autoreply.yml no longer holds auto-reply rule '" + name + "'");
+        }
+    }
+
+    /**
      * Guards {@link #findMatch(String)}'s iteration and every mutation and rollback in this class.
      * <p>
      * Not every reader of the rule map: {@link #getRules()} hands the live map out unguarded and
      * {@code ChatAdminCommands#onAutoReplyList} iterates it (main thread only, and only reads);
-     * {@code AbstractConfigEntity#save()} serialises the same map with this lock deliberately not
-     * held (see below); and {@code AbstractConfigEntity#updateProperties} replaces the {@code rules}
+     * the rule write ({@code AbstractConfigEntity#saveOperatorMapEntry}) serialises the same map with this
+     * lock deliberately not held (see below); and {@code AbstractConfigEntity#updateProperties} replaces the {@code rules}
      * field reflectively from the WebSocket thread, which no lock this class owns can guard -- if a
      * panel configuration write lands between a mutation here and its save, the save serialises the
      * panel's map. That is detected after the save rather than prevented: the change throws
@@ -76,7 +121,7 @@ public class AutoReplyService {
      * {@code findMatch} removes that window, and the single-entry races between those same two
      * paths that were already possible with it.
      * <p>
-     * Deliberately NOT held across {@code AbstractConfigEntity#save()}: the write is file I/O, and a
+     * Deliberately NOT held across the rule write: the write is file I/O, and a
      * chat thread has no reason to wait for a disk write. A reader may therefore observe a mutation
      * that a failed save is about to roll back -- which is inherent, since the mutation has to be in
      * memory for the save to serialise it -- but never a half-rebuilt map.
@@ -183,17 +228,31 @@ public class AutoReplyService {
      *                                  nothing is changed or written
      * @throws RulesReplacedException if a panel update replaced the rule map while the change was
      *                                being saved; the change did not take effect
+     * @throws RuleInFileException if the file already holds a rule of that name that this server has not
+     *                             loaded; nothing is changed or written
+     * @throws RulesFileUnknownException if the file cannot be read as it is now; nothing is changed or written
      */
     public void addRule(String name, String keyword, String response) throws IOException {
         if (name.indexOf(UNUSABLE_NAME_CHARACTER) >= 0) {
             throw new IllegalArgumentException("Auto-reply rule name must not contain '"
                     + UNUSABLE_NAME_CHARACTER + "': " + name);
         }
+        // Read before taking rulesLock, so no chat thread waits for the file.
+        RulesInFile inFile = rulesInFile();
         final Map<String, Map<String, Object>> rules;
         final Map<String, Map<String, Object>> rulesBefore;
         final boolean rulesWereAbsent;
         synchronized (rulesLock) {
             Map<String, Map<String, Object>> live = config.getRules();
+            if (live != null && live.get(name) != null) {
+                return;
+            }
+            if (inFile.unknown()) {
+                throw new RulesFileUnknownException(name);
+            }
+            if (inFile.holds(name)) {
+                throw new RuleInFileException(name);
+            }
             rulesWereAbsent = live == null;
             if (rulesWereAbsent) {
                 live = new HashMap<>();
@@ -225,7 +284,7 @@ public class AutoReplyService {
             } else {
                 restore(rules, rulesBefore);
             }
-        });
+        }, name);
     }
 
     /**
@@ -245,8 +304,12 @@ public class AutoReplyService {
      * @throws IOException if the configuration could not be written; the rule is left unchanged
      * @throws RulesReplacedException if a panel update replaced the rule map while the change was
      *                                being saved; the change did not take effect
+     * @throws RuleNotInFileException if the file no longer holds the rule, or cannot be read as it is now; nothing is
+     *                                changed or written
      */
     public void setKeyword(String name, String keyword) throws IOException {
+        // Read before taking rulesLock, so no chat thread waits for the file.
+        RulesInFile inFile = rulesInFile();
         final Map<String, Map<String, Object>> rules;
         final Map<String, Object> rule;
         final boolean hadKeyword;
@@ -259,6 +322,10 @@ public class AutoReplyService {
             rule = rules.get(name);
             if (rule == null) {
                 return;
+            }
+            if (inFile.bound() && !inFile.holds(name)) {
+                // Absent from the file, or the file cannot be told: never write a rule back.
+                throw new RuleNotInFileException(name);
             }
 
             hadKeyword = rule.containsKey("keyword");
@@ -273,13 +340,15 @@ public class AutoReplyService {
             rule.put("keyword", keyword);
         }
 
+        // Only the keyword: a hand edit of this rule's response, mode or commands since the load stays
+        // (orchestrator ruling of 2026-10-05 on the #50 review, P3-1).
         saveOrRestore(rules, () -> {
             if (hadKeyword) {
                 rule.put("keyword", keywordBefore);
             } else {
                 rule.remove("keyword");
             }
-        });
+        }, name, "keyword");
     }
 
     /**
@@ -321,15 +390,28 @@ public class AutoReplyService {
             patternCache.remove(name);
         }
 
-        saveOrRestore(rules, () -> restore(rules, rulesBefore));
+        saveOrRestore(rules, () -> restore(rules, rulesBefore), name);
     }
 
     /**
-     * Writes the entity, and puts the rule set back as it was if the write fails.
+     * Writes the one rule entry the command changed - the whole rule for {@code add} and {@code remove}, only its
+     * keyword for {@code setkeyword} - and puts the rule set back as it was if the write fails.
      * <p>
-     * One implementation for all three mutating methods, so the save, the rollback and the
-     * operator-edit warning cannot drift apart between them. The rollback runs under
+     * One implementation for all three mutating methods, so the save and the rollback cannot
+     * drift apart between them. The rollback runs under
      * {@link #rulesLock}, so no chat thread observes a half-restored rule set.
+     * <p>
+     * <b>Why it cannot overwrite other operator content.</b> The write is
+     * {@code saveOperatorMapEntry("autoreply.rules", keys)}: the command is the operator's explicit request to
+     * change what it names - a new rule (only when the file does not hold one of that name, see
+     * {@link RuleInFileException}), the removal of a rule, or one rule's keyword (only while the file still holds
+     * the rule, see {@link RuleNotInFileException}) - so exactly that entry is written, and nothing else. Every other rule, one the operator added or edited by hand since the load included, and every other
+     * key, comment and byte of {@code config/autoreply.yml} stay, because the framework's write gate publishes the
+     * file only when everything outside that rule is byte-identical to it (maintainer decision 2026-10-04, "what
+     * code may write, by file type": {@code /autoreply} writes only that rule; UltiKits/UltiChat#50). A write the
+     * gate refuses throws {@link com.ultikits.ultitools.config.ConfigWriteRefusedException}, an
+     * {@link IOException}: the rule set is rolled back and the command says nothing was saved and why
+     * (maintainer decision 2026-10-05).
      *
      * <p>
      * After a successful write, the rule map the caller changed must still be the one the
@@ -339,34 +421,23 @@ public class AutoReplyService {
      *
      * @param changed  the rule map the caller changed
      * @param rollback undoes this method's caller's mutation; run only if the write fails
+     * @param keys     the map keys from {@code autoreply.rules} down to the one entry written
      * @throws IOException the write failure, rethrown after the rollback
      * @throws RulesReplacedException if the configuration no longer holds {@code changed}
      */
-    private void saveOrRestore(Map<String, Map<String, Object>> changed, Rollback rollback) throws IOException {
-        final boolean overwritesOperatorEdit;
+    private void saveOrRestore(Map<String, Map<String, Object>> changed, Rollback rollback, String... keys)
+            throws IOException {
         try {
-            // Read before the write, and both under the entity's own monitor, exactly as
-            // ConfigManager#saveAll does. The ordering alone is not enough: a panel configuration
-            // write reaches AbstractConfigEntity#updateProperties on the WebSocket thread and writes
-            // the file under this same monitor, so between an unguarded read and the save it could
-            // land, be overwritten, and leave the read reporting "nothing was changed" -- losing the
-            // one warning this exists to produce. save() takes this monitor itself; holding it
-            // across both makes the pair atomic against that thread.
-            synchronized (config) {
-                overwritesOperatorEdit = config.isFileModifiedSinceSnapshot();
-                config.save();
-            }
+            // The write takes the entity's own monitor and the framework's write gate checks the rest of the
+            // file itself, so this method keeps no copy of that check and no monitor of its own.
+            config.saveOperatorMapEntry("autoreply.rules", keys);
         } catch (IOException e) {
-            // Outside the monitor above on purpose: the rollback needs rulesLock and nothing else,
-            // so this class never holds the entity monitor and rulesLock at the same time and there
-            // is no lock order to get wrong.
+            // The rollback needs rulesLock and nothing else, so this class never holds the entity
+            // monitor and rulesLock at the same time and there is no lock order to get wrong.
             synchronized (rulesLock) {
                 rollback.run();
             }
             throw e;
-        }
-        if (overwritesOperatorEdit) {
-            warnOperatorEditOverwritten();
         }
         if (config.getRules() != changed) {
             throw new RulesReplacedException();
@@ -374,28 +445,59 @@ public class AutoReplyService {
     }
 
     /**
-     * Logs that this save wrote over a file somebody changed on disk while the server was running.
+     * What {@code config/autoreply.yml} says right now about which rules it holds, read without writing anything.
+     * Lets {@code add} and {@code setkeyword} decide existence from the file as well as from memory, so neither
+     * replaces a rule the operator added by hand nor writes back a rule - or a whole file - the operator deleted
+     * (UltiKits/UltiChat#50 review).
      * <p>
-     * Overwriting is the contract -- a rule set changed by a command is what gets saved -- but it
-     * must not be silent, because the edit that is lost was somebody's work. The framework already
-     * says exactly this for the same event at shutdown
-     * ({@code ConfigManager#warnOperatorEditOverwritten}); this is that line, for the saves this
-     * module now performs during a command.
-     * <p>
-     * {@code isFileModifiedSinceSnapshot()} is the framework's own instrument and is marked
-     * {@code @ApiStatus.Internal}, so calling it from a module is a deliberate, recorded exception:
-     * the framework exposes no supported alternative, and the only other way to answer the question
-     * is for this module to keep a second fingerprint of the same file, which would be a copy of
-     * framework bookkeeping that drifts from it. Tracked as UltiKits/UltiTools-Reborn#527; when
-     * that lands -- a supported accessor, or the warning moved inside {@code save()} itself --
-     * this method goes away and the call with it. The call is safe either way -- it returns
-     * {@code false} when no snapshot has been taken.
+     * Conservative by construction (confirmation top-up of plan 17-72, a route change after a causal chain): every
+     * map key is read whole ({@code pathSeparator('\0')}, so {@code 'play.example'} is one rule, as the framework
+     * reads it), and a file that is absent, unreadable, not UTF-8, does not parse, or whose {@code autoreply.rules}
+     * is not a map is "unknown". Unknown never lets a command write: {@code add} and {@code setkeyword} refuse and ask
+     * for a reload. A precondition on the framework's own write would make this read unnecessary
+     * (UltiKits/UltiTools-Reborn#623).
      */
-    private void warnOperatorEditOverwritten() {
+    private RulesInFile rulesInFile() {
         UltiToolsPlugin plugin = config.getUltiToolsPlugin();
+        if (plugin == null || plugin.getResourceFolderPath() == null) {
+            // Not bound to a file (only in tests): there is no file to protect, and the write itself refuses.
+            return RulesInFile.UNBOUND;
+        }
         File file = new File(plugin.getResourceFolderPath(), config.getConfigFilePath());
-        plugin.getLogger().warn(plugin.i18n("log_autoreply_file_overwritten")
-                .replace("{FILE}", file.getAbsolutePath()));
+        try {
+            YamlConfiguration yaml = new YamlConfiguration();
+            yaml.options().pathSeparator('\0');
+            yaml.loadFromString(OperatorFiles.read(file).getText());
+            ConfigurationSection autoreply = yaml.getConfigurationSection("autoreply");
+            ConfigurationSection rules = autoreply == null ? null : autoreply.getConfigurationSection("rules");
+            return rules == null ? RulesInFile.UNKNOWN : new RulesInFile(rules.getKeys(false));
+        } catch (IOException | InvalidConfigurationException unreadable) {
+            return RulesInFile.UNKNOWN;
+        }
+    }
+
+    /** The rule names a file holds; {@link #UNKNOWN} when they cannot be told, {@link #UNBOUND} when there is no file. */
+    private static final class RulesInFile {
+        static final RulesInFile UNBOUND = new RulesInFile(null);
+        static final RulesInFile UNKNOWN = new RulesInFile(null);
+
+        private final Set<String> names;
+
+        private RulesInFile(Set<String> names) {
+            this.names = names;
+        }
+
+        boolean unknown() {
+            return this == UNKNOWN;
+        }
+
+        boolean bound() {
+            return this != UNBOUND;
+        }
+
+        boolean holds(String name) {
+            return names != null && names.contains(name);
+        }
     }
 
     /**

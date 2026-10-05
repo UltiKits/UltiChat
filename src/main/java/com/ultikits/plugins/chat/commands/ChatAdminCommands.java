@@ -2,6 +2,7 @@ package com.ultikits.plugins.chat.commands;
 
 import com.ultikits.plugins.chat.UltiChat;
 import com.ultikits.plugins.chat.service.AutoReplyService;
+import com.ultikits.ultitools.abstracts.ReloadReport;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.abstracts.command.BaseCommandExecutor;
 import com.ultikits.ultitools.annotations.command.CmdExecutor;
@@ -9,6 +10,7 @@ import com.ultikits.ultitools.annotations.command.CmdMapping;
 import com.ultikits.ultitools.annotations.command.CmdParam;
 import com.ultikits.ultitools.annotations.command.CmdSender;
 import com.ultikits.ultitools.annotations.command.CmdTarget;
+import com.ultikits.ultitools.config.ConfigWriteRefusedException;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 
@@ -40,7 +42,21 @@ public class ChatAdminCommands extends BaseCommandExecutor {
      */
     @CmdMapping(format = "reload")
     public void onReload(@CmdSender CommandSender sender) {
-        plugin.reloadSelf();
+        ReloadReport report;
+        try {
+            report = plugin.reloadWithReport();
+        } catch (Exception | Error e) {
+            // The framework has logged the failure; the sender is told it and its cause (UltiKits/UltiChat#48).
+            String cause = e.getMessage() == null || e.getMessage().isEmpty() ? e.getClass().getSimpleName() : e.getMessage();
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                    UltiChat.fillOnce(plugin.i18n("config_reload_failed"), "{0}", cause)));
+            return;
+        }
+        if (report != null && report.isPartial()) {
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', UltiChat.fillOnce(
+                    plugin.i18n("config_reload_partial"), "{0}", String.join("; ", report.getPartialReasons()))));
+            return;
+        }
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.i18n("config_reloaded")));
     }
 
@@ -118,6 +134,16 @@ public class ChatAdminCommands extends BaseCommandExecutor {
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
             return;
+        } catch (AutoReplyService.RuleInFileException e) {
+            // Added to the file by hand since the last reload: add creates, it does not replace (#50 review).
+            String msg = plugin.i18n("autoreply_exists").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
+        } catch (AutoReplyService.RulesFileUnknownException e) {
+            // The file cannot be read as it is now, so whether it holds the rule is unknown: never write blind.
+            String msg = plugin.i18n("autoreply_file_unknown").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
         } catch (AutoReplyService.RulesReplacedException e) {
             reportReplacedByPanel(sender, name);
             return;
@@ -166,6 +192,11 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             autoReplyService.setKeyword(name, keyword);
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
+            return;
+        } catch (AutoReplyService.RuleNotInFileException e) {
+            // Deleted from the file by hand since the last reload: writing the keyword would bring it back.
+            String msg = plugin.i18n("autoreply_not_in_file").replace("{0}", name);
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
             return;
         } catch (AutoReplyService.RulesReplacedException e) {
             reportReplacedByPanel(sender, name);
@@ -222,6 +253,20 @@ public class ChatAdminCommands extends BaseCommandExecutor {
      * @param cause  the write failure
      */
     private void reportSaveFailure(CommandSender sender, String name, IOException cause) {
+        if (cause instanceof ConfigWriteRefusedException) {
+            // The framework's write gate refused the rule write - the file would have changed outside this rule,
+            // or uses YAML anchors - and logs a WARNING naming the file and why. Nothing was written and the rule
+            // set is rolled back; the sender is told so and why, the reason holding no configuration value
+            // (maintainer decision 2026-10-05, UltiKits/UltiChat#50).
+            // One WARNING with the framework's message (file and reason, no value), so the reply's pointer to the
+            // server log holds even for a refusal the framework itself does not log (#50 review, P3-3).
+            plugin.getLogger().warn(UltiChat.fillOnce(plugin.i18n("log_autoreply_not_saved_refused"),
+                    "{RULE}", name, "{REASON}", String.valueOf(cause.getMessage())));
+            String msg = UltiChat.fillOnce(plugin.i18n("autoreply_not_saved_refused"),
+                    "{0}", name, "{1}", ((ConfigWriteRefusedException) cause).getReason());
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
+        }
         plugin.getLogger().error(cause, plugin.i18n("log_autoreply_save_failed").replace("{RULE}", name));
         String msg = plugin.i18n("autoreply_save_failed").replace("{0}", name);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));

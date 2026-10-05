@@ -1,8 +1,11 @@
 package com.ultikits.plugins.chat.service;
 
 import com.ultikits.plugins.chat.config.ChannelConfig;
+import com.ultikits.plugins.chat.UltiChat;
+import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.Autowired;
 import com.ultikits.ultitools.annotations.Service;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -20,6 +23,10 @@ public class ChannelService {
     @Autowired
     private ChannelConfig config;
 
+    /** The module, whose language file gives the move notice its text (UltiKits/UltiChat#45). */
+    @Autowired
+    private UltiToolsPlugin plugin;
+
     private final Map<UUID, String> playerChannels = new ConcurrentHashMap<>();
 
     /**
@@ -27,7 +34,88 @@ public class ChannelService {
      * Returns the default channel if the player has no assignment.
      */
     public String getPlayerChannel(UUID playerId) {
-        return playerChannels.getOrDefault(playerId, config.getDefaultChannel());
+        return playerChannels.getOrDefault(playerId, resolveDefaultChannel(config));
+    }
+
+    /**
+     * The channel a player with no assignment, and a player who has just joined, is placed in
+     * (UltiKits/UltiChat#44).
+     * <p>
+     * The configured {@code channels.default-channel} when a channel of that name is defined. When it
+     * is not, {@code global} if that is defined and needs no permission, otherwise the first defined
+     * channel in file order that needs none, so a new player is never placed in a channel that does
+     * not exist, nor in one {@code /ch <name>} would refuse them. When no such channel is defined the
+     * configured name is kept: new players are then all placed in that one undefined channel, whose
+     * chat is not filtered by range or world ({@link #filterRecipients} treats an undefined channel as
+     * having neither). Static so the load-time check can apply the same rule to the configuration
+     * directly.
+     *
+     * @param config the channel configuration
+     * @return the channel name new players are placed in
+     */
+    public static String resolveDefaultChannel(ChannelConfig config) {
+        String configured = config.getDefaultChannel();
+        Map<String, Map<String, Object>> defined = config.getChannels();
+        if (defined == null || defined.isEmpty() || isDefined(defined, configured)) {
+            return configured;
+        }
+        if (isOpen(defined.get("global"))) {
+            return "global";
+        }
+        for (Map.Entry<String, Map<String, Object>> channel : defined.entrySet()) {
+            if (isOpen(channel.getValue())) {
+                return channel.getKey();
+            }
+        }
+        return configured;
+    }
+
+    /**
+     * Moves every player whose tracked channel is no longer defined into the channel
+     * {@link #resolveDefaultChannel} computes, and tells each online one in a single line
+     * (UltiKits/UltiChat#45). Called after a reload, when a channel may have been removed from
+     * {@code channels.channels}: an assignment is otherwise kept as written and points at a channel that
+     * does not exist. A player in a defined channel, or already in the fallback, is left alone.
+     */
+    public void moveFromRemovedChannels() {
+        Map<String, Map<String, Object>> defined = config.getChannels();
+        String target = resolveDefaultChannel(config);
+        for (Map.Entry<UUID, String> assignment : playerChannels.entrySet()) {
+            String current = assignment.getValue();
+            if (isDefined(defined, current) || target.equals(current)) {
+                continue;
+            }
+            if (!playerChannels.replace(assignment.getKey(), current, target)) {
+                continue;
+            }
+            Player player = Bukkit.getPlayer(assignment.getKey());
+            if (player != null) {
+                // One pass: a channel name is the operator's own text, shown as written.
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', UltiChat.fillOnce(
+                        plugin.i18n("channel_removed_moved"),
+                        "{0}", current, "{1}", getChannelDisplayName(target))));
+            }
+        }
+    }
+
+    /**
+     * Whether a channel definition is open to every player: it exists and sets no {@code permission}
+     * (the rule {@link #hasChannelPermission} applies: a missing or empty permission means everyone).
+     */
+    private static boolean isOpen(Map<String, Object> def) {
+        if (def == null) {
+            return false;
+        }
+        Object permission = def.get("permission");
+        return permission == null || permission.toString().isEmpty();
+    }
+
+    /**
+     * Whether {@code name} is a defined channel: present under {@code channels.channels} with a
+     * definition, the rule {@link #getChannelDef} and {@code /ch <name>} already apply.
+     */
+    public static boolean isDefined(Map<String, Map<String, Object>> defined, String name) {
+        return name != null && defined != null && defined.get(name) != null;
     }
 
     /**

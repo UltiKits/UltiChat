@@ -450,6 +450,37 @@ class ChatConfigTextTest {
         }
     }
 
+    /**
+     * Maintainer decision 2026-10-04 on the formerly shipped channel formats (plan 17-72, question 3: keep removing
+     * them, "继续删除"): a {@code format:} that is byte for byte one of the three is removed only through the
+     * framework's save rule, that is only while the file still holds exactly the text the module read there. An
+     * operator who changes that line on disk after the load keeps the change; the other, untouched legacy format is
+     * removed by the same start (the control).
+     */
+    @Test
+    @DisplayName("the removal of a formerly shipped channel format goes through the save rule: a format edited on disk after the load stays")
+    void legacyFormatRemovalGoesThroughTheSaveRule() throws Exception {
+        language[0] = "en";
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (Setting s : SETTINGS) {
+            values.put(s.path, s.text("en"));
+        }
+        values.put("channels.channels.global.format", "{display}&f: {message}");
+        values.put("channels.channels.local.format", "{display}&7: {message}");
+        prepare(values);
+        loadAll();
+        String loaded = new String(bytes(CHANNELS), StandardCharsets.UTF_8);
+        assertThat(loaded).as("control: the legacy format is in the file").contains("{display}&f: {message}");
+        Files.write(file(CHANNELS).toPath(),
+                loaded.replace("{display}&f: {message}", "{display}&a> {message}").getBytes(StandardCharsets.UTF_8));
+
+        start();
+
+        YamlConfiguration channels = yaml(CHANNELS);
+        assertThat(channels.getString("channels.channels.global.format")).isEqualTo("{display}&a> {message}");
+        assertThat(channels.contains("channels.channels.local.format")).as("control: the untouched legacy format is removed").isFalse();
+    }
+
     @Test
     @DisplayName("a materializing save keeps every operator channel and rule, with every key inside it, and every shipped channel's other keys")
     void operatorChannelsAndRulesSurviveASave() throws Exception {
@@ -513,6 +544,87 @@ class ChatConfigTextTest {
     }
 
     // ================================================================== reload
+
+    /**
+     * Write-gate sweep S5 (plan 17-72; maintainer decision 2026-10-04, "what code may write, by file type"): after a
+     * language switch the module's materializer save changes {@code channels.yml} only where a shipped channel's
+     * display name still held built-in text. A value the framework could not use (a typo) and a comment the
+     * operator wrote elsewhere in the same file stay byte for byte, as does every other line outside the
+     * re-rendered entries.
+     */
+    @Test
+    @DisplayName("a language switch rewrites only the shipped-text entries of channels.yml; a typo value and a hand-written comment stay byte for byte")
+    void aLanguageSwitchRewritesOnlyTheShippedTextEntries() throws Exception {
+        language[0] = "en";
+        extractShippedResources();
+        loadAll();
+        start();
+        String started = new String(bytes(CHANNELS), StandardCharsets.UTF_8);
+        String typo = "  enabled: ture";
+        String handComment = "  # new players start in global; staff is invite-only";
+        assertThat(started).as("control: the lines this edit changes are in the file")
+                .contains("\n  enabled: true\n").contains("\n  default-channel: global\n");
+        String edited = started.replace("\n  enabled: true\n", "\n" + typo + "\n")
+                .replace("\n  default-channel: global\n", "\n" + handComment + "\n  default-channel: global\n");
+        Files.write(file(CHANNELS).toPath(), edited.getBytes(StandardCharsets.UTF_8));
+
+        language[0] = "zh";
+        for (AbstractConfigEntity config : current.values()) {
+            config.init(plugin);
+        }
+        reload();
+
+        String after = new String(bytes(CHANNELS), StandardCharsets.UTF_8);
+        // Control: the switch did write a shipped channel's display name in the new language.
+        assertThat(after).isNotEqualTo(edited);
+        assertThat(yaml(CHANNELS).getString("channels.channels.global.display-name")).isNotEqualTo("&f[Global]");
+        List<String> beforeLines = java.util.Arrays.asList(edited.split("\n", -1));
+        List<String> afterLines = java.util.Arrays.asList(after.split("\n", -1));
+        assertThat(afterLines).as("line count").hasSameSizeAs(beforeLines);
+        for (int i = 0; i < beforeLines.size(); i++) {
+            if (!beforeLines.get(i).trim().startsWith("display-name:")) {
+                assertThat(afterLines.get(i)).as("line " + (i + 1)).isEqualTo(beforeLines.get(i));
+            }
+        }
+        assertThat(afterLines).contains(typo, handComment);
+    }
+
+    /** As above, for {@code autoreply.yml}: only the example rules' keyword and response lines follow the language. */
+    @Test
+    @DisplayName("a language switch rewrites only the example rules' text in autoreply.yml; a typo value and a hand-written comment stay byte for byte")
+    void aLanguageSwitchRewritesOnlyTheExampleRulesText() throws Exception {
+        language[0] = "en";
+        extractShippedResources();
+        loadAll();
+        start();
+        String started = new String(bytes(AUTOREPLY), StandardCharsets.UTF_8);
+        String typo = "  cooldown: 1O";
+        String handComment = "    # the two examples below are ours, keep them";
+        assertThat(started).as("control: the lines this edit changes are in the file")
+                .contains("\n  cooldown: 10\n").contains("\n  rules:\n");
+        String edited = started.replace("\n  cooldown: 10\n", "\n" + typo + "\n")
+                .replace("\n  rules:\n", "\n  rules:\n" + handComment + "\n");
+        Files.write(file(AUTOREPLY).toPath(), edited.getBytes(StandardCharsets.UTF_8));
+
+        language[0] = "zh";
+        for (AbstractConfigEntity config : current.values()) {
+            config.init(plugin);
+        }
+        reload();
+
+        String after = new String(bytes(AUTOREPLY), StandardCharsets.UTF_8);
+        assertThat(after).as("control: the switch rewrote the example rules").isNotEqualTo(edited);
+        List<String> beforeLines = java.util.Arrays.asList(edited.split("\n", -1));
+        List<String> afterLines = java.util.Arrays.asList(after.split("\n", -1));
+        assertThat(afterLines).as("line count").hasSameSizeAs(beforeLines);
+        for (int i = 0; i < beforeLines.size(); i++) {
+            String trimmed = beforeLines.get(i).trim();
+            if (!trimmed.startsWith("keyword:") && !trimmed.startsWith("response:")) {
+                assertThat(afterLines.get(i)).as("line " + (i + 1)).isEqualTo(beforeLines.get(i));
+            }
+        }
+        assertThat(afterLines).contains(typo, handComment);
+    }
 
     @Test
     @DisplayName("onReload() after a language switch rewrites every built-in text in the new language, in both directions")
