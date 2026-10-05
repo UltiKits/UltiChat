@@ -9,16 +9,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Saving an auto-reply rule from `/uchat autoreply` over a `config/autoreply.yml` whose values an
-  operator changed on disk is now reported by the framework: one WARNING in the server log naming the
-  file and the keys that were overwritten (framework message, English). It replaces UltiChat's own
-  line, which was translated by `language` and also fired when only a comment or whitespace in the
-  file had changed, without a value changing; the save itself is unchanged (UltiTools-Reborn#527).
-- 通过 `/uchat autoreply` 保存自动回复规则时，如果 `config/autoreply.yml` 中有值被运维在磁盘上改过，现在由框架报告：
-  服务器日志中一条点名文件与被覆盖键的 WARNING（框架消息，英文）。它取代了 UltiChat 自己的那一行
-  （该行随 `language` 翻译，且文件只是被改动、甚至只改了注释而没有任何值变化时也会触发）；保存行为本身不变
-  （UltiTools-Reborn#527）。
-
 - `/uchat autoreply add <name> <response...>` takes the rest of the line as the response, and
   `/uchat autoreply setkeyword <name> <keyword...>` the rest of the line as the keyword, so a rule
   created by command can answer with a sentence and match a phrase. Both took a single word, and a
@@ -118,6 +108,24 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   （UltiKits/UltiChat#15）。
 
 ### Fixed
+
+- `/uchat autoreply add`, `setkeyword` and `remove` now write exactly the rule they name into
+  `config/autoreply.yml` - `remove` removes it - and nothing else: every other rule, one an operator added
+  or edited by hand while the server ran included, and every other line of the file stay byte for byte. The
+  command replaces the rule it names even if that rule was edited by hand since the last reload. Before, the
+  commands saved the whole configuration: against the framework's 6.3.0 write rules a rule edited by hand was
+  then not changed or removed while the command reported success, and a write the framework refused was
+  reported as success. Now a refused write rolls the change back and is answered
+  `Rule '<name>' was not saved: <reason>. The change was rolled back; fix config/autoreply.yml as the server
+  log says, then run the command again.` The module's own line about an overwritten operator edit, and the
+  framework's overwrite warning that replaced it earlier in this release (UltiTools-Reborn#527), are gone:
+  nothing the operator wrote is overwritten any more (UltiKits/UltiChat#50).
+- `/uchat autoreply add`、`setkeyword` 和 `remove` 现在只把被点名的那条规则写入 `config/autoreply.yml`（`remove` 则删除它），
+  不写其他内容：其他每条规则（包括服务器运行期间服主手动添加或修改的规则）以及文件的其他每一行都逐字节保持不变。即使被点名的规则
+  在上次重载后被手动改过，命令仍会替换它。此前命令保存整个配置：在框架 6.3.0 的写入规则下，手动改过的规则不会被修改或删除，
+  命令却报告成功；框架拒绝的写入也被报告为成功。现在被拒绝的写入会回滚，并回复「规则 '<名称>' 未保存：<原因>。更改已回滚；
+  请按服务器日志的提示修正 config/autoreply.yml，然后重新执行该命令。」模块自己关于覆盖服主修改的那一行，以及本版本早先用来
+  取代它的框架覆盖警告（UltiTools-Reborn#527）都已不存在：服主写下的内容不再被覆盖（UltiKits/UltiChat#50）。
 
 - `/uchat reload` now reports what the framework's reload reported. A reload the framework finished
   partially is answered with the parts that did not reload, and one that failed with its cause; the
@@ -439,17 +447,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   survive `/uchat reload` and `/ul reload`; previously only a clean server stop saved them, and
   either reload silently discarded every rule change made since that stop. If the file cannot be
   written, the rule set is left exactly as it was and the sender is told the rule could not be
-  saved instead of being told it was added, changed or removed. If the file was changed on disk
-  while the server was running, the save still wins -- that is the same contract the shutdown
-  save has always had -- but a warning in the server log now names the file whose edits were
-  overwritten, instead of the overwrite being silent (UltiKits/UltiChat#17).
+  saved instead of being told it was added, changed or removed. Only the rule the command names is
+  written; see UltiKits/UltiChat#50 above for what happens to the rest of the file
+  (UltiKits/UltiChat#17).
 - 使用 `/uchat autoreply add`、`/uchat autoreply setkeyword` 与 `/uchat autoreply remove`
   更改的自动回复规则，现在会在命令执行时立即写入 `config/autoreply.yml`，
   因此能在 `/uchat reload` 与 `/ul reload` 后保留；此前只有干净地停止服务器才会保存，
   任一 reload 都会静默丢弃自上次停止以来的所有规则更改。若文件无法写入，
   规则集会保持原样，且发送者会收到保存失败的提示，而不是被告知已添加、已更改或已移除。
-  若服务器运行期间文件在磁盘上被修改，保存仍会覆盖它——这与关机保存一直以来的行为相同——
-  但现在服务器日志会以警告指明被覆盖编辑的文件，而不再静默覆盖（UltiKits/UltiChat#17）。
+  只写入命令点名的规则；文件其余部分的处理见上文 UltiKits/UltiChat#50（UltiKits/UltiChat#17）。
 - Uninstalling this module (`/upm uninstall UltiTools-Chat`) now really removes its commands
   (`/uchat`, and `/ch`/`/channel` when channels are enabled) and stops its chat, join/quit, channel and
   auto-reply listeners from firing; this module has no unload work of its own. Previously this

@@ -6,6 +6,7 @@
   "autoreply_invalid_name": "&cA rule name cannot contain '.': the configuration file would split '{0}' into two keys, and the rule would stop working. Choose a name without '.'.",
   "autoreply_keyword_set": "&aRule '{0}' keyword set to '{1}'.",
   "autoreply_save_failed": "&cRule '{0}' could not be saved; the change was rolled back. See the server log.",
+  "autoreply_not_saved_refused": "&cRule '{0}' was not saved: {1}. The change was rolled back; fix config/autoreply.yml as the server log says, then run the command again.",
   "autoreply_not_applied": "&cThe change to rule '{0}' did not take effect: the panel replaced the auto-reply rules while it was being saved. Run the command again.",
   "autoreply_list_header": "&6===== Auto-Reply Rules =====",
   "autoreply_list_entry": "&7- &f{0} &7-> &f{1} &7[{2}] &7=> &f{3}",

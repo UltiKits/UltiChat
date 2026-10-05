@@ -57,8 +57,8 @@ public class AutoReplyService {
      * <p>
      * Not every reader of the rule map: {@link #getRules()} hands the live map out unguarded and
      * {@code ChatAdminCommands#onAutoReplyList} iterates it (main thread only, and only reads);
-     * {@code AbstractConfigEntity#save()} serialises the same map with this lock deliberately not
-     * held (see below); and {@code AbstractConfigEntity#updateProperties} replaces the {@code rules}
+     * the rule write ({@code AbstractConfigEntity#saveOperatorMapEntry}) serialises the same map with this
+     * lock deliberately not held (see below); and {@code AbstractConfigEntity#updateProperties} replaces the {@code rules}
      * field reflectively from the WebSocket thread, which no lock this class owns can guard -- if a
      * panel configuration write lands between a mutation here and its save, the save serialises the
      * panel's map. That is detected after the save rather than prevented: the change throws
@@ -74,7 +74,7 @@ public class AutoReplyService {
      * {@code findMatch} removes that window, and the single-entry races between those same two
      * paths that were already possible with it.
      * <p>
-     * Deliberately NOT held across {@code AbstractConfigEntity#save()}: the write is file I/O, and a
+     * Deliberately NOT held across the rule write: the write is file I/O, and a
      * chat thread has no reason to wait for a disk write. A reader may therefore observe a mutation
      * that a failed save is about to roll back -- which is inherent, since the mutation has to be in
      * memory for the save to serialise it -- but never a half-rebuilt map.
@@ -213,7 +213,7 @@ public class AutoReplyService {
             live.put(name, rule);
         }
 
-        saveOrRestore(rules, () -> {
+        saveOrRestore(rules, name, () -> {
             if (rulesWereAbsent) {
                 // Not an in-place restore, unlike every other rollback here: the field itself was
                 // absent, so restoring it means putting the absence back. Unreachable in practice --
@@ -271,7 +271,7 @@ public class AutoReplyService {
             rule.put("keyword", keyword);
         }
 
-        saveOrRestore(rules, () -> {
+        saveOrRestore(rules, name, () -> {
             if (hadKeyword) {
                 rule.put("keyword", keywordBefore);
             } else {
@@ -319,15 +319,27 @@ public class AutoReplyService {
             patternCache.remove(name);
         }
 
-        saveOrRestore(rules, () -> restore(rules, rulesBefore));
+        saveOrRestore(rules, name, () -> restore(rules, rulesBefore));
     }
 
     /**
-     * Writes the entity, and puts the rule set back as it was if the write fails.
+     * Writes the one rule the command changed, and puts the rule set back as it was if the write fails.
      * <p>
      * One implementation for all three mutating methods, so the save and the rollback cannot
      * drift apart between them. The rollback runs under
      * {@link #rulesLock}, so no chat thread observes a half-restored rule set.
+     * <p>
+     * <b>Why it cannot overwrite other operator content.</b> The write is
+     * {@code saveOperatorMapEntry("autoreply.rules", name)}: the command is the operator's explicit request to
+     * change the rule it names, so that rule is written as the module now holds it - or removed, after a
+     * {@code remove} - even if the operator also edited it by hand since the file was read, and nothing else is
+     * written. Every other rule, one the operator added or edited by hand since the load included, and every other
+     * key, comment and byte of {@code config/autoreply.yml} stay, because the framework's write gate publishes the
+     * file only when everything outside that rule is byte-identical to it (maintainer decision 2026-10-04, "what
+     * code may write, by file type": {@code /autoreply} writes only that rule; UltiKits/UltiChat#50). A write the
+     * gate refuses throws {@link com.ultikits.ultitools.config.ConfigWriteRefusedException}, an
+     * {@link IOException}: the rule set is rolled back and the command says nothing was saved and why
+     * (maintainer decision 2026-10-05).
      *
      * <p>
      * After a successful write, the rule map the caller changed must still be the one the
@@ -336,16 +348,17 @@ public class AutoReplyService {
      * rolled back, since the configuration now holds the panel's rules (UltiKits/UltiChat#29).
      *
      * @param changed  the rule map the caller changed
+     * @param name     the rule the caller changed, and the only one written
      * @param rollback undoes this method's caller's mutation; run only if the write fails
      * @throws IOException the write failure, rethrown after the rollback
      * @throws RulesReplacedException if the configuration no longer holds {@code changed}
      */
-    private void saveOrRestore(Map<String, Map<String, Object>> changed, Rollback rollback) throws IOException {
+    private void saveOrRestore(Map<String, Map<String, Object>> changed, String name, Rollback rollback)
+            throws IOException {
         try {
-            // save() takes the entity's own monitor, and the framework reports an overwrite of a key an
-            // operator changed on disk itself (UltiTools-Reborn#527), so this method keeps no copy of
-            // that check and no monitor of its own.
-            config.save();
+            // The write takes the entity's own monitor and the framework's write gate checks the rest of the
+            // file itself, so this method keeps no copy of that check and no monitor of its own.
+            config.saveOperatorMapEntry("autoreply.rules", name);
         } catch (IOException e) {
             // The rollback needs rulesLock and nothing else, so this class never holds the entity
             // monitor and rulesLock at the same time and there is no lock order to get wrong.
