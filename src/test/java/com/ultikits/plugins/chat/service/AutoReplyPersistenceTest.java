@@ -5,6 +5,8 @@ import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
+import org.bukkit.command.CommandSender;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -176,7 +178,8 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).saveOperatorMapEntry("autoreply.rules", "server-ip");
+        // setkeyword writes only the keyword (#50 review, P3-1).
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "server-ip", "keyword");
         assertThat(rule).containsExactlyEntriesOf(ruleSnapshot);
         assertThat(rule.get("keyword")).isEqualTo("server IP");
 
@@ -192,12 +195,16 @@ class AutoReplyPersistenceTest {
         Map<String, Object> bare = new LinkedHashMap<>();
         bare.put("response", "Nothing to match on");
         failing.getRules().put("bare", bare);
+        // The rule is in the file too, as it would be after a reload: setkeyword refuses a rule the file lacks.
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        Files.write(configFile().toPath(), text.replace("  rules:\n", "  rules:\n    bare:\n      response: Nothing to match on\n")
+                .getBytes(StandardCharsets.UTF_8));
 
         assertThatThrownBy(() -> service.setKeyword("bare", "anything"))
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).saveOperatorMapEntry("autoreply.rules", "bare");
+        verify(failing).saveOperatorMapEntry("autoreply.rules", "bare", "keyword");
         assertThat(bare).doesNotContainKey("keyword");
         assertThat(bare).containsExactly(org.assertj.core.api.Assertions.entry("response", "Nothing to match on"));
 
@@ -365,6 +372,137 @@ class AutoReplyPersistenceTest {
 
         assertThat(live.getRules()).containsExactlyEntriesOf(snapshot);
         assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)).isEqualTo(anchored);
+    }
+
+    // ============================
+    // Gate-1 top-up of plan 17-72 (UltiKits/UltiChat#50): existence is decided by the file as well as by
+    // memory, setkeyword writes only the keyword, a refusal is logged, and every command keeps the rest of the
+    // file byte for byte. Driven through the real command on real files.
+    // ============================
+
+    @Test
+    @DisplayName("add of a name the file already holds (added by hand since the load) is refused as existing, and nothing is written")
+    void addOfARuleTheFileAlreadyHoldsIsRefused() throws Exception {
+        addARuleBehindTheFrameworksBack();
+        byte[] before = Files.readAllBytes(configFile().toPath());
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplyAdd(sender, "custom", new String[] {"From", "the", "command"});
+
+        assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_exists").replace("{0}", "custom")));
+        assertThat(Files.readAllBytes(configFile().toPath())).as("the hand-added rule is not replaced").isEqualTo(before);
+        assertThat(live.getRules()).as("nothing was added in memory").doesNotContainKey("custom");
+    }
+
+    @Test
+    @DisplayName("setkeyword of a rule the operator deleted by hand is not written back; the reply says it is not in the file")
+    void setKeywordOfARuleDeletedByHandIsNotWrittenBack() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        String rulesInfo = "    rules-info:\n      mode: contains\n      case-sensitive: false\n"
+                + "      response: Please check /rules for server rules.\n      keyword: rules\n";
+        assertThat(text).as("control: the rule's block is in the file").contains(rulesInfo);
+        byte[] deleted = text.replace(rulesInfo, "").getBytes(StandardCharsets.UTF_8);
+        Files.write(configFile().toPath(), deleted);
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(sender, "rules-info", new String[] {"rrr"});
+
+        assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "rules-info")));
+        assertThat(Files.readAllBytes(configFile().toPath())).as("the deletion stays").isEqualTo(deleted);
+        assertThat(live.getRules().get("rules-info").get("keyword")).as("memory unchanged").isEqualTo("rules");
+    }
+
+    @Test
+    @DisplayName("setkeyword writes only the keyword: a hand edit of the same rule's response stays, every other byte too")
+    void setKeywordWritesOnlyTheKeyword() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertThat(text).as("control: the response line is in the file").contains("      response: 'Server address: play.example.com'\n");
+        String edited = text.replace("      response: 'Server address: play.example.com'\n", "      response: Hand-written address\n")
+                .replace("  rules:\n", "  rules:\n    # kept by hand\n");
+        Files.write(configFile().toPath(), edited.getBytes(StandardCharsets.UTF_8));
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(sender, "server-ip", new String[] {"ip", "please"});
+
+        assertThat(lastReply(sender)).isEqualTo(colour(com.ultikits.plugins.chat.UltiChat.fillOnce(
+                text("autoreply_keyword_set"), "{0}", "server-ip", "{1}", "ip please")));
+        String after = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        assertOnlyLinesDiffer(edited, after, "      keyword: server IP");
+        assertThat(readFromDisk().get("server-ip").get("keyword")).isEqualTo("ip please");
+        assertThat(readFromDisk().get("server-ip").get("response")).isEqualTo("Hand-written address");
+    }
+
+    @Test
+    @DisplayName("remove deletes exactly the named rule's lines: a hand comment, a sibling's hand edit and an unrelated typo stay byte for byte")
+    void removeDeletesExactlyTheNamedRule() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        String serverIp = "    server-ip:\n      mode: contains\n      case-sensitive: false\n"
+                + "      response: 'Server address: play.example.com'\n      keyword: server IP\n";
+        assertThat(text).as("control: the rule's block is in the file").contains(serverIp).contains("  cooldown: 10\n");
+        String edited = text.replace("  cooldown: 10\n", "  cooldown: 1O\n")
+                .replace("      response: Please check /rules for server rules.\n", "      response: Read /rules first.\n")
+                .replace("    rules-info:\n", "    # kept by hand\n    rules-info:\n");
+        Files.write(configFile().toPath(), edited.getBytes(StandardCharsets.UTF_8));
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplyRemove(sender, "server-ip");
+
+        assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_removed").replace("{0}", "server-ip")));
+        assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8))
+                .isEqualTo(edited.replace(serverIp, ""));
+    }
+
+    @Test
+    @DisplayName("a refused write is logged once with its reason, so the reply's pointer to the server log always holds")
+    void aRefusedWriteIsLoggedWithItsReason() throws Exception {
+        String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
+        Files.write(configFile().toPath(), text.replace("keyword: server IP", "keyword: &ip server IP")
+                .getBytes(StandardCharsets.UTF_8));
+        PluginLogger logger = mock(PluginLogger.class);
+        doReturn(logger).when(plugin).getLogger();
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplyAdd(sender, "greeting", new String[] {"hello"});
+
+        ArgumentCaptor<String> warned = ArgumentCaptor.forClass(String.class);
+        verify(logger).warn(warned.capture());
+        assertThat(warned.getValue()).contains("greeting").contains("anchors").contains("autoreply.yml");
+    }
+
+    private com.ultikits.plugins.chat.commands.ChatAdminCommands commands() {
+        org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en")).when(plugin).i18n(anyString());
+        return new com.ultikits.plugins.chat.commands.ChatAdminCommands(plugin, service);
+    }
+
+    private static String text(String key) {
+        return com.ultikits.plugins.chat.i18n.CatalogueText.text("en", key);
+    }
+
+    private static String colour(String text) {
+        return org.bukkit.ChatColor.translateAlternateColorCodes('&', text);
+    }
+
+    private static String lastReply(CommandSender sender) {
+        ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+        verify(sender, org.mockito.Mockito.atLeastOnce()).sendMessage(sent.capture());
+        return sent.getValue();
+    }
+
+    /** {@code after} has the same lines as {@code before}, except that exactly the line {@code changed} differs. */
+    private static void assertOnlyLinesDiffer(String before, String after, String changed) {
+        List<String> b = java.util.Arrays.asList(before.split("\n", -1));
+        List<String> a = java.util.Arrays.asList(after.split("\n", -1));
+        assertThat(a).as("line count").hasSameSizeAs(b);
+        int differing = 0;
+        for (int i = 0; i < b.size(); i++) {
+            if (b.get(i).equals(changed)) {
+                assertThat(a.get(i)).as("the named line changed").isNotEqualTo(changed);
+                differing++;
+            } else {
+                assertThat(a.get(i)).as("line " + (i + 1)).isEqualTo(b.get(i));
+            }
+        }
+        assertThat(differing).as("control: the named line is in the file once").isEqualTo(1);
     }
 
     // ============================
