@@ -426,7 +426,8 @@ public class AutoReplyService {
      * it was before. Callers hold {@link #rulesLock} across this, so the momentarily empty map is
      * never visible to {@link #findMatch(String)}. The one rollback that does not come through here
      * is {@code addRule}'s absent-rule-map branch, which restores the absence by replacing the
-     * field; that branch is unreachable in production. Once the entity has been read from its file the rule map is a
+     * field; that branch runs when the file's {@code rules:} holds nothing and the framework reads the setting
+     * as absent (see {@link #addRule}). Once the entity has been read from its file the rule map is a
      * {@code LinkedHashMap} (that is what {@code DefaultConfigParser} builds), so this restores the
      * rule order the file preserves and not merely the rule set; before any such read it is the
      * field's own {@code HashMap} default, which has no order to restore.

@@ -146,7 +146,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   framework's reason (`Rule '<name>' was not saved: <reason>. The change was rolled back; ...`). A refused or
   failed write now rolls the in-memory rule set back whatever the failure was; before, only an `IOException`
   did. **Changed:** a file the operator deleted while the server runs holds no rule, so `add` now creates it
-  holding only the new rule (nothing the operator wrote is overwritten); `setkeyword` still writes nothing
+  holding only the new rule (nothing the operator wrote is overwritten); `setkeyword` still writes nothing.
+  After deleting `config/autoreply.yml`, run `/uchat reload` before `/uchat autoreply add`: otherwise the file
+  holds only the new rule and the shipped `server-ip` and `rules-info` example rules do not come back
   (UltiKits/UltiChat#51).
 - `/uchat autoreply add` 和 `setkeyword` 现在向框架询问 `config/autoreply.yml` 是否已有该规则，询问与写入基于对文件的同一次读取
   （框架的 `MUST_BE_ABSENT` 与 `MUST_BE_PRESENT` 写入条件），不再在模块内部第二次读取该文件。有效的文件不再被拒绝：
@@ -157,7 +159,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   config/autoreply.yml 中没有 keyword 行（……），因此未保存任何内容」；要给这样的规则设置第一个关键词，请直接编辑文件。
   框架无法读取或解析的文件，回复框架给出的原因（「规则 '<名称>' 未保存：<原因>。更改已回滚；……」）。被拒绝或失败的写入现在
   无论出于什么原因都会回滚内存中的规则集；此前只在 `IOException` 时回滚。**变更：** 服务器运行期间被服主删除的文件不含任何规则，
-  因此 `add` 现在会重新创建该文件并只写入新规则（服主写下的内容不会被覆盖）；`setkeyword` 仍不写入任何内容（UltiKits/UltiChat#51）。
+  因此 `add` 现在会重新创建该文件并只写入新规则（服主写下的内容不会被覆盖）；`setkeyword` 仍不写入任何内容。
+  删除 `config/autoreply.yml` 后，请先执行 `/uchat reload` 再执行 `/uchat autoreply add`，否则文件中只有新规则，出厂示例规则
+  `server-ip` 与 `rules-info` 不会恢复（UltiKits/UltiChat#51）。
 
 - `/uchat reload` now reports what the framework's reload reported. A reload the framework finished
   partially is answered with the parts that did not reload, and one that failed with its cause; the
