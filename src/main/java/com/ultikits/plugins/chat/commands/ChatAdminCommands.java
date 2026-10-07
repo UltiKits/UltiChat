@@ -245,9 +245,9 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             // add found the rule already in the file - an operator wrote it by hand since the last reload - and
             // setkeyword found it no longer there. Nothing was written and the rule set is rolled back; the sender is
             // told which, and nothing is logged here because the reply is the whole report.
-            String key = ((ConfigEntryPresenceException) cause).getRequired() == EntryPresence.MUST_BE_ABSENT
-                    ? "autoreply_exists" : "autoreply_not_in_file";
-            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.i18n(key).replace("{0}", name)));
+            String msg = ((ConfigEntryPresenceException) cause).getRequired() == EntryPresence.MUST_BE_ABSENT
+                    ? plugin.i18n("autoreply_exists") : plugin.i18n("autoreply_not_in_file");
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg.replace("{0}", name)));
             return;
         }
         if (cause instanceof ConfigWriteRefusedException) {
