@@ -4,6 +4,7 @@ import com.ultikits.plugins.chat.UltiChat;
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
+import com.ultikits.ultitools.config.EntryPresence;
 import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
 import org.bukkit.command.CommandSender;
 import org.mockito.ArgumentCaptor;
@@ -156,13 +157,14 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).saveOperatorMapEntry("autoreply.rules", "greeting");
+        // add writes only while the file does not hold the rule (UltiKits/UltiChat#51, decision 23:49).
+        verify(failing).saveOperatorMapEntry(EntryPresence.MUST_BE_ABSENT, "autoreply.rules", "greeting");
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
         Map<String, Map<String, Object>> onDisk = readFromDisk();
         assertThat(onDisk).containsKeys("server-ip", "rules-info");
         assertThat(onDisk).doesNotContainKey("greeting");
 
-        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(failing);
         service.addRule("greeting", "hi", "Hello there!");
         assertThat(failing.getRules()).containsKey("greeting");
     }
@@ -178,12 +180,12 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        // setkeyword writes only the keyword (#50 review, P3-1).
-        verify(failing).saveOperatorMapEntry("autoreply.rules", "server-ip", "keyword");
+        // setkeyword writes only the keyword (#50 review, P3-1), and only while the file still holds it (#51).
+        verify(failing).saveOperatorMapEntry(EntryPresence.MUST_BE_PRESENT, "autoreply.rules", "server-ip", "keyword");
         assertThat(rule).containsExactlyEntriesOf(ruleSnapshot);
         assertThat(rule.get("keyword")).isEqualTo("server IP");
 
-        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(failing);
         service.setKeyword("server-ip", "changed");
         assertThat(failing.getRules().get("server-ip").get("keyword")).isEqualTo("changed");
     }
@@ -195,7 +197,7 @@ class AutoReplyPersistenceTest {
         Map<String, Object> bare = new LinkedHashMap<>();
         bare.put("response", "Nothing to match on");
         failing.getRules().put("bare", bare);
-        // The rule is in the file too, as it would be after a reload: setkeyword refuses a rule the file lacks.
+        // The rule is in the file too, as it would be after a reload.
         String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
         Files.write(configFile().toPath(), text.replace("  rules:\n", "  rules:\n    bare:\n      response: Nothing to match on\n")
                 .getBytes(StandardCharsets.UTF_8));
@@ -204,11 +206,11 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).saveOperatorMapEntry("autoreply.rules", "bare", "keyword");
+        verify(failing).saveOperatorMapEntry(EntryPresence.MUST_BE_PRESENT, "autoreply.rules", "bare", "keyword");
         assertThat(bare).doesNotContainKey("keyword");
         assertThat(bare).containsExactly(org.assertj.core.api.Assertions.entry("response", "Nothing to match on"));
 
-        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(failing);
         service.setKeyword("bare", "anything");
         assertThat(bare.get("keyword")).isEqualTo("anything");
     }
@@ -228,7 +230,7 @@ class AutoReplyPersistenceTest {
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
         assertThat(failing.getRules().get("server-ip")).isSameAs(serverIpInstance);
 
-        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(failing);
         service.removeRule("server-ip");
         assertThat(failing.getRules()).doesNotContainKey("server-ip");
     }
@@ -242,7 +244,7 @@ class AutoReplyPersistenceTest {
     void callsThatChangeNothingDoNotWrite() throws Exception {
         AutoReplyConfig quiet = spy(live);
         doNothing().when(quiet).save();
-        doNothing().when(quiet).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(quiet);
         ChatTestHelper.setField(service, "config", quiet);
 
         service.addRule("server-ip", "anything", "Refused, the name is taken");
@@ -254,9 +256,10 @@ class AutoReplyPersistenceTest {
 
         verify(quiet, never()).save();
         verify(quiet, never()).saveOperatorMapEntry(anyString(), any(String[].class));
+        verify(quiet, never()).saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
 
         service.addRule("greeting", "hi", "Hello there!");
-        verify(quiet).saveOperatorMapEntry("autoreply.rules", "greeting");
+        verify(quiet).saveOperatorMapEntry(EntryPresence.MUST_BE_ABSENT, "autoreply.rules", "greeting");
         verify(quiet, never()).save();
     }
 
@@ -608,8 +611,16 @@ class AutoReplyPersistenceTest {
         AutoReplyConfig failing = spy(live);
         doThrow(new IOException("simulated write failure")).when(failing)
                 .saveOperatorMapEntry(anyString(), any(String[].class));
+        doThrow(new IOException("simulated write failure")).when(failing)
+                .saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
         ChatTestHelper.setField(service, "config", failing);
         return failing;
+    }
+
+    /** Makes both rule-write overloads of {@code config} succeed without touching the file. */
+    private static void writesSucceed(AutoReplyConfig config) throws Exception {
+        doNothing().when(config).saveOperatorMapEntry(anyString(), any(String[].class));
+        doNothing().when(config).saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
     }
 
     /**
