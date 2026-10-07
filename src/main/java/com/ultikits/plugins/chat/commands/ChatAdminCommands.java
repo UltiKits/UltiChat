@@ -10,7 +10,9 @@ import com.ultikits.ultitools.annotations.command.CmdMapping;
 import com.ultikits.ultitools.annotations.command.CmdParam;
 import com.ultikits.ultitools.annotations.command.CmdSender;
 import com.ultikits.ultitools.annotations.command.CmdTarget;
+import com.ultikits.ultitools.config.ConfigEntryPresenceException;
 import com.ultikits.ultitools.config.ConfigWriteRefusedException;
+import com.ultikits.ultitools.config.EntryPresence;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 
@@ -134,16 +136,6 @@ public class ChatAdminCommands extends BaseCommandExecutor {
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
             return;
-        } catch (AutoReplyService.RuleInFileException e) {
-            // Added to the file by hand since the last reload: add creates, it does not replace (#50 review).
-            String msg = plugin.i18n("autoreply_exists").replace("{0}", name);
-            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
-            return;
-        } catch (AutoReplyService.RulesFileUnknownException e) {
-            // The file cannot be read as it is now, so whether it holds the rule is unknown: never write blind.
-            String msg = plugin.i18n("autoreply_file_unknown").replace("{0}", name);
-            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
-            return;
         } catch (AutoReplyService.RulesReplacedException e) {
             reportReplacedByPanel(sender, name);
             return;
@@ -192,11 +184,6 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             autoReplyService.setKeyword(name, keyword);
         } catch (IOException e) {
             reportSaveFailure(sender, name, e);
-            return;
-        } catch (AutoReplyService.RuleNotInFileException e) {
-            // Deleted from the file by hand since the last reload: writing the keyword would bring it back.
-            String msg = plugin.i18n("autoreply_not_in_file").replace("{0}", name);
-            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
             return;
         } catch (AutoReplyService.RulesReplacedException e) {
             reportReplacedByPanel(sender, name);
@@ -253,6 +240,16 @@ public class ChatAdminCommands extends BaseCommandExecutor {
      * @param cause  the write failure
      */
     private void reportSaveFailure(CommandSender sender, String name, IOException cause) {
+        if (cause instanceof ConfigEntryPresenceException) {
+            // The framework's presence precondition did not hold on the read it writes against (UltiKits/UltiChat#51):
+            // add found the rule already in the file - an operator wrote it by hand since the last reload - and
+            // setkeyword found it no longer there. Nothing was written and the rule set is rolled back; the sender is
+            // told which, and nothing is logged here because the reply is the whole report.
+            String key = ((ConfigEntryPresenceException) cause).getRequired() == EntryPresence.MUST_BE_ABSENT
+                    ? "autoreply_exists" : "autoreply_not_in_file";
+            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.i18n(key).replace("{0}", name)));
+            return;
+        }
         if (cause instanceof ConfigWriteRefusedException) {
             // The framework's write gate refused the rule write - the file would have changed outside this rule,
             // or uses YAML anchors - and logs a WARNING naming the file and why. Nothing was written and the rule

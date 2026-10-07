@@ -114,11 +114,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   or edited by hand while the server ran included, and every other line of the file stay byte for byte. `add`
   refuses a name the file already holds (`Rule '<name>' already exists.`), one an operator added by hand since the
   last reload included; `setkeyword` writes only that rule's keyword, so a hand edit of its response stays, and
-  when the operator deleted the rule by hand it writes nothing and answers `Rule '<name>' is no longer in
-  config/autoreply.yml, so nothing was saved. Run /uchat reload to load the file as it is now.` A rule name is
-  read whole, dots included. When the file cannot be read as it is now - deleted while the server runs, not
-  parseable, or without a rule map - `add` and `setkeyword` write nothing and ask for `/uchat reload`, so a
-  deleted file is never recreated by a command. Before, the
+  writes nothing when the operator deleted the rule by hand (the replies are described under
+  UltiKits/UltiChat#51 below). A rule name is read whole, dots included. Before, the
   commands saved the whole configuration: against the framework's 6.3.0 write rules a rule edited by hand was
   then not changed or removed while the command reported success, and a write the framework refused was
   reported as success. Now a refused write rolls the change back and is answered
@@ -129,13 +126,38 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `/uchat autoreply add`、`setkeyword` 和 `remove` 现在只把被点名的那条规则写入 `config/autoreply.yml`（`remove` 则删除它），
   不写其他内容：其他每条规则（包括服务器运行期间服主手动添加或修改的规则）以及文件的其他每一行都逐字节保持不变。`add` 会拒绝文件中
   已有的规则名（包括上次重载后服主手动添加的规则），回复「规则 '<名称>' 已存在」；`setkeyword` 只写该规则的关键词，因此该规则
-  响应内容的手动修改会保留；若服主已手动删除该规则，则不写入任何内容，并回复「规则 '<名称>' 已不在 config/autoreply.yml 中，
-  因此未保存任何内容。请执行 /uchat reload 载入文件的当前内容。」规则名按整体读取（包括其中的点）。文件当前无法读取时
-  （服务器运行期间被删除、无法解析或没有规则映射），`add` 和 `setkeyword` 不写入任何内容并提示执行 `/uchat reload`，
-  因此被删除的文件不会被命令重新创建。此前命令保存整个配置：在框架 6.3.0 的写入规则下，手动改过的规则不会被修改或删除，
+  响应内容的手动修改会保留；若服主已手动删除该规则，则不写入任何内容（回复见下文 UltiKits/UltiChat#51）。
+  规则名按整体读取（包括其中的点）。此前命令保存整个配置：在框架 6.3.0 的写入规则下，手动改过的规则不会被修改或删除，
   命令却报告成功；框架拒绝的写入也被报告为成功。现在被拒绝的写入会回滚，并回复「规则 '<名称>' 未保存：<原因>。更改已回滚；
   请按服务器日志的提示修正 config/autoreply.yml，然后重新执行该命令。」模块自己关于覆盖服主修改的那一行，以及本版本早先用来
   取代它的框架覆盖警告（UltiTools-Reborn#527）都已不存在：服主写下的内容不再被覆盖（UltiKits/UltiChat#50）。
+
+- `/uchat autoreply add` and `setkeyword` now ask the framework whether `config/autoreply.yml` holds the
+  rule, on the same read of the file as the write (the framework's `MUST_BE_ABSENT` and `MUST_BE_PRESENT`
+  write conditions), instead of reading the file a second time inside the module. A valid file is no longer
+  refused: `add` writes the rule when the file has no `autoreply` section, no `rules` key, `rules:` left empty,
+  `rules: {}`, only comments, or the settings in the flat `"autoreply.rules":` form. Before, the command
+  answered `config/autoreply.yml cannot be read as it is now. Run /uchat reload`, and the advice did not help,
+  because the file was the same after a reload. A rule an operator wrote by hand since the last reload is still
+  never replaced (`Rule '<name>' already exists.`; an entry holding only `~` counts as a rule of that name).
+  `setkeyword` on a rule the operator deleted, or whose entry has no `keyword:` line, writes nothing and
+  answers `Rule '<name>' has no keyword line in config/autoreply.yml (...), so nothing was saved`; give such a
+  rule its first keyword by editing the file. A file the framework cannot read or parse is answered with the
+  framework's reason (`Rule '<name>' was not saved: <reason>. The change was rolled back; ...`). A refused or
+  failed write now rolls the in-memory rule set back whatever the failure was; before, only an `IOException`
+  did. **Changed:** a file the operator deleted while the server runs holds no rule, so `add` now creates it
+  holding only the new rule (nothing the operator wrote is overwritten); `setkeyword` still writes nothing
+  (UltiKits/UltiChat#51).
+- `/uchat autoreply add` 和 `setkeyword` 现在向框架询问 `config/autoreply.yml` 是否已有该规则，询问与写入基于对文件的同一次读取
+  （框架的 `MUST_BE_ABSENT` 与 `MUST_BE_PRESENT` 写入条件），不再在模块内部第二次读取该文件。有效的文件不再被拒绝：
+  文件没有 `autoreply` 段、没有 `rules` 键、`rules:` 留空、`rules: {}`、只有注释，或设置写成扁平的 `"autoreply.rules":` 形式时，
+  `add` 都会写入规则。此前命令回复「config/autoreply.yml 无法按当前内容读取，请执行 /uchat reload」，而该建议并无帮助，
+  因为重载后文件依然如此。服主在上次重载后手动写入的规则仍不会被替换（「规则 '<名称>' 已存在」；只写了 `~` 的条目也算同名规则）。
+  `setkeyword` 针对服主已删除的规则、或条目中没有 `keyword:` 行的规则，不写入任何内容，并回复「规则 '<名称>' 在
+  config/autoreply.yml 中没有 keyword 行（……），因此未保存任何内容」；要给这样的规则设置第一个关键词，请直接编辑文件。
+  框架无法读取或解析的文件，回复框架给出的原因（「规则 '<名称>' 未保存：<原因>。更改已回滚；……」）。被拒绝或失败的写入现在
+  无论出于什么原因都会回滚内存中的规则集；此前只在 `IOException` 时回滚。**变更：** 服务器运行期间被服主删除的文件不含任何规则，
+  因此 `add` 现在会重新创建该文件并只写入新规则（服主写下的内容不会被覆盖）；`setkeyword` 仍不写入任何内容（UltiKits/UltiChat#51）。
 
 - `/uchat reload` now reports what the framework's reload reported. A reload the framework finished
   partially is answered with the parts that did not reload, and one that failed with its cause; the
