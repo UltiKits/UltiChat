@@ -262,51 +262,116 @@ class AutoReplyPresencePreconditionTest {
         assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_exists").replace("{0}", "foo")));
     }
 
+    @Test
+    @DisplayName("after a reload of a file whose rules: is empty the rule set is absent in memory; add writes the rule and a refused add puts the absence back")
+    void anEmptyRulesSettingAfterAReloadIsAbsentInMemory() throws Exception {
+        Files.write(configFile().toPath(), original.replaceAll("(?s)  rules:\n.*", "  rules:\n").getBytes(StandardCharsets.UTF_8));
+        live.init(plugin);
+        assertThat(live.getRules()).as("control: a reload reads an empty rules: as no rule set").isNull();
+        AutoReplyConfig refusing = spy(live);
+        doThrow(new java.io.IOException("simulated refusal")).when(refusing)
+                .saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
+        ChatTestHelper.setField(service, "config", refusing);
+
+        assertThatThrownBy(() -> service.addRule("greeting", "hi", "Hello there!")).isInstanceOf(java.io.IOException.class);
+        assertThat(refusing.getRules()).as("the absence is put back").isNull();
+
+        ChatTestHelper.setField(service, "config", live);
+        CommandSender sender = mock(CommandSender.class);
+        commands().onAutoReplyAdd(sender, "greeting", new String[] {"hi"});
+
+        assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_added").replace("{0}", "greeting")));
+        assertThat(live.getRules()).containsOnlyKeys("greeting");
+        assertThat(readFromDisk()).containsKey("greeting");
+    }
+
+    @Test
+    @DisplayName("setkeyword of a rule whose file entry has no keyword line is refused and writes nothing: the keyword is the entry written")
+    void setKeywordOfARuleWithoutAKeywordLineIsRefused() throws Exception {
+        String bare = original.replace("  rules:\n", "  rules:\n    bare:\n      response: Nothing to match on\n");
+        Files.write(configFile().toPath(), bare.getBytes(StandardCharsets.UTF_8));
+        live.init(plugin);
+        assertThat(live.getRules()).as("control: the rule is loaded, without a keyword").containsKey("bare");
+        assertThat(live.getRules().get("bare")).doesNotContainKey("keyword");
+        CommandSender sender = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(sender, "bare", new String[] {"kw"});
+
+        assertThat(Files.readAllBytes(configFile().toPath())).isEqualTo(bare.getBytes(StandardCharsets.UTF_8));
+        assertThat(live.getRules().get("bare")).as("memory unchanged").doesNotContainKey("keyword");
+        assertThat(lastReply(sender)).isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "bare")));
+    }
+
     // ============================
     // A file the framework refuses to read
     // ============================
 
     @Test
-    @DisplayName("a file that does not parse, or whose rules are not a map: add and setkeyword write nothing, change nothing in memory, and say the file cannot be used as it is")
-    void anUnreadableFileIsRefusedByTheFrameworkAndTheCommandsSayWhy() throws Exception {
-        for (String broken : new String[] {"autoreply:\n  rules: [unclosed\n", "autoreply:\n  rules: not a map\n"}) {
-            Files.write(configFile().toPath(), broken.getBytes(StandardCharsets.UTF_8));
-            AutoReplyConfig spyConfig = spy(live);
-            ChatTestHelper.setField(service, "config", spyConfig);
-            Map<String, Map<String, Object>> before = new LinkedHashMap<>(spyConfig.getRules());
-            CommandSender keyword = mock(CommandSender.class);
-            CommandSender add = mock(CommandSender.class);
-
-            commands().onAutoReplySetKeyword(keyword, "server-ip", new String[] {"ip"});
-            commands().onAutoReplyAdd(add, "greeting", new String[] {"hello"});
-
-            // The framework was reached, with the precondition each command names, and it refused.
-            verify(spyConfig).saveOperatorMapEntry(eq(EntryPresence.MUST_BE_PRESENT), eq("autoreply.rules"), eq("server-ip"), eq("keyword"));
-            verify(spyConfig).saveOperatorMapEntry(eq(EntryPresence.MUST_BE_ABSENT), eq("autoreply.rules"), eq("greeting"));
-            assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)).as(broken).isEqualTo(broken);
-            assertThat(spyConfig.getRules()).as(broken).containsExactlyEntriesOf(before);
-            assertThat(lastReply(keyword)).as(broken).startsWith(colour("&cRule 'server-ip' was not saved: "))
-                    .contains("cannot be read").doesNotContain("no longer in");
-            assertThat(lastReply(add)).as(broken).startsWith(colour("&cRule 'greeting' was not saved: "))
-                    .contains("cannot be read").doesNotContain("already exists");
-        }
-    }
-
-    @Test
-    @DisplayName("the whole file deleted while running: add and setkeyword write nothing and the file stays absent")
-    void aDeletedFileIsNeverRecreated() throws Exception {
-        Files.delete(configFile().toPath());
+    @DisplayName("a file that does not parse: add and setkeyword write nothing, change nothing in memory, and say the file cannot be read")
+    void anUnparseableFileIsRefusedByTheFramework() throws Exception {
+        String broken = "autoreply:\n  rules: [unclosed\n";
+        Files.write(configFile().toPath(), broken.getBytes(StandardCharsets.UTF_8));
+        AutoReplyConfig spyConfig = spy(live);
+        ChatTestHelper.setField(service, "config", spyConfig);
+        Map<String, Map<String, Object>> before = new LinkedHashMap<>(spyConfig.getRules());
         CommandSender keyword = mock(CommandSender.class);
         CommandSender add = mock(CommandSender.class);
 
         commands().onAutoReplySetKeyword(keyword, "server-ip", new String[] {"ip"});
         commands().onAutoReplyAdd(add, "greeting", new String[] {"hello"});
 
-        assertThat(configFile()).as("the file the operator deleted is not recreated").doesNotExist();
-        assertThat(live.getRules()).doesNotContainKey("greeting");
+        // The framework was reached, with the precondition each command names, and it refused.
+        verify(spyConfig).saveOperatorMapEntry(eq(EntryPresence.MUST_BE_PRESENT), eq("autoreply.rules"), eq("server-ip"), eq("keyword"));
+        verify(spyConfig).saveOperatorMapEntry(eq(EntryPresence.MUST_BE_ABSENT), eq("autoreply.rules"), eq("greeting"));
+        assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)).isEqualTo(broken);
+        assertThat(spyConfig.getRules()).containsExactlyEntriesOf(before);
+        assertThat(lastReply(keyword)).startsWith(colour("&cRule 'server-ip' was not saved: "))
+                .containsPattern("read or parsed").doesNotContain("no keyword line");
+        assertThat(lastReply(add)).startsWith(colour("&cRule 'greeting' was not saved: "))
+                .containsPattern("read or parsed").doesNotContain("already exists");
+    }
+
+    @Test
+    @DisplayName("a file whose rules are not a map: add writes nothing and says why, setkeyword says the rule has no keyword line there; memory is unchanged")
+    void rulesThatAreNotAMapAreRefused() throws Exception {
+        String broken = "autoreply:\n  rules: not a map\n";
+        Files.write(configFile().toPath(), broken.getBytes(StandardCharsets.UTF_8));
+        AutoReplyConfig spyConfig = spy(live);
+        ChatTestHelper.setField(service, "config", spyConfig);
+        Map<String, Map<String, Object>> before = new LinkedHashMap<>(spyConfig.getRules());
+        CommandSender keyword = mock(CommandSender.class);
+        CommandSender add = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(keyword, "server-ip", new String[] {"ip"});
+        commands().onAutoReplyAdd(add, "greeting", new String[] {"hello"});
+
+        verify(spyConfig).saveOperatorMapEntry(eq(EntryPresence.MUST_BE_PRESENT), eq("autoreply.rules"), eq("server-ip"), eq("keyword"));
+        verify(spyConfig).saveOperatorMapEntry(eq(EntryPresence.MUST_BE_ABSENT), eq("autoreply.rules"), eq("greeting"));
+        assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)).isEqualTo(broken);
+        assertThat(spyConfig.getRules()).containsExactlyEntriesOf(before);
+        assertThat(lastReply(keyword)).isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "server-ip")));
+        assertThat(lastReply(add)).startsWith(colour("&cRule 'greeting' was not saved: ")).doesNotContain("already exists");
+    }
+
+    @Test
+    @DisplayName("the whole file deleted while running: setkeyword writes nothing; add creates the file holding only that rule, as the framework treats a missing file as holding no rule")
+    void aDeletedFileIsOnlyCreatedByAdd() throws Exception {
+        Files.delete(configFile().toPath());
+        CommandSender keyword = mock(CommandSender.class);
+        CommandSender add = mock(CommandSender.class);
+
+        commands().onAutoReplySetKeyword(keyword, "server-ip", new String[] {"ip"});
+
+        assertThat(configFile()).as("setkeyword changes an existing rule and never creates the file").doesNotExist();
         assertThat(live.getRules().get("server-ip").get("keyword")).isEqualTo("server IP");
-        assertThat(lastReply(keyword)).startsWith(colour("&cRule 'server-ip' "));
-        assertThat(lastReply(add)).startsWith(colour("&cRule 'greeting' "));
+        assertThat(lastReply(keyword)).isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "server-ip")));
+
+        commands().onAutoReplyAdd(add, "greeting", new String[] {"hello"});
+
+        // add is the operator's explicit request for a new rule; the file holds nothing the operator wrote, so nothing
+        // is overwritten, and only that rule is written (the next start fills in the other settings).
+        assertThat(lastReply(add)).isEqualTo(colour(text("autoreply_added").replace("{0}", "greeting")));
+        assertThat(readFromDisk().keySet()).containsExactly("greeting");
     }
 
     // ============================

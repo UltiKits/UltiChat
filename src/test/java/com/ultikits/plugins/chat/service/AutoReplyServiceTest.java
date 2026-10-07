@@ -2,6 +2,7 @@ package com.ultikits.plugins.chat.service;
 
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
+import com.ultikits.ultitools.config.EntryPresence;
 import org.junit.jupiter.api.*;
 
 import java.util.*;
@@ -37,6 +38,7 @@ class AutoReplyServiceTest {
         config.setRules(new HashMap<String, Map<String, Object>>());
         doNothing().when(config).save();
         doNothing().when(config).saveOperatorMapEntry(anyString(), any(String[].class));
+        doNothing().when(config).saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
 
         service = new AutoReplyService();
         ChatTestHelper.setField(service, "config", config);
@@ -717,6 +719,7 @@ class AutoReplyServiceTest {
             assertThat(config.getRules()).doesNotContainKey("my.rule");
             verify(config, never()).save();
             verify(config, never()).saveOperatorMapEntry(anyString(), any(String[].class));
+            verify(config, never()).saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
         }
     }
 }
