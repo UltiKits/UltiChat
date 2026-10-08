@@ -9,6 +9,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `plugin.yml` now declares `identify-string: ultichat`, the key of this module's entry in the
+  UltiCloud catalogue. The framework's update check and `/upm update` skip a module that does not
+  declare it, so this module now takes part in both: a later published version carrying the same key
+  is reported at startup and can be installed with `/upm update` (UltiKits/UltiTools-Reborn#474).
+  An older framework refuses the module with a warning that the UltiTools version is outdated (the
+  refusal names the module by its `plugin.yml` `name:`, `UltiTools-Chat`). The README's Java badge now
+  says Java 21+ and a Paper 1.21+ badge was added, matching the framework this version requires.
+- `plugin.yml` 现在声明 `identify-string: ultichat`，即本模块在 UltiCloud 模块目录中的条目键。框架的更新检查和
+  `/upm update` 会跳过未声明该键的模块，因此本模块现在会参与两者：带有同一键的更高发布版本会在启动时提示，
+  并可用 `/upm update` 安装（UltiKits/UltiTools-Reborn#474）。更早的框架会拒绝加载本模块，并给出 UltiTools 版本过旧的警告
+  （拒绝信息以 `plugin.yml` 的 `name:` 即 `UltiTools-Chat` 指称本模块）。README 的 Java 徽章现为 Java 21+，并新增
+  Paper 1.21+ 徽章，与本版本所需的框架一致。
+
 - `/uchat autoreply add <name> <response...>` takes the rest of the line as the response, and
   `/uchat autoreply setkeyword <name> <keyword...>` the rest of the line as the keyword, so a rule
   created by command can answer with a sentence and match a phrase. Both took a single word, and a
