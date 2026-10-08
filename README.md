@@ -109,6 +109,11 @@ channels:
 @提及没有权限节点，由 `config/chat.yml` 的 `mentions.enabled` 与 `mentions.self-mention` 控制。
 Mentions have no permission node; `mentions.enabled` and `mentions.self-mention` in `config/chat.yml` control them.
 
+## 已知限制 / Known Limitations
+
+- **删除 `config/autoreply.yml` 之后 / After deleting `config/autoreply.yml`:** 请先执行 `/uchat reload`，再执行 `/uchat autoreply add`。否则文件会被重新创建且只包含新规则，出厂示例规则 `server-ip` 与 `rules-info` 不会恢复。
+  Run `/uchat reload` before `/uchat autoreply add`; otherwise the file is recreated holding only the new rule and the shipped `server-ip` and `rules-info` example rules do not come back.
+
 ## 构建 / Build
 
 ```bash

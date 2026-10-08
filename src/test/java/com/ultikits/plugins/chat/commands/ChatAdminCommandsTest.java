@@ -661,10 +661,14 @@ class ChatAdminCommandsTest {
         }
 
         private void panelReplacesTheRulesDuringTheSave() throws Exception {
-            doAnswer(invocation -> {
+            org.mockito.stubbing.Answer<Object> replace = invocation -> {
                 config.setRules(panelRules);
                 return null;
-            }).when(config).saveOperatorMapEntry(anyString(), any(String[].class));
+            };
+            // add and setkeyword write under a presence precondition, remove without one (UltiKits/UltiChat#51).
+            doAnswer(replace).when(config).saveOperatorMapEntry(anyString(), any(String[].class));
+            doAnswer(replace).when(config).saveOperatorMapEntry(
+                    any(com.ultikits.ultitools.config.EntryPresence.class), anyString(), any(String[].class));
         }
 
         private String reply() {
@@ -719,6 +723,8 @@ class ChatAdminCommandsTest {
         @DisplayName("control: a save the panel does not interrupt reports success")
         void uninterruptedSaveSucceeds() throws Exception {
             doNothing().when(config).saveOperatorMapEntry(anyString(), any(String[].class));
+            doNothing().when(config).saveOperatorMapEntry(
+                    any(com.ultikits.ultitools.config.EntryPresence.class), anyString(), any(String[].class));
 
             realCommands.onAutoReplyAdd(sender, "greet", "Hello");
 

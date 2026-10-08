@@ -4,6 +4,7 @@ import com.ultikits.plugins.chat.UltiChat;
 import com.ultikits.plugins.chat.config.AutoReplyConfig;
 import com.ultikits.plugins.chat.utils.ChatTestHelper;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
+import com.ultikits.ultitools.config.EntryPresence;
 import com.ultikits.ultitools.interfaces.impl.logger.PluginLogger;
 import org.bukkit.command.CommandSender;
 import org.mockito.ArgumentCaptor;
@@ -156,13 +157,14 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).saveOperatorMapEntry("autoreply.rules", "greeting");
+        // add writes only while the file does not hold the rule (UltiKits/UltiChat#51, decision 23:49).
+        verify(failing).saveOperatorMapEntry(EntryPresence.MUST_BE_ABSENT, "autoreply.rules", "greeting");
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
         Map<String, Map<String, Object>> onDisk = readFromDisk();
         assertThat(onDisk).containsKeys("server-ip", "rules-info");
         assertThat(onDisk).doesNotContainKey("greeting");
 
-        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(failing);
         service.addRule("greeting", "hi", "Hello there!");
         assertThat(failing.getRules()).containsKey("greeting");
     }
@@ -178,12 +180,12 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        // setkeyword writes only the keyword (#50 review, P3-1).
-        verify(failing).saveOperatorMapEntry("autoreply.rules", "server-ip", "keyword");
+        // setkeyword writes only the keyword (#50 review, P3-1), and only while the file still holds it (#51).
+        verify(failing).saveOperatorMapEntry(EntryPresence.MUST_BE_PRESENT, "autoreply.rules", "server-ip", "keyword");
         assertThat(rule).containsExactlyEntriesOf(ruleSnapshot);
         assertThat(rule.get("keyword")).isEqualTo("server IP");
 
-        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(failing);
         service.setKeyword("server-ip", "changed");
         assertThat(failing.getRules().get("server-ip").get("keyword")).isEqualTo("changed");
     }
@@ -195,7 +197,7 @@ class AutoReplyPersistenceTest {
         Map<String, Object> bare = new LinkedHashMap<>();
         bare.put("response", "Nothing to match on");
         failing.getRules().put("bare", bare);
-        // The rule is in the file too, as it would be after a reload: setkeyword refuses a rule the file lacks.
+        // The rule is in the file too, as it would be after a reload.
         String text = new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8);
         Files.write(configFile().toPath(), text.replace("  rules:\n", "  rules:\n    bare:\n      response: Nothing to match on\n")
                 .getBytes(StandardCharsets.UTF_8));
@@ -204,11 +206,11 @@ class AutoReplyPersistenceTest {
                 .isInstanceOf(IOException.class)
                 .hasMessage("simulated write failure");
 
-        verify(failing).saveOperatorMapEntry("autoreply.rules", "bare", "keyword");
+        verify(failing).saveOperatorMapEntry(EntryPresence.MUST_BE_PRESENT, "autoreply.rules", "bare", "keyword");
         assertThat(bare).doesNotContainKey("keyword");
         assertThat(bare).containsExactly(org.assertj.core.api.Assertions.entry("response", "Nothing to match on"));
 
-        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(failing);
         service.setKeyword("bare", "anything");
         assertThat(bare.get("keyword")).isEqualTo("anything");
     }
@@ -228,7 +230,7 @@ class AutoReplyPersistenceTest {
         assertThat(failing.getRules()).containsExactlyEntriesOf(snapshot);
         assertThat(failing.getRules().get("server-ip")).isSameAs(serverIpInstance);
 
-        doNothing().when(failing).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(failing);
         service.removeRule("server-ip");
         assertThat(failing.getRules()).doesNotContainKey("server-ip");
     }
@@ -242,7 +244,7 @@ class AutoReplyPersistenceTest {
     void callsThatChangeNothingDoNotWrite() throws Exception {
         AutoReplyConfig quiet = spy(live);
         doNothing().when(quiet).save();
-        doNothing().when(quiet).saveOperatorMapEntry(anyString(), any(String[].class));
+        writesSucceed(quiet);
         ChatTestHelper.setField(service, "config", quiet);
 
         service.addRule("server-ip", "anything", "Refused, the name is taken");
@@ -254,9 +256,10 @@ class AutoReplyPersistenceTest {
 
         verify(quiet, never()).save();
         verify(quiet, never()).saveOperatorMapEntry(anyString(), any(String[].class));
+        verify(quiet, never()).saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
 
         service.addRule("greeting", "hi", "Hello there!");
-        verify(quiet).saveOperatorMapEntry("autoreply.rules", "greeting");
+        verify(quiet).saveOperatorMapEntry(EntryPresence.MUST_BE_ABSENT, "autoreply.rules", "greeting");
         verify(quiet, never()).save();
     }
 
@@ -471,29 +474,11 @@ class AutoReplyPersistenceTest {
     }
 
     // ============================
-    // Confirmation top-up of plan 17-72 (route change after a causal chain): the module's existence read keeps every
-    // map key whole and treats any file it cannot read as "unknown", and unknown never lets add or setkeyword write.
-    // Behaviour is asserted before the reply, so a run without the fix fails on the file or the rule set.
+    // Confirmation top-up of plan 17-72: a rule name holding a dot is one whole key. The unreadable-file and
+    // deleted-file guards that stood here moved to AutoReplyPresencePreconditionTest (UltiKits/UltiChat#51 P3-3): they
+    // asserted nothing the framework's own refusal did not already guarantee, and their replies named the module's
+    // own read.
     // ============================
-
-    @Test
-    @DisplayName("the whole file deleted while running: setkeyword and add write nothing, the file stays absent, and both ask for a reload")
-    void aDeletedFileIsNeverRecreatedBySetKeywordOrAdd() throws Exception {
-        Files.delete(configFile().toPath());
-        CommandSender keyword = mock(CommandSender.class);
-        CommandSender add = mock(CommandSender.class);
-
-        commands().onAutoReplySetKeyword(keyword, "server-ip", new String[] {"ip"});
-        commands().onAutoReplyAdd(add, "greeting", new String[] {"hello"});
-
-        assertThat(configFile()).as("the file the operator deleted is not recreated").doesNotExist();
-        assertThat(live.getRules()).doesNotContainKey("greeting");
-        assertThat(live.getRules().get("server-ip").get("keyword")).isEqualTo("server IP");
-        assertThat(lastReply(keyword)).contains("/uchat reload")
-                .isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "server-ip")));
-        assertThat(lastReply(add)).contains("/uchat reload")
-                .isEqualTo(colour(text("autoreply_file_unknown").replace("{0}", "greeting")));
-    }
 
     @Test
     @DisplayName("a rule name holding a dot is read whole: setkeyword on it works, and add of its first segment is not refused")
@@ -516,42 +501,6 @@ class AutoReplyPersistenceTest {
         assertThat(lastReply(keyword)).isEqualTo(colour(com.ultikits.plugins.chat.UltiChat.fillOnce(
                 text("autoreply_keyword_set"), "{0}", "play.example", "{1}", "newkw")));
         assertThat(lastReply(add)).isEqualTo(colour(text("autoreply_added").replace("{0}", "play")));
-    }
-
-    @Test
-    @DisplayName("a file that does not parse, or whose rules are not a map: setkeyword and add write nothing and ask for a reload")
-    @SuppressWarnings("PMD.AvoidAccessibilityAlteration") // installs a running-server UltiTools, which always has a logger
-    void anUnreadableRuleSetRefusesBoth() throws Exception {
-        // The framework logs an unreadable file through UltiTools#getLogger(), as on a running server.
-        Field instance = com.ultikits.ultitools.UltiTools.class.getDeclaredField("ultiTools");
-        instance.setAccessible(true);
-        Object previous = instance.get(null);
-        com.ultikits.ultitools.UltiTools ultiTools = mock(com.ultikits.ultitools.UltiTools.class);
-        org.mockito.Mockito.lenient().when(ultiTools.getLogger()).thenReturn(java.util.logging.Logger.getLogger("UltiTools"));
-        instance.set(null, ultiTools);
-        try {
-            refusesBothOnAnUnreadableRuleSet();
-        } finally {
-            instance.set(null, previous);
-        }
-    }
-
-    private void refusesBothOnAnUnreadableRuleSet() throws Exception {
-        for (String broken : new String[] {"autoreply:\n  rules: [unclosed\n", "autoreply:\n  rules: not a map\n"}) {
-            Files.write(configFile().toPath(), broken.getBytes(StandardCharsets.UTF_8));
-            CommandSender keyword = mock(CommandSender.class);
-            CommandSender add = mock(CommandSender.class);
-
-            commands().onAutoReplySetKeyword(keyword, "server-ip", new String[] {"ip"});
-            commands().onAutoReplyAdd(add, "greeting", new String[] {"hello"});
-
-            assertThat(new String(Files.readAllBytes(configFile().toPath()), StandardCharsets.UTF_8)).as(broken).isEqualTo(broken);
-            assertThat(live.getRules()).as(broken).doesNotContainKey("greeting");
-            assertThat(lastReply(keyword)).as(broken).contains("/uchat reload")
-                    .isEqualTo(colour(text("autoreply_not_in_file").replace("{0}", "server-ip")));
-            assertThat(lastReply(add)).as(broken).contains("/uchat reload")
-                    .isEqualTo(colour(text("autoreply_file_unknown").replace("{0}", "greeting")));
-        }
     }
 
     private com.ultikits.plugins.chat.commands.ChatAdminCommands commands() {
@@ -662,8 +611,16 @@ class AutoReplyPersistenceTest {
         AutoReplyConfig failing = spy(live);
         doThrow(new IOException("simulated write failure")).when(failing)
                 .saveOperatorMapEntry(anyString(), any(String[].class));
+        doThrow(new IOException("simulated write failure")).when(failing)
+                .saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
         ChatTestHelper.setField(service, "config", failing);
         return failing;
+    }
+
+    /** Makes both rule-write overloads of {@code config} succeed without touching the file. */
+    private static void writesSucceed(AutoReplyConfig config) throws Exception {
+        doNothing().when(config).saveOperatorMapEntry(anyString(), any(String[].class));
+        doNothing().when(config).saveOperatorMapEntry(any(EntryPresence.class), anyString(), any(String[].class));
     }
 
     /**
