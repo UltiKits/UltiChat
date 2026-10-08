@@ -3,5 +3,6 @@ version: '${project.version}'
 main: com.ultikits.plugins.chat.UltiChat
 base-package: com.ultikits.plugins.chat
 api-version: 630
+identify-string: ultichat
 authors: [ wisdomme ]
 softdepend: [ PlaceholderAPI, Vault ]

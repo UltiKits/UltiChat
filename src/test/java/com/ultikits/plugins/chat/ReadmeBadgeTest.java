@@ -1,5 +1,6 @@
 package com.ultikits.plugins.chat;
 
+import com.google.gson.JsonParser;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -66,6 +67,32 @@ class ReadmeBadgeTest {
         int requiredMajor = apiVersion / 100;
         int requiredMinor = (apiVersion % 100) / 10;
         return major > requiredMajor || (major == requiredMajor && minor >= requiredMinor);
+    }
+
+    private static YamlConfiguration shippedPluginYml() throws IOException {
+        InputStream in = ReadmeBadgeTest.class.getClassLoader().getResourceAsStream("plugin.yml");
+        assertThat(in).as("shipped plugin.yml").isNotNull();
+        try {
+            return YamlConfiguration.loadConfiguration(new InputStreamReader(in, StandardCharsets.UTF_8));
+        } finally {
+            in.close();
+        }
+    }
+
+    @Test
+    @DisplayName("plugin.yml declares api-version 630 and identify-string equal to ultikits.json's identifyString")
+    void declaresApiVersionAndIdentifyString() throws Exception {
+        YamlConfiguration yml = shippedPluginYml();
+        // Control: this is the module's own descriptor, not some other plugin.yml on the classpath.
+        assertThat(yml.getString("main")).as("control: main class").isEqualTo(UltiChat.class.getName());
+        assertThat(yml.getInt("api-version", -1)).as("api-version").isEqualTo(630);
+
+        Path json = Paths.get(System.getProperty("basedir", "."), "ultikits.json");
+        String expected = JsonParser.parseString(new String(Files.readAllBytes(json), StandardCharsets.UTF_8))
+                .getAsJsonObject().get("identifyString").getAsString();
+        // Control: the catalogue record really carries a value, so equality below is not vacuous.
+        assertThat(expected).as("control: ultikits.json identifyString").isNotBlank();
+        assertThat(yml.getString("identify-string")).as("plugin.yml identify-string").isEqualTo(expected);
     }
 
     @Test
