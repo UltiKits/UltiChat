@@ -27,9 +27,6 @@ import java.util.function.Function;
 
 @UltiToolsModule
 public class UltiChat extends UltiToolsPlugin {
-    /** The command permission roots this module registered; created on first use (see {@link ChatPermissions}). */
-    private ChatPermissions permissions;
-
     @Override
     public boolean registerSelf() {
         registerCommandPermissions();
@@ -38,27 +35,12 @@ public class UltiChat extends UltiToolsPlugin {
         return true;
     }
 
-    /** Removes the command permission roots {@link #registerSelf()} registered (see {@link ChatPermissions}). */
-    @Override
-    protected void onUnregister() {
-        unregisterCommandPermissions();
-    }
-
-    /** Registers {@code ultichat.channel} (everyone) and {@code ultichat.admin} (operators) with Bukkit. */
+    /**
+     * Registers {@code ultichat.channel} (everyone) and {@code ultichat.admin} (operators) with Bukkit unless
+     * they are registered already; they are never removed (see {@link ChatPermissions}).
+     */
     void registerCommandPermissions() {
-        permissions().register(Bukkit.getPluginManager());
-    }
-
-    /** Removes the roots {@link #registerCommandPermissions()} registered. */
-    void unregisterCommandPermissions() {
-        permissions().unregister(Bukkit.getPluginManager());
-    }
-
-    private ChatPermissions permissions() {
-        if (permissions == null) {
-            permissions = new ChatPermissions();
-        }
-        return permissions;
+        ChatPermissions.register(Bukkit.getPluginManager());
     }
 
     /**

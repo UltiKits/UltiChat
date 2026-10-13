@@ -31,7 +31,9 @@ import static org.mockito.Mockito.when;
  * permission nor any {@code permissions:} block of a module's {@code plugin.yml}, and Bukkit treats an
  * unregistered node as operator-only, so before this change every non-operator got "Unknown command" for
  * {@code /ch}. The module now registers {@code ultichat.channel} as granted to everyone and
- * {@code ultichat.admin} as operator-only when it starts, and removes what it registered when it is unloaded.
+ * {@code ultichat.admin} as operator-only when it starts, if no one registered them first, and never removes
+ * them: Bukkit's {@code removePermission} leaves a node's default grant behind, so removing on unload or on a
+ * hot swap left stale grants (Codex review of UltiKits/UltiChat#58).
  */
 @DisplayName("UltiChat command permissions")
 class UltiChatPermissionsTest {
@@ -58,10 +60,13 @@ class UltiChatPermissionsTest {
         when(plugin.operatorConfigFile(anyString())).thenAnswer(inv -> new File(dir, inv.<String>getArgument(0)));
         when(plugin.registerSelf()).thenCallRealMethod();
         doCallRealMethod().when(plugin).registerCommandPermissions();
-        doCallRealMethod().when(plugin).onUnregister();
-        doCallRealMethod().when(plugin).unregisterCommandPermissions();
         assertThat(plugin.registerSelf()).isTrue();
         return plugin;
+    }
+
+    private long defaultGrants(String name) {
+        return server.getPluginManager().getDefaultPermissions(false).stream()
+                .filter(p -> p.getName().equals(name)).count();
     }
 
     @Test
@@ -84,54 +89,35 @@ class UltiChatPermissionsTest {
         assertThat(operator.hasPermission("ultichat.admin")).isTrue();
     }
 
-    @Test
-    @DisplayName("unloading the module removes the two roots it registered")
-    void unloadRemovesWhatStartRegistered(@TempDir File dir) throws IOException {
-        UltiChat plugin = startedModule(dir);
-
-        plugin.onUnregister();
-
-        assertThat(server.getPluginManager().getPermission("ultichat.channel")).isNull();
-        assertThat(server.getPluginManager().getPermission("ultichat.admin")).isNull();
-    }
-
     /**
-     * A hot swap (module update or reinstall while the server runs): the framework starts the new instance
-     * before it unloads the old one (PluginManager#attemptPluginRegistration). The node the old instance
-     * registered must pass to the new one, so unloading the old instance leaves the running module's nodes in
-     * place (Codex review of UltiKits/UltiChat#58, P2).
+     * A hot swap (module update or reinstall while the server runs) starts the new instance before it unloads
+     * the old one (PluginManager#attemptPluginRegistration). The second start finds the nodes registered and
+     * keeps them: the same object, one default grant each, nothing removed.
      */
     @Test
-    @DisplayName("a hot swap keeps the nodes: the new instance starts, then the old one unloads")
-    void aHotSwapKeepsTheNodes(@TempDir File dir) throws IOException {
-        UltiChat old = startedModule(dir);
-        UltiChat replacement = startedModule(dir);
+    @DisplayName("a second start (hot swap) keeps the nodes, with one default grant each")
+    void aSecondStartKeepsTheNodes(@TempDir File dir) throws IOException {
+        startedModule(dir);
+        Permission first = server.getPluginManager().getPermission("ultichat.channel");
 
-        old.onUnregister();
+        startedModule(dir);
 
-        Permission channel = server.getPluginManager().getPermission("ultichat.channel");
-        assertThat(channel).isNotNull();
-        assertThat(channel.getDefault()).isEqualTo(PermissionDefault.TRUE);
-        assertThat(server.getPluginManager().getPermission("ultichat.admin").getDefault()).isEqualTo(PermissionDefault.OP);
+        assertThat(server.getPluginManager().getPermission("ultichat.channel")).isSameAs(first);
+        assertThat(defaultGrants("ultichat.channel")).isEqualTo(1);
         assertThat(server.addPlayer().hasPermission("ultichat.channel")).isTrue();
-
-        replacement.onUnregister();
-        assertThat(server.getPluginManager().getPermission("ultichat.channel")).isNull();
-        assertThat(server.getPluginManager().getPermission("ultichat.admin")).isNull();
+        assertThat(server.getPluginManager().getPermission("ultichat.admin").getDefault()).isEqualTo(PermissionDefault.OP);
     }
 
     @Test
-    @DisplayName("a root something else registered first is neither replaced nor removed")
+    @DisplayName("a root something else registered first is left as it is")
     void anExistingRegistrationIsLeftAlone(@TempDir File dir) throws IOException {
         Permission theirs = new Permission("ultichat.channel", PermissionDefault.FALSE);
         server.getPluginManager().addPermission(theirs);
 
-        UltiChat plugin = startedModule(dir);
-        assertThat(server.getPluginManager().getPermission("ultichat.channel")).isSameAs(theirs);
-        assertThat(server.getPluginManager().getPermission("ultichat.admin").getDefault()).isEqualTo(PermissionDefault.OP);
+        startedModule(dir);
 
-        plugin.onUnregister();
         assertThat(server.getPluginManager().getPermission("ultichat.channel")).isSameAs(theirs);
-        assertThat(server.getPluginManager().getPermission("ultichat.admin")).isNull();
+        assertThat(server.addPlayer().hasPermission("ultichat.channel")).isFalse();
+        assertThat(server.getPluginManager().getPermission("ultichat.admin").getDefault()).isEqualTo(PermissionDefault.OP);
     }
 }
