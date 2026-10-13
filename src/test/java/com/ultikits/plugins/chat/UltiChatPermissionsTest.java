@@ -95,6 +95,31 @@ class UltiChatPermissionsTest {
         assertThat(server.getPluginManager().getPermission("ultichat.admin")).isNull();
     }
 
+    /**
+     * A hot swap (module update or reinstall while the server runs): the framework starts the new instance
+     * before it unloads the old one (PluginManager#attemptPluginRegistration). The node the old instance
+     * registered must pass to the new one, so unloading the old instance leaves the running module's nodes in
+     * place (Codex review of UltiKits/UltiChat#58, P2).
+     */
+    @Test
+    @DisplayName("a hot swap keeps the nodes: the new instance starts, then the old one unloads")
+    void aHotSwapKeepsTheNodes(@TempDir File dir) throws IOException {
+        UltiChat old = startedModule(dir);
+        UltiChat replacement = startedModule(dir);
+
+        old.onUnregister();
+
+        Permission channel = server.getPluginManager().getPermission("ultichat.channel");
+        assertThat(channel).isNotNull();
+        assertThat(channel.getDefault()).isEqualTo(PermissionDefault.TRUE);
+        assertThat(server.getPluginManager().getPermission("ultichat.admin").getDefault()).isEqualTo(PermissionDefault.OP);
+        assertThat(server.addPlayer().hasPermission("ultichat.channel")).isTrue();
+
+        replacement.onUnregister();
+        assertThat(server.getPluginManager().getPermission("ultichat.channel")).isNull();
+        assertThat(server.getPluginManager().getPermission("ultichat.admin")).isNull();
+    }
+
     @Test
     @DisplayName("a root something else registered first is neither replaced nor removed")
     void anExistingRegistrationIsLeftAlone(@TempDir File dir) throws IOException {

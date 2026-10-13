@@ -21,6 +21,13 @@ import java.util.List;
  * A node that is already registered when the module starts (by a permission plugin, another plugin, or an
  * operator's tooling) is left exactly as it is: this class neither replaces it nor removes it on unload.
  * Only the nodes it added itself are removed when the module is unloaded.
+ * <p>
+ * The one exception is a node an earlier UltiChat instance registered, recognised by this class's own
+ * description text: on a hot swap the framework starts the new instance before it unloads the old one, so the
+ * new instance takes the node over (re-registers it as its own object), and the old instance's unload, which
+ * removes only the object it registered, then leaves it (Codex review of UltiKits/UltiChat#58). Keep the two
+ * description texts unchanged in later versions: a hot swap from a version with other texts would not be
+ * recognised, and the old instance's unload would remove the nodes until the next start.
  */
 final class ChatPermissions {
 
@@ -30,13 +37,18 @@ final class ChatPermissions {
     /** Permission of {@code /uchat} ({@code ChatAdminCommands}); operators by default. */
     static final String ADMIN = "ultichat.admin";
 
+    /** Description of the {@link #CHANNEL} node; also how a node an earlier UltiChat instance registered is recognised. */
+    static final String CHANNEL_DESCRIPTION = "Use /ch to list, join and leave chat channels (registered by UltiChat)";
+
+    /** Description of the {@link #ADMIN} node; also how a node an earlier UltiChat instance registered is recognised. */
+    static final String ADMIN_DESCRIPTION = "Use /uchat to manage UltiChat (registered by UltiChat)";
+
     private final List<Permission> added = new ArrayList<>();
 
     /** Registers each root that is not registered yet, and remembers which ones it registered. */
     void register(PluginManager pluginManager) {
-        add(pluginManager, new Permission(CHANNEL, "Use /ch to list, join and leave chat channels",
-                PermissionDefault.TRUE));
-        add(pluginManager, new Permission(ADMIN, "Use /uchat to manage UltiChat", PermissionDefault.OP));
+        add(pluginManager, new Permission(CHANNEL, CHANNEL_DESCRIPTION, PermissionDefault.TRUE));
+        add(pluginManager, new Permission(ADMIN, ADMIN_DESCRIPTION, PermissionDefault.OP));
     }
 
     /** Removes the roots {@link #register} added, if they are still the registered ones. */
@@ -50,8 +62,13 @@ final class ChatPermissions {
     }
 
     private void add(PluginManager pluginManager, Permission permission) {
-        if (pluginManager.getPermission(permission.getName()) != null) {
-            return;
+        Permission existing = pluginManager.getPermission(permission.getName());
+        if (existing != null) {
+            if (!permission.getDescription().equals(existing.getDescription())) {
+                return;
+            }
+            // An earlier UltiChat instance's node (hot swap): take it over, so that instance's unload leaves it.
+            pluginManager.removePermission(existing);
         }
         pluginManager.addPermission(permission);
         added.add(permission);
