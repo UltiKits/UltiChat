@@ -12,6 +12,7 @@ import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.UltiToolsModule;
 
 import com.cryptomorin.xseries.XSound;
+import org.bukkit.Bukkit;
 import org.bukkit.boss.BarColor;
 
 import java.io.File;
@@ -28,9 +29,18 @@ import java.util.function.Function;
 public class UltiChat extends UltiToolsPlugin {
     @Override
     public boolean registerSelf() {
+        registerCommandPermissions();
         writeConfigTextInServerLanguage();
         warnAboutConfiguration();
         return true;
+    }
+
+    /**
+     * Registers {@code ultichat.channel} (everyone) and {@code ultichat.admin} (operators) with Bukkit unless
+     * they are registered already; they are never removed (see {@link ChatPermissions}).
+     */
+    void registerCommandPermissions() {
+        ChatPermissions.register(Bukkit.getPluginManager());
     }
 
     /**

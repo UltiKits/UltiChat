@@ -99,8 +99,8 @@ channels:
 
 | 权限 | 说明 |
 |------|------|
-| `ultichat.admin` | 管理命令 / Admin commands |
-| `ultichat.channel` | 频道命令 / Channel commands |
+| `ultichat.admin` | 管理命令；默认仅 OP / Admin commands; operators by default |
+| `ultichat.channel` | 频道命令；默认所有玩家 / Channel commands; every player by default |
 | `ultichat.color` | 聊天中使用颜色代码 / Colour codes in chat |
 | `ultichat.emoji` | 使用自定义表情 / Emoji shortcodes |
 | `ultichat.spam.bypass` | 豁免防刷屏 / Bypass anti-spam |
