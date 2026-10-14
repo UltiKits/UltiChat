@@ -1,10 +1,12 @@
 # UltiChat
 
-[![Java](https://img.shields.io/badge/Java-21%2B-orange)](https://adoptium.net/)
-[![Paper](https://img.shields.io/badge/Paper-1.21%2B-green)](https://papermc.io/)
 [![UltiTools-API](https://img.shields.io/badge/UltiTools--API-6.3.0-blue)](https://github.com/UltiKits/UltiTools-Reborn)
 
 智能聊天管理模块 / Smart Chat Management Module
+
+需要 UltiTools-API 6.3.0 或更高版本；更早的框架会拒绝加载本模块（本模块声明 `api-version: 630`）。
+
+Requires UltiTools-API 6.3.0 or later; an older framework refuses to load this module (it declares `api-version: 630`).
 
 从 UltiEssentials 提取的独立聊天功能模块，提供自动回复、聊天格式、公告广播、频道系统等 8 大功能。
 
