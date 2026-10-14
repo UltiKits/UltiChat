@@ -120,7 +120,7 @@ Mentions have no permission node; `mentions.enabled` and `mentions.self-mention`
 ## 构建 / Build
 
 ```bash
-cd plugins/UltiChat
+# 在仓库根目录执行 / run from the repository root
 mvn clean package
 ```
 
@@ -129,7 +129,7 @@ JAR 文件: `target/UltiChat-1.0.0.jar`
 ## 测试 / Testing
 
 ```bash
-cd plugins/UltiChat
+# 在仓库根目录执行 / run from the repository root
 mvn test
 ```
 
