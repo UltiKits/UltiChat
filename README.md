@@ -1,8 +1,6 @@
 # UltiChat
 
-[![Java](https://img.shields.io/badge/Java-21%2B-orange)](https://adoptium.net/)
-[![Paper](https://img.shields.io/badge/Paper-1.21%2B-green)](https://papermc.io/)
-[![UltiTools-API](https://img.shields.io/badge/UltiTools--API-6.3.0-blue)](https://github.com/UltiKits/UltiTools-Reborn)
+[![UltiTools-API](https://img.shields.io/badge/UltiTools--API-6.3.0%2B-blue)](https://github.com/UltiKits/UltiTools-Reborn)
 
 智能聊天管理模块 / Smart Chat Management Module
 
