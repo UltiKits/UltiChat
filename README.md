@@ -134,3 +134,7 @@ mvn test
 ```
 
 375 tests, 97.9% instruction coverage (JaCoCo).
+
+## License / 许可证
+
+Licensed under the [MIT License](LICENSE).
