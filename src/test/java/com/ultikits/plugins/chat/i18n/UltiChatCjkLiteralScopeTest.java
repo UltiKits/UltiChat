@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * One structural category is skipped without an exemption line: the value of a {@code @ConfigEntry} annotation's
  * {@code comment} element, and nothing else. The reason is written next to the skip in {@link #reportable}.
  * <p>
- * This file is copied unchanged into every module; only its package line and class name differ.
+ * The module guards are maintained separately; shared properties do not imply byte-identical copies.
  */
 @DisplayName("Language guard 2: Chinese literals")
 class UltiChatCjkLiteralScopeTest {
