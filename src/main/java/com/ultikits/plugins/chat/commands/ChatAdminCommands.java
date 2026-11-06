@@ -50,13 +50,15 @@ public class ChatAdminCommands extends BaseCommandExecutor {
         } catch (Exception | Error e) {
             // The framework has logged the failure; the sender is told it and its cause (UltiKits/UltiChat#48).
             String cause = e.getMessage() == null || e.getMessage().isEmpty() ? e.getClass().getSimpleName() : e.getMessage();
-            sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                    UltiChat.fillOnce(plugin.i18n("config_reload_failed"), "{0}", cause)));
+            // Colour only our template, never reinterpret a value echoed by the framework (#49).
+            sender.sendMessage(UltiChat.fillOnce(
+                    ChatColor.translateAlternateColorCodes('&', plugin.i18n("config_reload_failed")), "{0}", cause));
             return;
         }
         if (report != null && report.isPartial()) {
-            sender.sendMessage(ChatColor.translateAlternateColorCodes('&', UltiChat.fillOnce(
-                    plugin.i18n("config_reload_partial"), "{0}", String.join("; ", report.getPartialReasons()))));
+            sender.sendMessage(UltiChat.fillOnce(
+                    ChatColor.translateAlternateColorCodes('&', plugin.i18n("config_reload_partial")),
+                    "{0}", String.join("; ", report.getPartialReasons())));
             return;
         }
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.i18n("config_reloaded")));

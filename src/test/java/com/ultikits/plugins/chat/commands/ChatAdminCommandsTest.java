@@ -103,6 +103,40 @@ class ChatAdminCommandsTest {
         }
 
         @Test
+        @DisplayName("A partial reason keeps literal colour codes while the module template is coloured (#49)")
+        void partialReloadKeepsFrameworkColourCodesLiteral() {
+            com.ultikits.ultitools.abstracts.ReloadReport report = new com.ultikits.ultitools.abstracts.ReloadReport();
+            report.partial("chat.yml: rejected &aGREEN &Rreset &x {0}");
+            report.partial("channels.yml: &Bblue");
+            when(mockPlugin.reloadWithReport()).thenReturn(report);
+            when(mockPlugin.i18n("config_reload_partial")).thenReturn("&epartial: {0}&r");
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onReload(sender);
+
+            verify(sender).sendMessage(org.bukkit.ChatColor.YELLOW
+                    + "partial: chat.yml: rejected &aGREEN &Rreset &x {0}; channels.yml: &Bblue"
+                    + org.bukkit.ChatColor.RESET);
+            verifyNoMoreInteractions(sender);
+        }
+
+        @Test
+        @DisplayName("An exception cause keeps literal colour codes while the module template is coloured (#49)")
+        void failedReloadKeepsFrameworkColourCodesLiteral() {
+            when(mockPlugin.reloadWithReport()).thenThrow(
+                    new IllegalStateException("chat.yml: rejected &aGREEN &Rreset &x {0}"));
+            when(mockPlugin.i18n("config_reload_failed")).thenReturn("&cfailed: {0}&r");
+            CommandSender sender = mock(CommandSender.class);
+
+            commands.onReload(sender);
+
+            verify(sender).sendMessage(org.bukkit.ChatColor.RED
+                    + "failed: chat.yml: rejected &aGREEN &Rreset &x {0}"
+                    + org.bukkit.ChatColor.RESET);
+            verifyNoMoreInteractions(sender);
+        }
+
+        @Test
         @DisplayName("A failure with no message is answered with its type")
         void failureWithoutMessageNamesTheType() {
             when(mockPlugin.reloadWithReport()).thenThrow(new IllegalStateException());
