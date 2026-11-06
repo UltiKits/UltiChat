@@ -17,6 +17,7 @@ import org.bukkit.boss.BarColor;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -27,6 +28,12 @@ import java.util.function.Function;
 
 @UltiToolsModule
 public class UltiChat extends UltiToolsPlugin {
+    private static final int RELOAD_WARNING_LIMIT = 5;
+    private static final int RELOAD_LOCATION_LIMIT = 100;
+    // Populated only by a reload hook, never by startup or by unrelated console warnings.
+    private List<String> reloadWarnings;
+    private int reloadWarningCount;
+
     @Override
     public boolean registerSelf() {
         registerCommandPermissions();
@@ -52,9 +59,46 @@ public class UltiChat extends UltiToolsPlugin {
      */
     @Override
     protected void onReload() {
+        reloadWarnings = new ArrayList<>();
+        reloadWarningCount = 0;
         writeConfigTextInServerLanguage();
         warnAboutConfiguration();
         moveFromRemovedChannels();
+    }
+
+    /**
+     * The last reload hook's bounded, localised warning line, or {@code null} for a clean reload.
+     * This does not mark the framework report partial: these settings have taken effect in memory.
+     * Colour templates before filling them so echoed configuration keys retain literal colour codes.
+     */
+    public String getReloadWarning() {
+        if (reloadWarnings == null || reloadWarnings.isEmpty()) {
+            return null;
+        }
+        String details = String.join("; ", reloadWarnings);
+        int remaining = reloadWarningCount - reloadWarnings.size();
+        if (remaining > 0) {
+            details += "; " + fillOnce(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                    i18n("config_reload_warning_more")), "{0}", String.valueOf(remaining));
+        }
+        return fillOnce(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                i18n("config_reload_warning")), "{0}", details);
+    }
+
+    private void addReloadWarning(String template, String location) {
+        if (reloadWarnings == null) {
+            return;
+        }
+        reloadWarningCount++;
+        if (reloadWarnings.size() >= RELOAD_WARNING_LIMIT) {
+            return;
+        }
+        String singleLine = location.replace('\n', ' ').replace('\r', ' ');
+        if (singleLine.length() > RELOAD_LOCATION_LIMIT) {
+            singleLine = singleLine.substring(0, RELOAD_LOCATION_LIMIT - 3) + "...";
+        }
+        reloadWarnings.add(fillOnce(org.bukkit.ChatColor.translateAlternateColorCodes('&', template),
+                "{0}", singleLine));
     }
 
     /**
@@ -113,6 +157,7 @@ public class UltiChat extends UltiToolsPlugin {
         try {
             config.save();
         } catch (IOException e) {
+            addReloadWarning(i18n("config_reload_warning_writeback"), config.getConfigFilePath());
             // One pass: the server path is inserted as written, never re-read for {ERROR}.
             getLogger().warn(fillOnce(i18n("log_config_text_save_failed"),
                     "{FILE}", operatorConfigFile(config.getConfigFilePath()).getPath(),
@@ -175,6 +220,7 @@ public class UltiChat extends UltiToolsPlugin {
         if (ChannelService.isDefined(defined, configured)) {
             return;
         }
+        addReloadWarning(i18n("config_reload_warning_fallback"), "config/channels.yml:channels.default-channel");
         String used = ChannelService.resolveDefaultChannel(channels);
         String line = ChannelService.isDefined(defined, used)
                 ? i18n("log_default_channel_undefined") : i18n("log_default_channel_none_defined");
@@ -218,6 +264,8 @@ public class UltiChat extends UltiToolsPlugin {
             String mode = def.get("mode").toString();
             String normalised = mode.toLowerCase(Locale.ROOT);
             if (!"contains".equals(normalised) && !"exact".equals(normalised) && !"regex".equals(normalised)) {
+                addReloadWarning(i18n("config_reload_warning_fallback"),
+                        "config/autoreply.yml:autoreply.rules." + rule.getKey() + ".mode");
                 getLogger().warn(fillOnce(i18n("log_autoreply_unknown_mode"),
                         "{FILE}", file, "{RULE}", rule.getKey(), "{VALUE}", mode));
             } else if ("regex".equals(normalised) && def.get("keyword") != null) {
@@ -225,6 +273,8 @@ public class UltiChat extends UltiToolsPlugin {
                 try {
                     Pattern.compile(keyword);
                 } catch (PatternSyntaxException e) {
+                    addReloadWarning(i18n("config_reload_warning_disabled"),
+                            "config/autoreply.yml:autoreply.rules." + rule.getKey() + ".keyword");
                     getLogger().warn(fillOnce(i18n("log_autoreply_invalid_regex"),
                             "{FILE}", file, "{RULE}", rule.getKey(), "{VALUE}", keyword,
                             "{ERROR}", e.getDescription()));
@@ -246,6 +296,7 @@ public class UltiChat extends UltiToolsPlugin {
     }
 
     private void warnUnusable(String path, String key, String value, String fallback) {
+        addReloadWarning(i18n("config_reload_warning_fallback"), path + ":" + key);
         getLogger().warn(fillOnce(i18n("log_unusable_value"),
                 "{FILE}", operatorConfigFile(path).getPath(),
                 "{KEY}", key,

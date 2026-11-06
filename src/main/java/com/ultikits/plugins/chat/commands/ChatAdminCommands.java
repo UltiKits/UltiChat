@@ -62,6 +62,12 @@ public class ChatAdminCommands extends BaseCommandExecutor {
             return;
         }
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.i18n("config_reloaded")));
+        if (plugin instanceof UltiChat) {
+            String warning = ((UltiChat) plugin).getReloadWarning();
+            if (warning != null) {
+                sender.sendMessage(warning);
+            }
+        }
     }
 
     /**
