@@ -27,12 +27,33 @@ import java.util.function.Function;
 
 @UltiToolsModule
 public class UltiChat extends UltiToolsPlugin {
+    /** No PAPI types in this scanned class: the dependency is optional. */
+    private Runnable placeholderCleanup;
+
     @Override
     public boolean registerSelf() {
         registerCommandPermissions();
         writeConfigTextInServerLanguage();
         warnAboutConfiguration();
+        registerPlaceholders();
         return true;
+    }
+
+    private void registerPlaceholders() {
+        if (getContext() != null && Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            placeholderCleanup = com.ultikits.plugins.placeholder.chat.UltiChatExpansion.register(
+                    this, getConfig(ChannelConfig.class), getContext().getBean(ChannelService.class));
+        }
+    }
+
+    /** Releases the owned expansion; config reloads deliberately keep the same live registration. */
+    @Override
+    protected void onUnregister() {
+        Runnable cleanup = placeholderCleanup;
+        placeholderCleanup = null;
+        if (cleanup != null) {
+            cleanup.run();
+        }
     }
 
     /**
