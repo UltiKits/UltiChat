@@ -5,6 +5,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 本文件记录本项目的所有重要更改，格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)。
 
+## [Unreleased]
+
+### Added
+
+- Optional automatic temporary chat mutes for repeat anti-spam offenders (#30). Off by default:
+  `anti-spam.auto-mute.enabled: false`; opting in counts cooldown, duplicate and caps refusals once
+  per message, with a default threshold of 3 in a rolling 60-second window and a fixed 30-second
+  mute. Muted attempts do not extend it. UUID state survives reconnect and ordinary reload, not
+  server restart/module recreation. Numeric policy changes reset pending strikes, not active
+  deadlines; disabling either anti-spam or auto-muting and reloading clears auto-mute state.
+  Existing `ultichat.spam.bypass` covers triggering and enforcement. No escalation or unmute
+  command is added; temporary bypass or disabling/reloading provides staff recovery. Existing
+  configuration/language files are not replaced, and the old `anti-spam.mute-duration` stays inert.
+- 新增可选的重复刷屏临时禁言（#30），默认关闭。主动启用后，冷却、重复和大写检测每拦截一条消息计一次，
+  默认滚动 60 秒内 3 次后固定禁言 30 秒，禁言中的尝试不延时。按 UUID 跨重连与普通重载保留，
+  不跨重启或模块重新创建。数字配置更改清空待触发计数，不改变已有期限；关闭任一开关并重载清空自动禁言。
+  现有豁免权限同时覆盖触发与执行；不递增惩罚，不新增解除命令，可临时授予豁免或关闭并重载恢复。
+  不替换已有配置与语言文件，旧 `anti-spam.mute-duration` 仍无效。
+
 ## [2.0.0] - 2026-10-21
 
 ### Changed

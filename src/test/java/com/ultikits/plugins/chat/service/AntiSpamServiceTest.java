@@ -1070,12 +1070,12 @@ class AntiSpamServiceTest {
 
     /**
      * UltiKits/UltiChat#15. Automatic muting was declared and never happened -- {@code mutePlayer}
-     * had no caller. The declaration is deleted, so a spam trip refuses exactly the offending
-     * message and nothing more, as it always did in practice.
+     * had no caller. That legacy declaration stays deleted. The replacement feature (#30) is
+     * default-off, so without explicit opt-in a trip still refuses only that message.
      */
     @Nested
-    @DisplayName("A spam trip refuses only that message (UltiKits/UltiChat#15)")
-    class NoAutomaticMute {
+    @DisplayName("Without opt-in a spam trip refuses only that message (UltiKits/UltiChat#15, #30)")
+    class AutoMuteDisabledByDefault {
 
         @Test
         @DisplayName("After a duplicate refusal, a different message is accepted once the cooldown has passed")
@@ -1104,8 +1104,8 @@ class AntiSpamServiceTest {
         }
 
         @Test
-        @DisplayName("The service keeps no mute state and offers no way to mute")
-        void noMuteStateOrEntryPoint() {
+        @DisplayName("The opt-in runtime does not revive the legacy mute/quit-cleanup entry points")
+        void legacyMuteAndQuitCleanupEntryPointsStayRemoved() {
             List<String> fields = new ArrayList<String>();
             for (Field field : AntiSpamService.class.getDeclaredFields()) {
                 fields.add(field.getName());
@@ -1116,7 +1116,7 @@ class AntiSpamServiceTest {
             }
 
             // Positive control: the reflection sees the state and entry points that do exist.
-            assertThat(fields).contains("lastMessageTime", "recentMessages");
+            assertThat(fields).contains("lastMessageTime", "recentMessages", "autoMuteRuntime");
             assertThat(methods).contains("checkSpam", "recordMessage");
             assertThat(fields).doesNotContain("mutedUntil");
             assertThat(methods).doesNotContain("mutePlayer", "checkMute");
