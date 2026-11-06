@@ -11,8 +11,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Requires UltiTools-API 6.3.0 or later. The module's `api-version` rises from `620` in the
   released `v1.0.0` to `630`; an older framework refuses to load it.
+  Upgrade UltiTools to 6.3.0 before replacing this module's JAR.
 - 需要 UltiTools-API 6.3.0 或更高版本。模块的 `api-version` 从已发布的 `v1.0.0` 中的 `620`
   提升至 `630`；更早的框架会拒绝加载本模块。
+  更换模块 JAR 前请先将 UltiTools 升级到 6.3.0。
 
 - `plugin.yml` now declares `identify-string: ultichat`, the key of this module's entry in the
   UltiCloud catalogue. The framework's update check and `/upm update` skip a module that does not
