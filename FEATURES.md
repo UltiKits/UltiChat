@@ -207,8 +207,10 @@ policy changes reset pending strikes but preserve active deadlines. Disabling ei
 auto-muting and reloading clears only auto-mute state; re-enabling starts empty. No escalation,
 restart persistence, new permission or unmute command is added. Staff recovery is temporary bypass
 or disabling/reloading; revoking bypass before expiry restores enforcement. Only UltiChat chat is
-covered, not commands or other plugins' private messages. Existing config/language files are never
-replaced, and the removed legacy `anti-spam.mute-duration` remains ignored.
+covered, not commands or other plugins' private messages. UltiChat never replaces existing config or
+language files (UltiTools-API 6.3.0 itself restores its official language files at start); a custom
+language file such as `lang/en-myserver.json` that lacks `spam_auto_muted`/`spam_auto_mute_remaining`
+uses the official text for them. The removed legacy `anti-spam.mute-duration` remains ignored.
 
 ## Join/Quit Messages
 
