@@ -114,6 +114,27 @@ Mentions have no permission node; `mentions.enabled` and `mentions.self-mention`
 
 ## 已知限制 / Known Limitations
 
+The auto-reply commands preserve hand-written configuration rather than repairing incomplete or
+invalid entries. For these unusual file shapes, edit `config/autoreply.yml` yourself, then run
+`/uchat reload` before using the commands again (see [#53](https://github.com/UltiKits/UltiChat/issues/53)):
+
+- **A rule without a `keyword:` line:** it cannot trigger, and `setkeyword` refuses to add its
+  first keyword because the command changes only an existing keyword entry. Add the `keyword:`
+  line inside that rule by hand; its response and other settings are not rewritten by the command.
+- **`autoreply.rules` is not a YAML map:** for example, `rules: not a map`. If a rule is still
+  loaded from before that edit, `setkeyword` replies that it has no keyword line, although the
+  actual problem is the parent `rules` value. `add` also refuses to write. Restore `rules` to a
+  map of rule names and their settings; neither command changes the malformed file.
+- **A null placeholder such as `foo: ~`:** it does not define a usable rule, but `add foo` replies
+  `Rule 'foo' already exists.` because the name is present in the file. Replace the placeholder
+  with a complete rule, or delete that placeholder entry, reload, then use `add foo` to create it.
+  The refused `add` leaves the placeholder and its comments unchanged.
+
+手写的不完整或结构异常配置不会被命令自动修复：规则缺少 `keyword:` 行时请手动补上；
+`autoreply.rules` 必须是规则名到规则设置的 YAML 映射（不能写成字符串）；`foo: ~` 占位条目
+仍算文件中已存在的名称，请手动补成完整规则，或删除该占位条目后再用 `add` 创建。
+编辑后先运行 `/uchat reload`，再继续使用命令；拒绝写入不会覆盖服主的配置。
+
 - **删除 `config/autoreply.yml` 之后 / After deleting `config/autoreply.yml`:** 请先执行 `/uchat reload`，再执行 `/uchat autoreply add`。否则文件会被重新创建且只包含新规则，出厂示例规则 `server-ip` 与 `rules-info` 不会恢复。
   Run `/uchat reload` before `/uchat autoreply add`; otherwise the file is recreated holding only the new rule and the shipped `server-ip` and `rules-info` example rules do not come back.
 
