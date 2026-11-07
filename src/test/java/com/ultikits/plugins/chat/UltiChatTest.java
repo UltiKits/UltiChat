@@ -82,6 +82,170 @@ class UltiChatTest {
     }
 
     @Nested
+    @DisplayName("Successful reload warning reply (#49)")
+    class ReloadWarningReply {
+        @TempDir File dir;
+        private UltiChat plugin;
+        private ChatConfig chat;
+        private AnnouncementConfig announcements;
+        private AutoReplyConfig autoReply;
+        private ChannelConfig channels;
+        private PluginLogger logger;
+        private org.bukkit.command.CommandSender sender;
+        private com.ultikits.plugins.chat.commands.ChatAdminCommands commands;
+
+        @org.junit.jupiter.api.BeforeEach
+        void setup() throws IOException {
+            plugin = mock(UltiChat.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+            chat = spy(new ChatConfig());
+            announcements = spy(new AnnouncementConfig());
+            autoReply = spy(new AutoReplyConfig());
+            channels = spy(new ChannelConfig());
+            logger = mock(PluginLogger.class);
+            sender = mock(org.bukkit.command.CommandSender.class);
+            org.mockito.Mockito.doReturn(logger).when(plugin).getLogger();
+            org.mockito.Mockito.doReturn("en").when(plugin).getLanguageCode();
+            org.mockito.Mockito.doReturn(null).when(plugin).getContext();
+            org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"))
+                    .when(plugin).i18n(anyString());
+            org.mockito.Mockito.doAnswer(inv -> new File(dir, inv.<String>getArgument(0)))
+                    .when(plugin).operatorConfigFile(anyString());
+            org.mockito.Mockito.doReturn(chat).when(plugin).getConfig(ChatConfig.class);
+            org.mockito.Mockito.doReturn(announcements).when(plugin).getConfig(AnnouncementConfig.class);
+            org.mockito.Mockito.doReturn(autoReply).when(plugin).getConfig(AutoReplyConfig.class);
+            org.mockito.Mockito.doReturn(channels).when(plugin).getConfig(ChannelConfig.class);
+            doNothing().when(chat).save();
+            doNothing().when(announcements).save();
+            doNothing().when(autoReply).save();
+            doNothing().when(channels).save();
+            org.mockito.Mockito.doAnswer(inv -> {
+                plugin.onReload();
+                return new com.ultikits.ultitools.abstracts.ReloadReport();
+            }).when(plugin).reloadWithReport();
+            commands = new com.ultikits.plugins.chat.commands.ChatAdminCommands(plugin,
+                    mock(com.ultikits.plugins.chat.service.AutoReplyService.class));
+        }
+
+        private List<String> replies() {
+            ArgumentCaptor<String> messages = ArgumentCaptor.forClass(String.class);
+            verify(sender, atLeast(1)).sendMessage(messages.capture());
+            return messages.getAllValues();
+        }
+
+        private String warning() {
+            List<String> lines = replies();
+            assertThat(lines).hasSize(2);
+            assertThat(lines.get(0)).isEqualTo(org.bukkit.ChatColor.GREEN + "UltiChat configuration reloaded.");
+            assertThat(lines.get(1)).startsWith(org.bukkit.ChatColor.YELLOW.toString());
+            return lines.get(1);
+        }
+
+        private void rule(String name, String mode, String keyword) {
+            Map<String, Map<String, Object>> rules = new LinkedHashMap<>(autoReply.getRules());
+            Map<String, Object> def = new LinkedHashMap<>();
+            def.put("mode", mode);
+            def.put("keyword", keyword);
+            rules.put(name, def);
+            autoReply.setRules(rules);
+        }
+
+        @Test
+        void cleanReloadHasOnlySuccess() {
+            commands.onReload(sender);
+            assertThat(replies()).containsExactly(org.bukkit.ChatColor.GREEN + "UltiChat configuration reloaded.");
+        }
+
+        @Test
+        void writeBackFailureKeepsAppliedTextAndNamesFile() throws IOException {
+            announcements.setChatPrefix("&6[公告] &f");
+            org.mockito.Mockito.doThrow(new IOException("disk full &a {0}" )).when(announcements).save();
+            commands.onReload(sender);
+            assertThat(announcements.getChatPrefix()).isEqualTo("&6[Announcement] &f");
+            assertThat(warning()).contains("not written: config/announcements.yml");
+            verify(logger).warn(org.mockito.ArgumentMatchers.contains("disk full &a {0}"));
+        }
+
+        @Test
+        void invalidSoundNamesFallbackKey() {
+            chat.setMentionSound("NOT_A_SOUND");
+            commands.onReload(sender);
+            assertThat(warning()).contains("fallback: config/chat.yml:mentions.sound");
+            verify(logger).warn(org.mockito.ArgumentMatchers.contains("NOT_A_SOUND"));
+        }
+
+        @Test
+        void undefinedChannelNamesFallbackKey() {
+            channels.setDefaultChannel("missing");
+            commands.onReload(sender);
+            assertThat(warning()).contains("fallback: config/channels.yml:channels.default-channel");
+            verify(logger).warn(org.mockito.ArgumentMatchers.contains("\"missing\""));
+        }
+
+        @Test
+        void invalidColourNamesFallbackKey() {
+            announcements.setBossBarColor("NOT_A_COLOUR");
+            commands.onReload(sender);
+            assertThat(warning()).contains("fallback: config/announcements.yml:announcements.bossbar.color");
+        }
+
+        @Test
+        void invalidModeNamesRuleKeyLiterally() {
+            rule("&a{0}&R", "unknown", "hello");
+            commands.onReload(sender);
+            assertThat(warning()).contains("fallback: config/autoreply.yml:autoreply.rules.&a{0}&R.mode")
+                    .doesNotContain("§a{0}");
+        }
+
+        @Test
+        void invalidRegexNamesDisabledRuleKey() {
+            rule("broken", "regex", "[");
+            commands.onReload(sender);
+            assertThat(warning()).contains("disabled: config/autoreply.yml:autoreply.rules.broken.keyword");
+        }
+
+        @Test
+        void combinedWarningsUseOneBoundedLineAndRemainderCount() throws IOException {
+            announcements.setChatPrefix("&6[公告] &f");
+            org.mockito.Mockito.doThrow(new IOException("disk full")).when(announcements).save();
+            for (int i = 0; i < 7; i++) {
+                rule("bad" + i, "unknown", "hello");
+            }
+            commands.onReload(sender);
+            assertThat(warning()).contains("not written: config/announcements.yml", "bad3.mode", "and 3 more")
+                    .doesNotContain("bad4.mode", "bad6.mode", "\n", "\r");
+        }
+
+        @Test
+        void longRuleNamesCannotMakeWarningUnboundedOrMultiline() {
+            rule("&a{0}\n" + String.join("", java.util.Collections.nCopies(1000, "x")), "unknown", "hello");
+            commands.onReload(sender);
+            assertThat(warning()).hasSizeLessThan(300).contains("&a{0}", "...").doesNotContain("\n", "\r");
+        }
+
+        @Test
+        void cleanReloadClearsPreviousWarnings() {
+            chat.setMentionSound("NOT_A_SOUND");
+            commands.onReload(sender);
+            warning();
+            org.mockito.Mockito.clearInvocations(sender);
+            chat.setMentionSound(ChatConfig.DEFAULT_MENTION_SOUND);
+            commands.onReload(sender);
+            assertThat(replies()).hasSize(1);
+        }
+
+        @Test
+        void chineseWarningIsLocalized() {
+            org.mockito.Mockito.doAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("zh"))
+                    .when(plugin).i18n(anyString());
+            chat.setMentionSound("NOT_A_SOUND");
+            commands.onReload(sender);
+            assertThat(replies()).hasSize(2);
+            assertThat(replies().get(1)).startsWith(org.bukkit.ChatColor.YELLOW.toString())
+                    .contains("回退", "config/chat.yml:mentions.sound");
+        }
+    }
+
+    @Nested
     @DisplayName("Lifecycle template methods (UltiKits/UltiChat#23)")
     class LifecycleTemplateMethodTests {
 

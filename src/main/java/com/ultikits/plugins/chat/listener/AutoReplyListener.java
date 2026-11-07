@@ -45,10 +45,8 @@ public class AutoReplyListener implements Listener {
 
     /**
      * How often {@link #sweepExpiredEntries()} runs, in ticks (60 seconds). A literal period, not
-     * config-bound, matching {@code AntiSpamService}'s own housekeeping task and for the same
-     * reason: this module's {@code plugin.yml} does not declare the {@code api-version: 630} a
-     * config-bound {@code @Scheduled} period needs, and this interval is not something an operator
-     * has any reason to tune.
+     * config-bound, matching {@code AntiSpamService}'s own housekeeping task: this internal interval
+     * is deliberately fixed, so no operator-facing config key is introduced for it.
      */
     private static final int SWEEP_PERIOD_TICKS = 1200;
 
