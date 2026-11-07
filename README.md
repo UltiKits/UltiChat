@@ -112,6 +112,34 @@ channels:
 @提及没有权限节点，由 `config/chat.yml` 的 `mentions.enabled` 与 `mentions.self-mention` 控制。
 Mentions have no permission node; `mentions.enabled` and `mentions.self-mention` in `config/chat.yml` control them.
 
+## PlaceholderAPI expansion / 占位符扩展
+
+When PlaceholderAPI is installed and enabled before UltiChat loads, other plugins can use:
+
+| Placeholder | Value / 值 |
+|-------------|------------|
+| `%ultichat_channel%` | Current channel ID, e.g. `global` or `local` / 当前频道 ID |
+| `%ultichat_channel_display%` | Current channel's display name, with color codes applied, e.g. `[Local]` / 当前频道显示名（含颜色） |
+
+For example, run `/papi parse me %ultichat_channel%` as an online player, switch with
+`/ch local`, and parse again: the value changes to `local`. Display names follow the
+current `config/channels.yml`, including changes loaded by `/uchat reload` or `/ul reload`.
+A player without a tracked assignment gets the same default/fallback channel as chat.
+These placeholders are read-only and add no permission nodes or configuration keys.
+
+Known placeholders return empty text without an online player or while `channels.enabled`
+is false. Unknown parameters stay unresolved; use the exact lowercase spellings above.
+The expansion survives `/papi reload` and is removed when UltiChat unloads. Install or remove
+PlaceholderAPI with a server restart, not a runtime plugin-manager reload. UltiChat still
+works without PlaceholderAPI. Existing welcome tokens such as `%online_players%` and
+`%max_players%` keep their existing behaviour; they are not renamed to expansion tokens.
+
+在 UltiChat 加载前安装并启用 PlaceholderAPI，即可在其他插件中使用上表的占位符。
+在线玩家可执行 `/papi parse me %ultichat_channel%`，再用 `/ch local` 切换频道并重新解析，
+结果会变为 `local`。显示名随配置重载更新；无在线玩家或关闭频道功能时返回空文本。
+占位符只读，不新增权限或配置；`/papi reload` 后仍保留，UltiChat 卸载时移除。
+安装或移除 PlaceholderAPI 后请重启服务器；原有欢迎消息中的占位符保持不变。
+
 ## 已知限制 / Known Limitations
 
 The auto-reply commands preserve hand-written configuration rather than repairing incomplete or
@@ -154,4 +182,4 @@ JAR 文件: `target/UltiChat-1.0.0.jar`
 mvn test
 ```
 
-375 tests, 97.9% instruction coverage (JaCoCo).
+713 tests, 98.2% instruction coverage and 97.4% line coverage (JaCoCo).
