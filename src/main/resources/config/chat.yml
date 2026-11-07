@@ -37,3 +37,10 @@ anti-spam:
   max-duplicate: 3
   duplicate-window: 0 # seconds; 0 = no window-based expiry, but a player's duplicate history is cleared after 24 hours without messages
   caps-limit: 70
+  # Opt-in: cooldown, duplicate and caps refusals each count once.
+  # UUID state survives reconnect/reload, not restart; attempts never extend a mute.
+  auto-mute:
+    enabled: false
+    threshold: 3 # refusals, 2-20
+    window: 60 # rolling seconds, 1-600; the boundary is included
+    duration: 30 # fixed seconds, 5-600; no escalation

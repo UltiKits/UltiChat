@@ -131,6 +131,22 @@ public class ChatConfig extends AbstractConfigEntity {
     @ConfigEntry(path = "anti-spam.caps-limit", comment = "Max uppercase percentage / 最大大写百分比")
     private int antiSpamCapsLimit = 70;
 
+    /** Opt-in only; the removed anti-spam.mute-duration key never enables this feature. */
+    @ConfigEntry(path = "anti-spam.auto-mute.enabled", comment = "Automatically mute repeat anti-spam offenders (opt-in)")
+    private boolean autoMuteEnabled = false;
+
+    @Range(min = 2, max = 20)
+    @ConfigEntry(path = "anti-spam.auto-mute.threshold", comment = "Refusals needed within the rolling window")
+    private int autoMuteThreshold = 3;
+
+    @Range(min = 1, max = 600)
+    @ConfigEntry(path = "anti-spam.auto-mute.window", comment = "Rolling refusal window in seconds (inclusive boundary)")
+    private int autoMuteWindow = 60;
+
+    @Range(min = 5, max = 600)
+    @ConfigEntry(path = "anti-spam.auto-mute.duration", comment = "Fixed temporary mute duration in seconds; attempts do not extend it")
+    private int autoMuteDuration = 30;
+
     public ChatConfig() {
         super("config/chat.yml");
     }

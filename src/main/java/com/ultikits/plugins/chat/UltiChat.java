@@ -7,6 +7,7 @@ import com.ultikits.plugins.chat.config.ChatConfig;
 import com.ultikits.plugins.chat.config.ConfigTextDefaults;
 import com.ultikits.plugins.chat.config.RemovedConfigKeys;
 import com.ultikits.plugins.chat.service.ChannelService;
+import com.ultikits.plugins.chat.service.AntiSpamService;
 import com.ultikits.ultitools.abstracts.AbstractConfigEntity;
 import com.ultikits.ultitools.abstracts.UltiToolsPlugin;
 import com.ultikits.ultitools.annotations.UltiToolsModule;
@@ -41,6 +42,7 @@ public class UltiChat extends UltiToolsPlugin {
         registerCommandPermissions();
         writeConfigTextInServerLanguage();
         warnAboutConfiguration();
+        refreshAntiSpamSettings();
         registerPlaceholders();
         return true;
     }
@@ -84,6 +86,18 @@ public class UltiChat extends UltiToolsPlugin {
         writeConfigTextInServerLanguage();
         warnAboutConfiguration();
         moveFromRemovedChannels();
+        refreshAntiSpamSettings();
+    }
+
+    /** Publishes effective settings in memory only; never saves an operator configuration file. */
+    private void refreshAntiSpamSettings() {
+        if (getContext() == null) {
+            return;
+        }
+        AntiSpamService service = getContext().getBean(AntiSpamService.class);
+        if (service != null) {
+            service.refreshAutoMuteSettings();
+        }
     }
 
     /**

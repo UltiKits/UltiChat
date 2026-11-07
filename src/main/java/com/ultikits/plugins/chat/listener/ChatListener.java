@@ -45,8 +45,12 @@ public class ChatListener implements Listener {
         this.emojiService = emojiService;
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
+        // Other listeners' refusals do not count as UltiChat anti-spam trips.
+        if (event.isCancelled()) {
+            return;
+        }
         Player player = event.getPlayer();
         String message = event.getMessage();
 

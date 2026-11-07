@@ -16,9 +16,9 @@ import java.util.function.LongSupplier;
 
 /**
  * Anti-spam service that enforces cooldown, duplicate detection and caps limiting. A spam trip
- * refuses the offending message only; there is no automatic muting (the never-called declaration
- * of one was removed, UltiKits/UltiChat#15; the feature is requested in UltiKits/UltiChat#30).
- * 反垃圾消息服务，支持冷却、重复检测和大写字母限制。触发时只拦截该条消息，不会自动禁言。
+ * refuses the offending message only by default. Explicit opt-in additionally mutes repeat
+ * offenders for a fixed duration (UltiKits/UltiChat#30). UUID state survives reconnect and ordinary
+ * configuration reload, but not a restart or module recreation.
  */
 @Service
 public class AntiSpamService {
@@ -32,8 +32,82 @@ public class AntiSpamService {
 
     private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
 
+    /** One publication boundary: disabled/re-enabled runtimes cannot receive an older call's writes. */
+    private volatile AutoMuteRuntime autoMuteRuntime = new AutoMuteRuntime(
+            new AutoMuteSettings(false, 3, 60, 30), new ConcurrentHashMap<>());
+
+    private static final class AutoMuteSettings {
+        private final boolean enabled;
+        private final int threshold;
+        private final int window;
+        private final int duration;
+
+        private AutoMuteSettings(boolean enabled, int threshold, int window, int duration) {
+            this.enabled = enabled;
+            this.threshold = threshold;
+            this.window = window;
+            this.duration = duration;
+        }
+
+        private boolean sameAs(AutoMuteSettings other) {
+            return enabled == other.enabled && threshold == other.threshold
+                    && window == other.window && duration == other.duration;
+        }
+    }
+
+    private static final class AutoMuteRuntime {
+        private final AutoMuteSettings settings;
+        private final Map<UUID, AutoMuteState> states;
+
+        private AutoMuteRuntime(AutoMuteSettings settings, Map<UUID, AutoMuteState> states) {
+            this.settings = settings;
+            this.states = states;
+        }
+    }
+
+    /** Immutable after publication; a mute consumes its triggering strikes. */
+    private static final class AutoMuteState {
+        private final AutoMuteSettings policy;
+        private final List<Long> strikes;
+        private final long deadline;
+
+        private AutoMuteState(AutoMuteSettings policy, List<Long> strikes, long deadline) {
+            this.policy = policy;
+            this.strikes = strikes;
+            this.deadline = deadline;
+        }
+    }
+
     /**
-     * The one time source for the cooldown and the duplicate window, in epoch milliseconds.
+     * Applies effective settings after configuration load. This method only publishes memory and
+     * never writes defaults, repairs a value or saves an operator file. Framework validation owns
+     * reporting invalid input; an incomplete load or invalid tuple cannot replace a valid policy.
+     * Numeric changes reset pending strikes on their next read, never an already imposed deadline.
+     * Disabling either switch detaches the old state map, including any in-flight writer to it.
+     */
+    public synchronized void refreshAutoMuteSettings() {
+        if (config.isLastInitIncomplete() || config.isLastLoadUnparseable()) {
+            return;
+        }
+        int threshold = config.getAutoMuteThreshold();
+        int window = config.getAutoMuteWindow();
+        int duration = config.getAutoMuteDuration();
+        if (threshold < 2 || threshold > 20 || window < 1 || window > 600
+                || duration < 5 || duration > 600) {
+            return;
+        }
+        AutoMuteSettings settings = new AutoMuteSettings(
+                config.isAntiSpamEnabled() && config.isAutoMuteEnabled(), threshold, window, duration);
+        AutoMuteRuntime previous = autoMuteRuntime;
+        if (!settings.sameAs(previous.settings)) {
+            Map<UUID, AutoMuteState> states = settings.enabled && previous.settings.enabled
+                    ? previous.states : new ConcurrentHashMap<>();
+            autoMuteRuntime = new AutoMuteRuntime(settings, states);
+        }
+    }
+
+    /**
+     * The one time source for cooldowns, duplicate windows, strikes and mute deadlines, in epoch milliseconds.
      * Package-private and non-final so a test can move time explicitly instead of sleeping.
      */
     LongSupplier clock = System::currentTimeMillis;
@@ -123,8 +197,9 @@ public class AntiSpamService {
      * @param player  the sending player
      * @param message the chat message
      * @return the refusal to show the player, in the server's language (the language file's
-     *         {@code spam_cooldown}, {@code spam_duplicate} or {@code spam_caps}, colour codes not yet
-     *         translated), or null if the message is not spam
+     *         {@code spam_cooldown}, {@code spam_duplicate}, {@code spam_caps}, or the opt-in
+     *         {@code spam_auto_muted}/{@code spam_auto_mute_remaining} notice; colour codes not yet
+     *         translated), or null if the message is allowed
      */
     public String checkSpam(Player player, String message) {
         if (!config.isAntiSpamEnabled()) {
@@ -134,7 +209,47 @@ public class AntiSpamService {
             return null;
         }
         UUID playerId = player.getUniqueId();
+        AutoMuteRuntime runtime = autoMuteRuntime;
+        if (!runtime.settings.enabled) {
+            return ordinaryRefusal(playerId, message);
+        }
+        return checkWithAutoMute(runtime, playerId, message);
+    }
 
+    /** Check and count atomically for this UUID; no shared mutable list or check-then-act window. */
+    private String checkWithAutoMute(AutoMuteRuntime runtime, UUID playerId, String message) {
+        String[] reply = {null};
+        runtime.states.compute(playerId, (uuid, existing) -> {
+            long now = clock.getAsLong();
+            if (existing != null && existing.deadline > now) {
+                long seconds = (existing.deadline - now + 999L) / 1000L;
+                reply[0] = plugin.i18n("spam_auto_mute_remaining").replace("{0}", Long.toString(seconds));
+                return existing;
+            }
+            AutoMuteSettings settings = runtime.settings;
+            List<Long> strikes = new ArrayList<>();
+            if (existing != null && existing.deadline == 0 && existing.policy == settings) {
+                for (long timestamp : existing.strikes) {
+                    if (now - timestamp <= settings.window * 1000L) {
+                        strikes.add(timestamp);
+                    }
+                }
+            }
+            reply[0] = ordinaryRefusal(playerId, message);
+            if (reply[0] != null) {
+                strikes.add(now);
+                if (strikes.size() >= settings.threshold) {
+                    reply[0] = plugin.i18n("spam_auto_muted").replace("{0}", Integer.toString(settings.duration));
+                    return new AutoMuteState(settings, java.util.Collections.emptyList(),
+                            now + settings.duration * 1000L);
+                }
+            }
+            return strikes.isEmpty() ? null : new AutoMuteState(settings, strikes, 0);
+        });
+        return reply[0];
+    }
+
+    private String ordinaryRefusal(UUID playerId, String message) {
         String cooldownReason = checkCooldown(playerId);
         if (cooldownReason != null) {
             return cooldownReason;
@@ -232,6 +347,15 @@ public class AntiSpamService {
             List<RecentMessage> retained = entry.getValue();
             return retained.isEmpty() || now - retained.get(retained.size() - 1).sentAt > duplicateEvictionCeilingMs;
         });
+        AutoMuteRuntime runtime = autoMuteRuntime;
+        runtime.states.keySet().forEach(uuid -> runtime.states.computeIfPresent(uuid, (id, state) -> {
+            if (state.deadline != 0) {
+                return now >= state.deadline ? null : state;
+            }
+            return state.policy != runtime.settings
+                    || now - state.strikes.get(state.strikes.size() - 1) > runtime.settings.window * 1000L
+                    ? null : state;
+        }));
     }
 
     /**

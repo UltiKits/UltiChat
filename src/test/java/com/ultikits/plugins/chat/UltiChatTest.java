@@ -40,6 +40,53 @@ import static org.mockito.Mockito.when;
 @DisplayName("UltiChat main class")
 class UltiChatTest {
 
+    @Test
+    void autoMutePolicyIsPublishedAtStartupAndOrdinaryReload() throws Exception {
+        UltiChat plugin = mock(UltiChat.class);
+        when(plugin.getLogger()).thenReturn(mock(PluginLogger.class));
+        com.ultikits.ultitools.context.SimpleContainer context =
+                mock(com.ultikits.ultitools.context.SimpleContainer.class);
+        when(plugin.getContext()).thenReturn(context);
+        com.ultikits.plugins.chat.service.AntiSpamService service =
+                new com.ultikits.plugins.chat.service.AntiSpamService();
+        ChatConfig config = new ChatConfig();
+        config.setAntiSpamCooldown(0);
+        config.setAutoMuteEnabled(true);
+        com.ultikits.plugins.chat.utils.ChatTestHelper.setField(service, "config", config);
+        com.ultikits.plugins.chat.utils.ChatTestHelper.setField(service, "plugin", plugin);
+        when(plugin.i18n(anyString())).thenAnswer(com.ultikits.plugins.chat.i18n.CatalogueText.answer("en"));
+        when(context.getBean(com.ultikits.plugins.chat.service.AntiSpamService.class)).thenReturn(service);
+        when(plugin.registerSelf()).thenCallRealMethod();
+        doCallRealMethod().when(plugin).onReload();
+        org.bukkit.entity.Player player = mock(org.bukkit.entity.Player.class);
+        when(player.getUniqueId()).thenReturn(java.util.UUID.randomUUID());
+        try (org.mockito.MockedStatic<org.bukkit.Bukkit> bukkit = org.mockito.Mockito.mockStatic(org.bukkit.Bukkit.class)) {
+            bukkit.when(org.bukkit.Bukkit::getPluginManager).thenReturn(mock(org.bukkit.plugin.PluginManager.class));
+            assertThat(plugin.registerSelf()).isTrue();
+        }
+        service.checkSpam(player, "FIRST CAPS");
+        service.checkSpam(player, "SECOND CAPS");
+        plugin.onReload();
+        assertThat(service.checkSpam(player, "THIRD CAPS")).isEqualTo("&cYou have been muted for 30 seconds.");
+        config.setAutoMuteEnabled(false);
+        plugin.onReload();
+        assertThat(service.checkSpam(player, "allowed after disable")).isNull();
+    }
+
+    @Test
+    void lifecycleToleratesAnAbsentAntiSpamBean() {
+        UltiChat plugin = mock(UltiChat.class);
+        when(plugin.getLogger()).thenReturn(mock(PluginLogger.class));
+        when(plugin.getContext()).thenReturn(mock(com.ultikits.ultitools.context.SimpleContainer.class));
+        when(plugin.registerSelf()).thenCallRealMethod();
+        doCallRealMethod().when(plugin).onReload();
+        try (org.mockito.MockedStatic<org.bukkit.Bukkit> bukkit = org.mockito.Mockito.mockStatic(org.bukkit.Bukkit.class)) {
+            bukkit.when(org.bukkit.Bukkit::getPluginManager).thenReturn(mock(org.bukkit.plugin.PluginManager.class));
+            assertThat(plugin.registerSelf()).isTrue();
+        }
+        plugin.onReload();
+    }
+
     @Nested
     @DisplayName("Successful reload warning reply (#49)")
     class ReloadWarningReply {
