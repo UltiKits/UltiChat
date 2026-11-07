@@ -112,7 +112,56 @@ channels:
 @提及没有权限节点，由 `config/chat.yml` 的 `mentions.enabled` 与 `mentions.self-mention` 控制。
 Mentions have no permission node; `mentions.enabled` and `mentions.self-mention` in `config/chat.yml` control them.
 
+## PlaceholderAPI expansion / 占位符扩展
+
+When PlaceholderAPI is installed and enabled before UltiChat loads, other plugins can use:
+
+| Placeholder | Value / 值 |
+|-------------|------------|
+| `%ultichat_channel%` | Current channel ID, e.g. `global` or `local` / 当前频道 ID |
+| `%ultichat_channel_display%` | Current channel's display name, with color codes applied, e.g. `[Local]` / 当前频道显示名（含颜色） |
+
+For example, run `/papi parse me %ultichat_channel%` as an online player, switch with
+`/ch local`, and parse again: the value changes to `local`. Display names follow the
+current `config/channels.yml`, including changes loaded by `/uchat reload` or `/ul reload`.
+A player without a tracked assignment gets the same default/fallback channel as chat.
+These placeholders are read-only and add no permission nodes or configuration keys.
+
+Known placeholders return empty text without an online player or while `channels.enabled`
+is false. Unknown parameters stay unresolved; use the exact lowercase spellings above.
+The expansion survives `/papi reload` and is removed when UltiChat unloads. Install or remove
+PlaceholderAPI with a server restart, not a runtime plugin-manager reload. UltiChat still
+works without PlaceholderAPI. Existing welcome tokens such as `%online_players%` and
+`%max_players%` keep their existing behaviour; they are not renamed to expansion tokens.
+
+在 UltiChat 加载前安装并启用 PlaceholderAPI，即可在其他插件中使用上表的占位符。
+在线玩家可执行 `/papi parse me %ultichat_channel%`，再用 `/ch local` 切换频道并重新解析，
+结果会变为 `local`。显示名随配置重载更新；无在线玩家或关闭频道功能时返回空文本。
+占位符只读，不新增权限或配置；`/papi reload` 后仍保留，UltiChat 卸载时移除。
+安装或移除 PlaceholderAPI 后请重启服务器；原有欢迎消息中的占位符保持不变。
+
 ## 已知限制 / Known Limitations
+
+The auto-reply commands preserve hand-written configuration rather than repairing incomplete or
+invalid entries. For these unusual file shapes, edit `config/autoreply.yml` yourself, then run
+`/uchat reload` before using the commands again (see [#53](https://github.com/UltiKits/UltiChat/issues/53)):
+
+- **A rule without a `keyword:` line:** it cannot trigger, and `setkeyword` refuses to add its
+  first keyword because the command changes only an existing keyword entry. Add the `keyword:`
+  line inside that rule by hand; its response and other settings are not rewritten by the command.
+- **`autoreply.rules` is not a YAML map:** for example, `rules: not a map`. If a rule is still
+  loaded from before that edit, `setkeyword` replies that it has no keyword line, although the
+  actual problem is the parent `rules` value. `add` also refuses to write. Restore `rules` to a
+  map of rule names and their settings; neither command changes the malformed file.
+- **A null placeholder such as `foo: ~`:** it does not define a usable rule, but `add foo` replies
+  `Rule 'foo' already exists.` because the name is present in the file. Replace the placeholder
+  with a complete rule, or delete that placeholder entry, reload, then use `add foo` to create it.
+  The refused `add` leaves the placeholder and its comments unchanged.
+
+手写的不完整或结构异常配置不会被命令自动修复：规则缺少 `keyword:` 行时请手动补上；
+`autoreply.rules` 必须是规则名到规则设置的 YAML 映射（不能写成字符串）；`foo: ~` 占位条目
+仍算文件中已存在的名称，请手动补成完整规则，或删除该占位条目后再用 `add` 创建。
+编辑后先运行 `/uchat reload`，再继续使用命令；拒绝写入不会覆盖服主的配置。
 
 - **删除 `config/autoreply.yml` 之后 / After deleting `config/autoreply.yml`:** 请先执行 `/uchat reload`，再执行 `/uchat autoreply add`。否则文件会被重新创建且只包含新规则，出厂示例规则 `server-ip` 与 `rules-info` 不会恢复。
   Run `/uchat reload` before `/uchat autoreply add`; otherwise the file is recreated holding only the new rule and the shipped `server-ip` and `rules-info` example rules do not come back.
@@ -133,7 +182,7 @@ JAR 文件: `target/UltiChat-1.0.0.jar`
 mvn test
 ```
 
-375 tests, 97.9% instruction coverage (JaCoCo).
+713 tests, 98.2% instruction coverage and 97.4% line coverage (JaCoCo).
 
 ## License / 许可证
 

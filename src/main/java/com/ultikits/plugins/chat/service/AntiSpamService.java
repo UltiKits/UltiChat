@@ -97,10 +97,8 @@ public class AntiSpamService {
 
     /**
      * How often {@link #sweepExpiredEntries()} runs, in ticks (60 seconds). A literal period, not
-     * config-bound: this module's {@code plugin.yml} does not declare the {@code api-version: 630}
-     * a config-bound {@code @Scheduled} period needs (see the framework's own {@code @Scheduled}
-     * javadoc), and this interval is not something an operator has any reason to tune, so no config
-     * key is introduced for it (UltiKits/UltiChat#40 review, coordinator ruling 2026-09-29).
+     * config-bound: this internal housekeeping interval is deliberately fixed, so no operator-facing
+     * config key is introduced for it (UltiKits/UltiChat#40 review, coordinator ruling 2026-09-29).
      */
     private static final int SWEEP_PERIOD_TICKS = 1200;
 
