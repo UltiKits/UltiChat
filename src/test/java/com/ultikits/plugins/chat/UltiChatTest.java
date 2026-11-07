@@ -60,7 +60,10 @@ class UltiChatTest {
         doCallRealMethod().when(plugin).onReload();
         org.bukkit.entity.Player player = mock(org.bukkit.entity.Player.class);
         when(player.getUniqueId()).thenReturn(java.util.UUID.randomUUID());
-        assertThat(plugin.registerSelf()).isTrue();
+        try (org.mockito.MockedStatic<org.bukkit.Bukkit> bukkit = org.mockito.Mockito.mockStatic(org.bukkit.Bukkit.class)) {
+            bukkit.when(org.bukkit.Bukkit::getPluginManager).thenReturn(mock(org.bukkit.plugin.PluginManager.class));
+            assertThat(plugin.registerSelf()).isTrue();
+        }
         service.checkSpam(player, "FIRST CAPS");
         service.checkSpam(player, "SECOND CAPS");
         plugin.onReload();
@@ -77,7 +80,10 @@ class UltiChatTest {
         when(plugin.getContext()).thenReturn(mock(com.ultikits.ultitools.context.SimpleContainer.class));
         when(plugin.registerSelf()).thenCallRealMethod();
         doCallRealMethod().when(plugin).onReload();
-        assertThat(plugin.registerSelf()).isTrue();
+        try (org.mockito.MockedStatic<org.bukkit.Bukkit> bukkit = org.mockito.Mockito.mockStatic(org.bukkit.Bukkit.class)) {
+            bukkit.when(org.bukkit.Bukkit::getPluginManager).thenReturn(mock(org.bukkit.plugin.PluginManager.class));
+            assertThat(plugin.registerSelf()).isTrue();
+        }
         plugin.onReload();
     }
 
