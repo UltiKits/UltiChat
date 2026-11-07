@@ -19,10 +19,9 @@ for UAT execution and issue reconciliation — the public description of these f
   when the feature's identity changes, never on rewording. IDs are unique within a repository.
 - **Kind**, exactly these eight values: `command`, `config`, `event`, `gui`, `scheduled`,
   `placeholder`, `persistence`, `gate`. Each maps one-to-one onto a reconciliation-table line.
-  This module has no `gui` rows (no GUI page class) and no `placeholder` rows (it consumes
-  PlaceholderAPI variables via `PlaceholderAPI#setPlaceholders`, it does not register its own
-  expansion) — both Kinds stay in the vocabulary for cross-repository consistency even though
-  neither appears below.
+  This module has no `gui` rows (no GUI page class). It consumes PlaceholderAPI variables via
+  `PlaceholderAPI#setPlaceholders` and also registers the optional `ultichat` expansion below
+  (`UltiKits/UltiChat#43`).
 - **Tier**, exactly three: `player`, `admin`, `internal`. Judged from what the feature is for,
   not from whether it carries a permission string — most command executors in this repository
   carry one, so judging by the string alone would make nearly everything `admin`.
@@ -228,6 +227,18 @@ WARNING while the running interval is kept. The keys were declared but never rea
 | ultichat.announce.bossbar-broadcast | Show a rotating boss-bar message to every online player, in the configured color, removed automatically after the configured duration | scheduled | runs automatically every `announcements.bossbar.interval` seconds (default 60) while `announcements.bossbar.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastBossBar |
 | ultichat.announce.chat-broadcast | Broadcast a rotating chat message (with configured prefix) to every online player | scheduled | runs automatically every `announcements.chat.interval` seconds (default 300) while `announcements.chat.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastChat |
 | ultichat.announce.title-broadcast | Show a rotating title/subtitle to every online player, splitting each configured message on its first double-vertical-bar occurrence into title and subtitle | scheduled | runs automatically every `announcements.title.interval` seconds (default 600) while `announcements.title.enabled` is true and at least one player is online | n/a | n/a | player | brief | AnnouncementService#broadcastTitle |
+
+## PlaceholderAPI expansion
+
+`UltiChatExpansion` lives outside the module's component-scan package so an absent optional
+PlaceholderAPI dependency does not cause class-linking failures during discovery. No new config
+keys, permission nodes or persistent state are introduced. Existing bare welcome tokens are unchanged.
+
+| ID | Feature | Kind | How to reach | Permission | Target | Tier | Manual | Source |
+|---|---|---|---|---|---|---|---|---|
+| ultichat.placeholder.channel | Current online player's raw channel ID, read from ChannelService on every request (including its default/fallback when no assignment is tracked); empty text for no online player or `channels.enabled: false`; unknown parameters return null to PAPI and stay unresolved. Exact lowercase parameter `channel` | placeholder | `%ultichat_channel%` in any PlaceholderAPI consumer | n/a | n/a | player | brief | UltiChatExpansion#onPlaceholderRequest |
+| ultichat.placeholder.channel-display | Current online player's channel display name, with the existing channel color-code translation and raw-ID fallback for an undefined channel/display name; changes with channel switches and configuration reloads. Empty text for no online player or disabled channels. Exact lowercase parameter `channel_display` | placeholder | `%ultichat_channel_display%` in any PlaceholderAPI consumer | n/a | n/a | player | brief | UltiChatExpansion#onPlaceholderRequest |
+| ultichat.placeholder.lifecycle | Register identifier `ultichat` when PlaceholderAPI is enabled at module activation; no registration while absent/disabled. Refused registration logs `log_placeholder_registration_failed` and leaves chat running. Survives `/papi reload` (`persist` true) and module config reloads without re-registration; module unload removes only the registration still owned by that exact instance, so an old module's unload cannot remove a replacement. Installing/removing PAPI requires server restart | event | module start/unload and `/papi reload` | n/a | n/a | admin | brief | UltiChat#registerSelf, UltiChat#onUnregister, UltiChatExpansion#register, UltiChatExpansion#persist, UltiChatExpansion#run |
 
 ## Data persistence
 

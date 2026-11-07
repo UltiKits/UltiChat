@@ -23,6 +23,7 @@
   "spam_cooldown": "&cPlease wait before sending another message.",
   "spam_duplicate": "&cStop sending duplicate messages!",
   "spam_caps": "&cPlease reduce the amount of uppercase letters.",
+  "log_placeholder_registration_failed": "UltiChat: PlaceholderAPI refused the ultichat expansion registration; channel placeholders are unavailable. Check PlaceholderAPI registration listeners, then restart the server.",
   "config_reloaded": "&aUltiChat configuration reloaded.",
   "config_reload_warning": "&eConfiguration warnings: {0}. See the server log for details.",
   "config_reload_warning_writeback": "not written: {0}",

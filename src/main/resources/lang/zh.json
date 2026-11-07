@@ -23,6 +23,7 @@
   "spam_cooldown": "&c请稍等再发送消息。",
   "spam_duplicate": "&c请勿重复发送消息！",
   "spam_caps": "&c请减少大写字母的使用。",
+  "log_placeholder_registration_failed": "UltiChat：PlaceholderAPI 拒绝注册 ultichat 扩展，频道占位符不可用。请检查 PlaceholderAPI 的注册监听器，然后重启服务器。",
   "config_reloaded": "&aUltiChat 配置已重新加载。",
   "config_reload_warning": "&e配置警告：{0}。详情请查看服务器日志。",
   "config_reload_warning_writeback": "未写回：{0}",
