@@ -114,7 +114,7 @@ Mentions have no permission node; `mentions.enabled` and `mentions.self-mention`
 
 ## Optional temporary anti-spam mutes / 可选的反刷屏临时禁言
 
-Automatic muting is **off by default**. To opt in, add the following under the existing `anti-spam` section in `config/chat.yml` (do not replace your other settings), then run `/uchat reload`:
+Automatic muting is **off by default**. The first start of this version writes the missing `anti-spam.auto-mute` keys, with the defaults below and `enabled: false`, into your existing `config/chat.yml` without touching your other settings. To opt in, set `anti-spam.auto-mute.enabled: true` there (adjust the other three values if you like), then run `/uchat reload`. After that edit the section reads:
 
 ```yaml
   auto-mute:
@@ -132,9 +132,10 @@ Strikes and mutes survive reconnects and ordinary config reloads, **not a server
 
 An older `anti-spam.mute-duration` key stays ignored and never opts a server in. Existing configuration and customized language files are not replaced; missing notice keys fall back to the jar's catalogue. Muted players see an onset notice and then the remaining seconds rounded up.
 
-自动禁言**默认关闭**。要启用，在 `config/chat.yml` 已有的 `anti-spam` 段内添加上述 `auto-mute` 小节（不要替换其他设置），再执行 `/uchat reload`。冷却、重复和大写限制每拦截一条消息计一次；滚动 60 秒内第 3 次触发时禁言 30 秒，恰好位于窗口边界的记录仍计入。合规消息不清空计数，禁言中的尝试不会延长时间。次数范围 2–20，窗口 1–600 秒，禁言 5–600 秒；原有 `anti-spam.enabled` 也必须开启。
+自动禁言**默认关闭**。本版本首次启动时，框架会把缺少的 `anti-spam.auto-mute` 各键（取上述默认值，`enabled: false`）写入已有的 `config/chat.yml`，不改动其他设置。要启用，只需把 `anti-spam.auto-mute.enabled` 改为 `true`（其余三项可按需调整），再执行 `/uchat reload`。冷却、重复和大写限制每拦截一条消息计一次；滚动 60 秒内第 3 次触发时禁言 30 秒，恰好位于窗口边界的记录仍计入。合规消息不清空计数，禁言中的尝试不会延长时间。次数范围 2–20，窗口 1–600 秒，禁言 5–600 秒；原有 `anti-spam.enabled` 也必须开启。
 
 记录跨重连和普通配置重载保留，但**不跨服务器重启或模块重新创建**。更改数字配置会清空尚未触发禁言的计数，不改变已有禁言的到期时间；相同配置重载不变。关闭任一启用开关并重载会清空自动禁言记录，重新开启从零开始，原有冷却与重复消息历史不变。`ultichat.spam.bypass` 同时豁免触发和执行；没有新增解除禁言命令，可临时给单个玩家该权限，或关闭自动禁言并重载以清除全部记录。禁言到期前撤回豁免权限会恢复拦截。不影响命令和其他插件的私聊，不递增惩罚，也不持久化到磁盘。旧 `anti-spam.mute-duration` 仍无效，不会作为启用依据；服主配置与语言文件不会被替换，缺少的新提示从 jar 补全。
+
 ## PlaceholderAPI expansion / 占位符扩展
 
 When PlaceholderAPI is installed and enabled before UltiChat loads, other plugins can use:
@@ -165,6 +166,8 @@ works without PlaceholderAPI. Existing welcome tokens such as `%online_players%`
 
 ## 已知限制 / Known Limitations
 
+### Hand-written auto-reply files / 手写的自动回复文件
+
 The auto-reply commands preserve hand-written configuration rather than repairing incomplete or
 invalid entries. For these unusual file shapes, edit `config/autoreply.yml` yourself, then run
 `/uchat reload` before using the commands again (see [#53](https://github.com/UltiKits/UltiChat/issues/53)):
@@ -185,6 +188,8 @@ invalid entries. For these unusual file shapes, edit `config/autoreply.yml` your
 `autoreply.rules` 必须是规则名到规则设置的 YAML 映射（不能写成字符串）；`foo: ~` 占位条目
 仍算文件中已存在的名称，请手动补成完整规则，或删除该占位条目后再用 `add` 创建。
 编辑后先运行 `/uchat reload`，再继续使用命令；拒绝写入不会覆盖服主的配置。
+
+### Other limitations / 其他限制
 
 - **删除 `config/autoreply.yml` 之后 / After deleting `config/autoreply.yml`:** 请先执行 `/uchat reload`，再执行 `/uchat autoreply add`。否则文件会被重新创建且只包含新规则，出厂示例规则 `server-ip` 与 `rules-info` 不会恢复。
   Run `/uchat reload` before `/uchat autoreply add`; otherwise the file is recreated holding only the new rule and the shipped `server-ip` and `rules-info` example rules do not come back.
